@@ -90,28 +90,32 @@ describe('approval / auth binding', () => {
 
   test('13. High-risk approval rejects absent/stale step-up MFA', () => {
     const proposal = mkProposal();
-    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash });
+    // Approval is bound to session 's1' / owner 'owner-1'. Each presented
+    // session below is bound to that same session/principal so the ONLY
+    // variable under test is step-up MFA freshness.
+    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, owner_auth_session_id: 's1', owner_principal_id: 'owner-1' });
+    const bound = (o = {}) => mkSession({ session_id: 's1', owner_principal_id: 'owner-1', ...o });
 
     // Valid: fresh step-up
-    let v = validateApproval({ approval, proposal, session: mkSession(), now: NOW });
+    let v = validateApproval({ approval, proposal, session: bound(), now: NOW });
     assert.equal(v.valid, true, `expected valid, got ${JSON.stringify(v.reasons)}`);
 
     // Stale step-up (expired)
-    v = validateApproval({ approval, proposal, session: mkSession({ step_up_expires_at: new Date(PAST).toISOString() }), now: NOW });
+    v = validateApproval({ approval, proposal, session: bound({ step_up_expires_at: new Date(PAST).toISOString() }), now: NOW });
     assert.equal(v.valid, false);
     assert.ok(v.reasons.some(r => /step-up MFA expired/.test(r)));
 
     // No step-up at all
-    v = validateApproval({ approval, proposal, session: mkSession({ auth_strength: 'standard', step_up_verified_at: null, step_up_expires_at: null }), now: NOW });
+    v = validateApproval({ approval, proposal, session: bound({ auth_strength: 'standard', step_up_verified_at: null, step_up_expires_at: null }), now: NOW });
     assert.equal(v.valid, false);
     assert.ok(v.reasons.some(r => /step_up_mfa/.test(r)));
 
     // Session expired
-    v = validateApproval({ approval, proposal, session: mkSession({ session_expires_at: new Date(PAST).toISOString() }), now: NOW });
+    v = validateApproval({ approval, proposal, session: bound({ session_expires_at: new Date(PAST).toISOString() }), now: NOW });
     assert.equal(v.valid, false);
 
     // Session revoked
-    v = validateApproval({ approval, proposal, session: mkSession({ revoked_at: new Date(NOW).toISOString() }), now: NOW });
+    v = validateApproval({ approval, proposal, session: bound({ revoked_at: new Date(NOW).toISOString() }), now: NOW });
     assert.equal(v.valid, false);
 
     // No session at all
@@ -135,10 +139,40 @@ describe('approval / auth binding', () => {
     assert.ok(v.reasons.some(r => /request_hash mismatch/.test(r)));
   });
 
+  test('14a. A different valid step-up session_id cannot validate the approval', () => {
+    const proposal = mkProposal();
+    // Approval is bound to session 's1' / owner 'owner-1'.
+    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, owner_auth_session_id: 's1', owner_principal_id: 'owner-1' });
+    // A DIFFERENT, otherwise-valid step-up session is presented.
+    const otherSession = mkSession({ session_id: 's2', owner_principal_id: 'owner-1' });
+    const v = validateApproval({ approval, proposal, session: otherSession, now: NOW });
+    assert.equal(v.valid, false);
+    assert.ok(v.reasons.some(r => /session_id does not match approval binding/.test(r)));
+  });
+
+  test('14b. A different owner_principal_id cannot validate the approval', () => {
+    const proposal = mkProposal();
+    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, owner_auth_session_id: 's1', owner_principal_id: 'owner-1' });
+    // Same session_id but a different owner principal.
+    const otherOwnerSession = mkSession({ session_id: 's1', owner_principal_id: 'owner-2' });
+    const v = validateApproval({ approval, proposal, session: otherOwnerSession, now: NOW });
+    assert.equal(v.valid, false);
+    assert.ok(v.reasons.some(r => /owner_principal_id does not match approval binding/.test(r)));
+  });
+
+  test('14c. The correctly bound session still validates', () => {
+    const proposal = mkProposal();
+    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, owner_auth_session_id: 's1', owner_principal_id: 'owner-1' });
+    // The EXACT session recorded on the approval.
+    const boundSession = mkSession({ session_id: 's1', owner_principal_id: 'owner-1' });
+    const v = validateApproval({ approval, proposal, session: boundSession, now: NOW });
+    assert.equal(v.valid, true, `expected valid, got ${JSON.stringify(v.reasons)}`);
+  });
+
   test('15. Mutation of binding/state invalidates an old approval', () => {
     const proposal = mkProposal({ precondition_snapshot_ref: 'state-v1' });
-    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, relevant_state_version: 'state-v1' });
-    const session = mkSession();
+    const session = mkSession({ session_id: 's1', owner_principal_id: 'owner-1' });
+    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, relevant_state_version: 'state-v1', owner_auth_session_id: 's1', owner_principal_id: 'owner-1' });
     // Valid initially
     let v = validateApproval({ approval, proposal, session, now: NOW });
     assert.equal(v.valid, true);

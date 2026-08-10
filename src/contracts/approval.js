@@ -63,6 +63,14 @@ export function validateApproval({ approval, proposal, session, now = Date.now()
   if (approval.proposal_id !== proposal.proposal_id) reasons.push('proposal_id mismatch');
   // Exact binding: request_hash
   if (approval.request_hash !== proposal.request_hash) reasons.push('request_hash mismatch');
+  // Exact binding: the presented session MUST be the exact owner/session
+  // recorded on the ApprovalDecision (06_SYSTEM_CONTRACTS.md: owner_principal_id
+  // + owner_auth_session_id). A different valid step-up session cannot validate
+  // this approval.
+  if (session) {
+    if (session.session_id !== approval.owner_auth_session_id) reasons.push('session_id does not match approval binding');
+    if (session.owner_principal_id !== approval.owner_principal_id) reasons.push('owner_principal_id does not match approval binding');
+  }
   // State/version binding invalidation (when contract requires it)
   if (approval.relevant_state_version != null && proposal.precondition_snapshot_ref != null
       && approval.relevant_state_version !== proposal.precondition_snapshot_ref) {
