@@ -8,6 +8,7 @@
 // F-11 introduces connector registry + opaque credential broker + read-only
 // adapters. Writer connectors remain DISABLED (stop condition).
 // F-12 introduces observability (receipts/trace, attention, materiality).
+// F-13 introduces backup/restore rehearsal (restore must be actually tested).
 // PHASE2_FORBIDDEN_EXECUTION_SURFACES is preserved for Phase 2 regression:
 // trusted_executor_material_commit still means live material provider commits.
 // 'dbos' / 'connector_registry_persistence' remain on that Phase-2 inventory
@@ -33,6 +34,9 @@ export const WRITER_CONNECTORS_ENABLED = false;
 
 /** F-12: observability (materiality, attention, receipt/trace linkage) is in scope. */
 export const OBSERVABILITY = true;
+
+/** F-13: backup/restore rehearsal is in scope; unrehearsed restore is a stop. */
+export const BACKUP_RESTORE_REHEARSAL = true;
 
 export function assertBusinessWriteAutonomyDisabled() {
   if (BUSINESS_WRITE_AUTONOMY !== false) {
