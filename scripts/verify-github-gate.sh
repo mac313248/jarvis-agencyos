@@ -19,6 +19,10 @@
 # Usage:  bash scripts/verify-github-gate.sh
 set -euo pipefail
 
+# Drop any inherited GH_TOKEN/GITHUB_TOKEN so gh uses the macOS keychain
+# login (mac313248) instead of a stale/invalid inherited token.
+unset GH_TOKEN GITHUB_TOKEN || true
+
 REPO="mac313248/jarvis-agencyos"
 BRANCH="main"
 PHASE1_WORKFLOW="phase-1.yml"

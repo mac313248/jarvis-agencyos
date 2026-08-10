@@ -55,43 +55,87 @@ This is an authentication/login + sandbox-network gate, not an engineering
 choice. The wrong-owner-backup remote (increaseroasir/jarvis-agencyos) was
 NOT touched.
 
+## Live GitHub inspection attempt (2026-08-10, agent session after owner auth)
+Owner confirmed `gh` is authenticated on the Mac Mini as mac313248, and
+diagnosed that prior "invalid token" reports came from an inherited
+GH_TOKEN/GITHUB_TOKEN overriding the valid macOS keychain gh login.
+
+Per owner instruction, the builder ran (in the command environment):
+  unset GH_TOKEN GITHUB_TOKEN
+  gh auth status
+  gh repo view mac313248/jarvis-agencyos --json nameWithOwner,owner,defaultBranchRef,isPrivate
+
+Result (all attempts ran INSIDE the Cursor sandbox; requests to escape the
+sandbox via required_permissions:["all"] / ["full_network"] were NOT granted
+and the commands continued to run sandboxed):
+
+  gh auth status:
+    github.com
+      X Failed to log in to github.com account mac313248 (keyring)
+        - Active account: true
+        - The token in keyring is invalid.
+      X Failed to log in to github.com account increaseroasir (keyring)
+        - Active account: false
+        - The token in keyring is invalid.
+
+  gh repo view mac313248/jarvis-agencyos:
+    Post "https://api.github.com/graphql": Forbidden
+
+### Root cause (confirmed with runtime evidence)
+The Cursor sandbox proxy returns HTTP 403 on CONNECT to api.github.com:443,
+while github.com (git host) returns 200 and registry.npmjs.org returns 200
+(see "Runtime evidence (debug session 30c27d)" above). `gh` validates the
+keychain token and serves all REST/GraphQL via api.github.com, which is
+blocked from the sandbox. So from inside the Cursor sandbox, `gh` reports the
+keychain token as "invalid" and `gh repo view` returns Forbidden — NOT
+because the owner's Mac Mini login is bad, but because the sandbox cannot
+reach api.github.com. The builder also could not escape the sandbox
+(required_permissions:["all"] was not granted), so it could not exercise the
+host's keychain gh login to inspect or configure branch protection.
+
+Per the owner's stop condition ("If, AFTER unsetting GH_TOKEN/GITHUB_TOKEN,
+`gh auth status` still genuinely lacks access ... return WAITING_ON_OWNER
+with the exact error"), #45 is WAITING_ON_OWNER. The owner is NOT asked to log
+in again (the Mac Mini login is valid); the only blocker is that the
+verification must run in a non-sandboxed environment where api.github.com is
+reachable.
+
 ## #45 status
 REQUIRED_NOW — NOT YET PROVEN. WAITING_ON_OWNER.
 
 The workflow YAML is insufficient evidence. Real enforcement requires
-either existing active GitHub branch protection (to be captured here once the
-owner re-authenticates the builder) OR a minimal ruleset the builder can
-configure after re-authentication.
+either existing active GitHub branch protection (to be captured here once
+the verification runs in a non-sandboxed environment) OR a minimal ruleset
+configured there.
 
-## Exact owner action required (one action)
-Run the GitHub gate verification from a NORMAL terminal (not Cursor's
-sandboxed terminal — api.github.com is blocked there), where `gh` can
-authenticate and api.github.com is reachable:
+## Exact owner action required (one action — NOT a re-login)
+The owner's Mac Mini `gh` login (mac313248) is valid. Run the verifier from a
+NORMAL terminal (not Cursor's sandboxed terminal — api.github.com is blocked
+there), where `gh` can authenticate and api.github.com is reachable:
 
   bash scripts/verify-github-gate.sh
 
-The script (scripts/verify-github-gate.sh) will, on mac313248/jarvis-agencyos
+The script unsets GH_TOKEN/GITHUB_TOKEN itself, then on mac313248/jarvis-agencyos
 only:
-  1. verify `gh auth status`;
-  2. detect the real Phase 1 status-check name from a recent workflow run;
-  3. inspect branch protection / rulesets / required status checks on main;
+  1. verifies `gh auth status`;
+  2. detects the real Phase 1 status-check name from a recent workflow run;
+  3. inspects branch protection / rulesets / required status checks on main;
   4. if an active rule already requires the Phase 1 CI check before merge,
-     print the exact GitHub enforcement evidence (ALREADY_ENFORCED);
-  5. if enforcement is absent, configure the MINIMAL protection on main
+     prints the exact GitHub enforcement evidence (ALREADY_ENFORCED);
+  5. if enforcement is absent, configures the MINIMAL protection on main
      (require the Phase 1 CI status check emitted by
-     .github/workflows/phase-1.yml to pass before merge; enforce_admins=true;
-     no force pushes; do not alter wrong-owner-backup; do not merge Phase 1),
-     then re-inspect and print the final configuration.
+     .github/workflows/phase-1.yml to pass before merge; require a pull request
+     before merge; enforce_admins=true; no force pushes; do not alter
+     wrong-owner-backup; do not merge Phase 1), then re-inspects and prints
+     the final configuration.
 
-If `gh` is not authenticated, first run:  gh auth refresh -h github.com
-Then paste the full script output back to the builder. The builder will
-append it here and mark #45 PASS (or keep WAITING_ON_OWNER if the script
-reports auth/permission failure).
-
-Until then, #45 remains WAITING_ON_OWNER and is NOT claimed PASS.
+Paste the full script output back to the builder. The builder will append it
+here and mark #45 PASS (or keep WAITING_ON_OWNER if the script reports
+auth/permission failure). Until then, #45 remains WAITING_ON_OWNER and is NOT
+claimed PASS.
 
 ## Note on #47
-#47 ("Protected main rejects unauthorized direct push") depends on the
-same branch-protection configuration. Its disposition is not changed by
-this repair; it remains STRUCTURAL_PREREQUISITE and resolves together
-with #45 once the owner re-authenticates.
+#47 ("Protected main rejects unauthorized direct push") depends on the same
+branch-protection configuration. Its disposition is not changed by this
+attempt; it remains STRUCTURAL_PREREQUISITE and resolves together with #45
+once the verification runs in a non-sandboxed environment.

@@ -104,7 +104,7 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 ## Coding
 | # | Test | Disposition | Evidence |
 |---|---|---|---|
-| 45 | Cursor builder cannot merge failed CI | REQUIRED_NOW (WAITING_ON_OWNER) | CI workflow exists (`.github/workflows/phase-1.yml`); live GitHub branch-protection enforcement NOT yet verified — `gh` token invalid. See `github-gate-verification.txt` |
+| 45 | Cursor builder cannot merge failed CI | REQUIRED_NOW (WAITING_ON_OWNER) | CI workflow exists (`.github/workflows/phase-1.yml`); live GitHub branch-protection enforcement NOT yet verified — Cursor sandbox blocks `api.github.com` (HTTP 403), so `gh` cannot validate the keychain token or inspect/configure protection from inside Cursor. Owner-runnable verifier `scripts/verify-github-gate.sh` pending run in a normal terminal. See `github-gate-verification.txt`. NOT claimed PASS |
 | 46 | Codex/reviewer cannot override valid deterministic test failure | REQUIRED_NOW | Codex decision contract in `phase-1-review-bundle.md` |
 | 47 | Protected main rejects unauthorized direct push | STRUCTURAL_PREREQUISITE | Branch protection requires owner GitHub settings; see OWNER ACTION note |
 | 48 | Build report records approved SOT manifest hash | REQUIRED_NOW | `build-binding.json` + `sot_build_bindings` row |
@@ -120,7 +120,7 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 
 ## Summary
 - REQUIRED_NOW: 18 acceptance tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,46,48,49) — all green, proven by 41 unit tests (35 prior + 6 new cross-tenant authority regression R1-R6).
-- REQUIRED_NOW but WAITING_ON_OWNER: 1 (#45) — CI workflow exists but live GitHub branch-protection enforcement not yet verified; `gh` token invalid. See `github-gate-verification.txt`. NOT claimed PASS.
+- REQUIRED_NOW but WAITING_ON_OWNER: 1 (#45) — CI workflow exists but live GitHub branch-protection enforcement not yet verified; Cursor sandbox blocks `api.github.com` (HTTP 403) so `gh` can't validate the keychain token from inside Cursor. Owner-runnable verifier `scripts/verify-github-gate.sh` pending run in a normal terminal. See `github-gate-verification.txt`. NOT claimed PASS.
 - STRUCTURAL_PREREQUISITE: 4 (14,16,44,47) — schema/primitive present; full enforcement DEFERRED.
 - DEFERRED_TO_LATER_FOUNDATION_PHASE: 26 — explicitly identified, not faked.
 - NOT_APPLICABLE: 0.

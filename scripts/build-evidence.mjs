@@ -129,7 +129,7 @@ const binding = {
   codex_first_verdict: codexFirstVerdict,
   codex_second_verdict: codexSecondVerdict,
   codex_goal_verdict: codexGoalVerdict,
-  acceptance_45_status: 'WAITING_ON_OWNER — CI workflow exists; live GitHub branch-protection enforcement not yet verified (gh token invalid). See artifacts/phase-1/github-gate-verification.txt',
+  acceptance_45_status: 'WAITING_ON_OWNER — CI workflow exists; live GitHub branch-protection enforcement not yet verified. Cursor sandbox blocks api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS keychain token or inspect/configure branch protection from inside Cursor. Owner-runnable verifier scripts/verify-github-gate.sh pending run in a normal terminal. See artifacts/phase-1/github-gate-verification.txt',
   postgres_engine: 'PGlite (real PostgreSQL WASM)',
   postgres_server_version: await serverVersion(db),
   pg_path_actually_executed: 'PGlite (WASM) — actually executed in the Phase 1 test run',
@@ -197,6 +197,12 @@ evidence/review-only and does not modify implementation.
   revalidation.
 - No business-write autonomy. No live providers. No DBOS. No Agent 0.
 
+## Test reproducibility
+- tests/_helpers.mjs freshCluster now removes any persisted PGlite data dir
+  before creating the cluster, so 'npm test' is reproducible across re-runs
+  without a manual 'rm -rf .pgdata' (fixed a duplicate-key failure on re-run
+  caused by fixed-UUID seeding into a persisted dir).
+
 ## Codex reviews
 - First Codex review: ${codexFirstVerdict}
   - Finding 1 (approval must bind to exact owner session) — addressed.
@@ -212,8 +218,12 @@ evidence/review-only and does not modify implementation.
     dropped (migration 0010); 6 regression tests R1-R6.
   - Finding 2 (acceptance #45 needs real enforcement) — WAITING_ON_OWNER:
     CI workflow exists but live GitHub branch-protection enforcement
-    could not be verified/configured because the gh token is invalid
-    (Forbidden). See artifacts/phase-1/github-gate-verification.txt.
+    could not be verified/configured because the Cursor sandbox blocks
+    api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS
+    keychain token or reach the GitHub REST/GraphQL API from inside Cursor.
+    Owner-runnable verifier scripts/verify-github-gate.sh (unsets
+    GH_TOKEN/GITHUB_TOKEN, uses the keychain gh login) pending run in a
+    normal terminal. See artifacts/phase-1/github-gate-verification.txt.
     #45 kept REQUIRED_NOW (not relabeled deferred); not claimed PASS.
 
 ## Required negative security tests (all green)

@@ -2,13 +2,13 @@
 
 ## SHAs (implementation vs evidence)
 - Starting main SHA: 5b861f2afefe41090de57ddcdbafd22435160056
-- Reviewed implementation SHA (code+migrations+tests whose suite was run): 10609039d438553ae3d3d7738f27ce9c09ed9cc5
+- Reviewed implementation SHA (code+migrations+tests whose suite was run): d556690b38b6dd191dd402014b89ad7ea50d59ff
 - Evidence/review-only SHA: pending — evidence/review-only commit created after this binding; not embedded (avoids self-referential Git-SHA loop)
 - Branch: phase-1/secure-core-spine
 - Origin: https://github.com/mac313248/jarvis-agencyos.git
 
 NOTE: git_commit_sha in build-binding.json binds to the reviewed implementation
-SHA (10609039d438553ae3d3d7738f27ce9c09ed9cc5), NOT to the evidence artifact commit. The evidence artifact
+SHA (d556690b38b6dd191dd402014b89ad7ea50d59ff), NOT to the evidence artifact commit. The evidence artifact
 cannot cryptographically contain its own final commit SHA; any later commit is
 evidence/review-only and does not modify implementation.
 
@@ -49,6 +49,12 @@ evidence/review-only and does not modify implementation.
   revalidation.
 - No business-write autonomy. No live providers. No DBOS. No Agent 0.
 
+## Test reproducibility
+- tests/_helpers.mjs freshCluster now removes any persisted PGlite data dir
+  before creating the cluster, so 'npm test' is reproducible across re-runs
+  without a manual 'rm -rf .pgdata' (fixed a duplicate-key failure on re-run
+  caused by fixed-UUID seeding into a persisted dir).
+
 ## Codex reviews
 - First Codex review: PASS WITH FIXES (first review; 2 findings addressed)
   - Finding 1 (approval must bind to exact owner session) — addressed.
@@ -64,8 +70,12 @@ evidence/review-only and does not modify implementation.
     dropped (migration 0010); 6 regression tests R1-R6.
   - Finding 2 (acceptance #45 needs real enforcement) — WAITING_ON_OWNER:
     CI workflow exists but live GitHub branch-protection enforcement
-    could not be verified/configured because the gh token is invalid
-    (Forbidden). See artifacts/phase-1/github-gate-verification.txt.
+    could not be verified/configured because the Cursor sandbox blocks
+    api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS
+    keychain token or reach the GitHub REST/GraphQL API from inside Cursor.
+    Owner-runnable verifier scripts/verify-github-gate.sh (unsets
+    GH_TOKEN/GITHUB_TOKEN, uses the keychain gh login) pending run in a
+    normal terminal. See artifacts/phase-1/github-gate-verification.txt.
     #45 kept REQUIRED_NOW (not relabeled deferred); not claimed PASS.
 
 ## Required negative security tests (all green)
@@ -86,15 +96,16 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
 ## Changed files
  .github/workflows/phase-1.yml                      |  33 ++
  .gitignore                                         |   6 +
- artifacts/phase-1/acceptance-map.md                | 130 ++++++
- artifacts/phase-1/build-binding.json               |  19 +
+ artifacts/phase-1/acceptance-map.md                | 131 ++++++
+ artifacts/phase-1/build-binding.json               |  21 +
  artifacts/phase-1/codex-review-prompt.txt          |  50 ++
- artifacts/phase-1/implementation-summary.md        | 128 ++++++
- artifacts/phase-1/migration-verification.txt       |  13 +
- artifacts/phase-1/phase-1-review-bundle.md         | 127 +++++
- artifacts/phase-1/rls-negative-tests.txt           |  37 ++
+ artifacts/phase-1/github-gate-verification.txt     |  97 ++++
+ artifacts/phase-1/implementation-summary.md        | 126 +++++
+ artifacts/phase-1/migration-verification.txt       |  14 +
+ artifacts/phase-1/phase-1-review-bundle.md         | 124 +++++
+ artifacts/phase-1/rls-negative-tests.txt           |  40 ++
  artifacts/phase-1/sot-verification.txt             |  17 +
- artifacts/phase-1/test-results.txt                 | 290 ++++++++++++
+ artifacts/phase-1/test-results.txt                 | 333 ++++++++++++++
  migrations/0001_roles_and_tenant_context.sql       |  50 ++
  migrations/0002_tenants_users_memberships.sql      |  54 +++
  migrations/0003_owner_auth.sql                     |  38 ++
@@ -107,8 +118,9 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  .../0010_authority_runtime_context_bound.sql       |  31 ++
  package-lock.json                                  | 168 +++++++
  package.json                                       |  18 +
- scripts/build-evidence.mjs                         | 236 ++++++++++
+ scripts/build-evidence.mjs                         | 241 ++++++++++
  scripts/migrate.mjs                                |  18 +
+ scripts/verify-github-gate.sh                      |  96 ++++
  scripts/verify-sot.mjs                             |  22 +
  src/contracts/approval.js                          |  99 ++++
  src/contracts/authority.js                         |  90 ++++
@@ -118,9 +130,9 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  src/db/index.js                                    | 122 +++++
  src/db/migrator.js                                 |  59 +++
  src/security/tenant-context.js                     |  40 ++
- tests/_helpers.mjs                                 |  56 +++
+ tests/_helpers.mjs                                 |  63 +++
  tests/authority-kill.test.mjs                      | 190 ++++++++
  tests/contracts-auth.test.mjs                      | 511 +++++++++++++++++++++
  tests/rls-negative.test.mjs                        | 183 ++++++++
- 38 files changed, 3323 insertions(+)
+ 40 files changed, 3573 insertions(+)
 
