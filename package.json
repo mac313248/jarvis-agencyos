@@ -1,9 +1,9 @@
 {
   "name": "jarvis-agencyos",
-  "version": "0.9.0-f09",
+  "version": "0.10.0-f10",
   "private": true,
   "type": "module",
-  "description": "JARVIS / AgencyOS — F-09 DBOS durable workflows",
+  "description": "JARVIS / AgencyOS — F-10 materialized state / freshness / reconciliation",
   "scripts": {
     "verify:sot": "node scripts/verify-sot.mjs",
     "migrate": "node scripts/migrate.mjs",
@@ -11,6 +11,7 @@
     "test:phase1": "node --test tests/*.test.mjs",
     "test:phase2": "node --test tests/capability-registry.test.mjs",
     "test:f09": "node --test tests/dbos-durable.test.mjs",
+    "test:f10": "node --test tests/reconciliation.test.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
   },
