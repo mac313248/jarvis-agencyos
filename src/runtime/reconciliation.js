@@ -91,11 +91,23 @@ export function isBlockingLocalEffect(localEffect) {
   return false;
 }
 
+/** Labels that must never be masked as FRESH/AGING by force_freshness. */
+export const FAIL_CLOSED_FRESHNESS = Object.freeze([
+  'OFFLINE',
+  'CONFLICTED',
+  'UNKNOWN',
+  'STALE',
+]);
+
 /**
  * Compute freshness label for a CurrentStateRecord snapshot.
  *
  * Precedence (fail-closed toward explicit labels):
  *   OFFLINE → CONFLICTED → UNKNOWN → STALE → AGING → FRESH
+ *
+ * force_freshness cannot override OFFLINE / CONFLICTED / UNKNOWN / STALE
+ * to FRESH (or AGING). Explicit unsafe freshening must not mask source
+ * outage, source unknown, pending local effect, or source conflict.
  */
 export function computeFreshness({
   observed_at,
@@ -105,38 +117,58 @@ export function computeFreshness({
   conflict_status = 'NONE',
   force_freshness = null,
 } = {}) {
-  if (force_freshness) {
-    if (!FRESHNESS_VALUES.includes(force_freshness)) {
-      throw new ReconciliationError('INVALID_FRESHNESS', `invalid freshness ${force_freshness}`);
-    }
-    return force_freshness;
+  if (force_freshness != null && !FRESHNESS_VALUES.includes(force_freshness)) {
+    throw new ReconciliationError('INVALID_FRESHNESS', `invalid freshness ${force_freshness}`);
   }
 
+  let computed;
   if (source_status === 'OFFLINE' || source_status === 'UNREACHABLE') {
-    return 'OFFLINE';
-  }
-
-  if (
+    computed = 'OFFLINE';
+  } else if (
     conflict_status === 'PENDING_LOCAL_EFFECT'
     || conflict_status === 'SOURCE_CONFLICT'
   ) {
-    return 'CONFLICTED';
+    computed = 'CONFLICTED';
+  } else if (source_status === 'UNKNOWN') {
+    computed = 'UNKNOWN';
+  } else if (source_status === 'STALE') {
+    computed = 'STALE';
+  } else {
+    const observedMs = toMs(observed_at);
+    const nowMs = toMs(now) ?? Date.now();
+    if (observedMs == null || max_age_seconds == null || !(max_age_seconds >= 0)) {
+      computed = 'UNKNOWN';
+    } else {
+      const ageSeconds = Math.max(0, (nowMs - observedMs) / 1000);
+      if (ageSeconds > max_age_seconds) computed = 'STALE';
+      else if (ageSeconds > max_age_seconds * AGING_RATIO) computed = 'AGING';
+      else computed = 'FRESH';
+    }
   }
 
-  if (source_status === 'UNKNOWN' || source_status === 'STALE') {
-    return source_status === 'STALE' ? 'STALE' : 'UNKNOWN';
+  if (!force_freshness) return computed;
+
+  // Refuse unsafe freshening of fail-closed labels.
+  if (
+    FAIL_CLOSED_FRESHNESS.includes(computed)
+    && (force_freshness === 'FRESH' || force_freshness === 'AGING')
+  ) {
+    return computed;
   }
 
-  const observedMs = toMs(observed_at);
-  const nowMs = toMs(now) ?? Date.now();
-  if (observedMs == null || max_age_seconds == null || !(max_age_seconds >= 0)) {
-    return 'UNKNOWN';
-  }
+  return force_freshness;
+}
 
-  const ageSeconds = Math.max(0, (nowMs - observedMs) / 1000);
-  if (ageSeconds > max_age_seconds) return 'STALE';
-  if (ageSeconds > max_age_seconds * AGING_RATIO) return 'AGING';
-  return 'FRESH';
+/**
+ * True when a provider observation carries enough freshness metadata to
+ * evaluate age / source status without inventing observed_at.
+ */
+export function hasReliableObservationFreshness(observation, fallbackMaxAgeSeconds = null) {
+  if (!observation || typeof observation !== 'object') return false;
+  if (toMs(observation.observed_at) == null) return false;
+  const maxAge = observation.max_age_seconds ?? fallbackMaxAgeSeconds;
+  if (maxAge == null || !(Number(maxAge) >= 0)) return false;
+  return true;
 }
 
 /**
@@ -355,13 +387,30 @@ export function reconcile({
   }
 
   // Provider observation present — evaluate mismatch / repair.
+  // Missing observed_at / reliable max_age must fail closed (no invented "now").
   const providerValue = providerObservation.value;
   const mismatch = stableValueHash(base.value) !== stableValueHash(providerValue);
-  const observedAt = providerObservation.observed_at ?? now;
+  const maxAge = providerObservation.max_age_seconds ?? base.max_age_seconds;
+
+  if (!hasReliableObservationFreshness(providerObservation, base.max_age_seconds)) {
+    return {
+      action: mismatch ? 'ESCALATE' : 'MARK_UNKNOWN',
+      value_overwritten: false,
+      reason: 'provider observation missing required freshness metadata (observed_at/max_age); refuse silent materialization',
+      next_state: {
+        ...base,
+        freshness: 'UNKNOWN',
+        conflict_status: 'UNKNOWN',
+        value: base.value,
+      },
+    };
+  }
+
+  const observedAt = providerObservation.observed_at;
   const asOf = providerObservation.as_of ?? observedAt;
   const providerFreshness = computeFreshness({
     observed_at: observedAt,
-    max_age_seconds: providerObservation.max_age_seconds ?? base.max_age_seconds,
+    max_age_seconds: maxAge,
     now,
     source_status: providerObservation.source_status ?? null,
     conflict_status: 'NONE',

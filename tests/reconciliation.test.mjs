@@ -20,6 +20,7 @@ import {
 import {
   AGING_RATIO,
   CONFLICT_STATUS_VALUES,
+  FAIL_CLOSED_FRESHNESS,
   FRESHNESS_VALUES,
   ReconciliationError,
   applyReconciliation,
@@ -27,6 +28,7 @@ import {
   computeFreshness,
   createReconciliationRuntime,
   detectSourceConflict,
+  hasReliableObservationFreshness,
   isBlockingLocalEffect,
   reconcile,
 } from '../src/runtime/reconciliation.js';
@@ -142,6 +144,152 @@ describe('F-10 freshness engine', () => {
       'CONFLICTED',
     );
     assert.equal(computeFreshness({}), 'UNKNOWN');
+  });
+
+  test('force_freshness cannot override OFFLINE/CONFLICTED/UNKNOWN/STALE to FRESH', () => {
+    assert.deepEqual([...FAIL_CLOSED_FRESHNESS], [
+      'OFFLINE', 'CONFLICTED', 'UNKNOWN', 'STALE',
+    ]);
+
+    assert.equal(
+      computeFreshness({ source_status: 'OFFLINE', force_freshness: 'FRESH' }),
+      'OFFLINE',
+    );
+    assert.equal(
+      computeFreshness({ source_status: 'UNREACHABLE', force_freshness: 'FRESH' }),
+      'OFFLINE',
+    );
+    assert.equal(
+      computeFreshness({
+        conflict_status: 'PENDING_LOCAL_EFFECT',
+        force_freshness: 'FRESH',
+      }),
+      'CONFLICTED',
+    );
+    assert.equal(
+      computeFreshness({
+        conflict_status: 'SOURCE_CONFLICT',
+        force_freshness: 'AGING',
+      }),
+      'CONFLICTED',
+    );
+    assert.equal(
+      computeFreshness({ source_status: 'UNKNOWN', force_freshness: 'FRESH' }),
+      'UNKNOWN',
+    );
+    assert.equal(
+      computeFreshness({ source_status: 'STALE', force_freshness: 'FRESH' }),
+      'STALE',
+    );
+
+    const observed = Date.parse('2026-08-10T12:00:00.000Z');
+    assert.equal(
+      computeFreshness({
+        observed_at: observed,
+        max_age_seconds: 60,
+        now: observed + 120_000,
+        force_freshness: 'FRESH',
+      }),
+      'STALE',
+    );
+    assert.equal(
+      computeFreshness({
+        observed_at: null,
+        max_age_seconds: 60,
+        force_freshness: 'FRESH',
+      }),
+      'UNKNOWN',
+    );
+
+    // Safe labels may still accept an explicit non-freshening override.
+    assert.equal(
+      computeFreshness({
+        observed_at: observed,
+        max_age_seconds: 3600,
+        now: observed + 1000,
+        force_freshness: 'AGING',
+      }),
+      'AGING',
+    );
+  });
+});
+
+describe('F-10 fail-closed missing provider freshness metadata', () => {
+  test('hasReliableObservationFreshness requires observed_at and max_age', () => {
+    assert.equal(hasReliableObservationFreshness({ value: { x: 1 } }), false);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: '2026-08-10T12:00:00.000Z',
+    }), false);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: '2026-08-10T12:00:00.000Z',
+      max_age_seconds: 60,
+    }), true);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: '2026-08-10T12:00:00.000Z',
+    }, 60), true);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: 'not-a-timestamp',
+      max_age_seconds: 60,
+    }), false);
+  });
+
+  test('missing observed_at refuses REPAIR and does not overwrite local value', () => {
+    const localValue = { name: 'KeepLocal', status: 'active' };
+    const local = baseLocal({ value: localValue });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { name: 'ProviderWins', status: 'clobber' },
+        source_system: 'fake-provider',
+        // deliberately no observed_at / as_of
+        evidence_ref: 'ev-missing-meta',
+        state_version: '99',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+
+    assert.equal(decision.action, 'ESCALATE');
+    assert.equal(decision.value_overwritten, false);
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+    assert.equal(decision.next_state.conflict_status, 'UNKNOWN');
+    assert.deepEqual(decision.next_state.value, localValue);
+    assert.notEqual(decision.next_state.state_version, '99');
+    assert.equal(decision.next_state.source_system, 'local_projection');
+  });
+
+  test('missing observed_at with matching value still MARK_UNKNOWN without materializing as FRESH', () => {
+    const local = baseLocal({ value: { qty: 1 } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { qty: 1 },
+        // no observed_at — must not invent now and treat as FRESH
+      },
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'MARK_UNKNOWN');
+    assert.equal(decision.value_overwritten, false);
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+    assert.deepEqual(decision.next_state.value, { qty: 1 });
+  });
+
+  test('null observed_at cannot silently repair provider value', () => {
+    const local = baseLocal({ value: { keep: true } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { keep: false },
+        observed_at: null,
+        as_of: null,
+        max_age_seconds: 3600,
+      },
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.value_overwritten, false);
+    assert.ok(['ESCALATE', 'MARK_UNKNOWN'].includes(decision.action));
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+    assert.deepEqual(decision.next_state.value, { keep: true });
   });
 });
 
