@@ -79,10 +79,10 @@ standard PostgreSQL RLS-testing technique. RLS, FORCE RLS, pg_roles
 PostgreSQL implementation — not a mocked repository layer.
 
 ## Known deferrals / uncertainties
-- 26 acceptance tests DEFERRED_TO_LATER_FOUNDATION_PHASE (DBOS, Agent 0, live
+- 25 acceptance tests DEFERRED_TO_LATER_FOUNDATION_PHASE (DBOS, Agent 0, live
   providers, material external execution, reconciliation, derived-index deletion,
   materiality engine, recovery). See acceptance-map.md.
-- 4 STRUCTURAL_PREREQUISITE (schema/primitive present; full runtime enforcement
+- 3 STRUCTURAL_PREREQUISITE (schema/primitive present; full runtime enforcement
   belongs to a later Foundation phase): #14 grant-check at execution, #16 replay
   dedupe at ingestion, #44 global-memory policy. (#47 branch protection is now
   LIVE-VERIFIED PASS — see "GitHub gate" below.)

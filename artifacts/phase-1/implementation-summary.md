@@ -90,7 +90,7 @@ Direct RLS attacks against the real runtime role: see rls-negative-tests.txt
 (now includes the authority-control cross-tenant path).
 
 ## Known deferrals
-See acceptance-map.md: 26 tests DEFERRED_TO_LATER_FOUNDATION_PHASE, 4
+See acceptance-map.md: 25 tests DEFERRED_TO_LATER_FOUNDATION_PHASE, 3
 STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
 
 ## No business-write autonomy

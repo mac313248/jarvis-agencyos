@@ -119,10 +119,10 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 | 53 | Backup restore actually rehearsed | DEFERRED_TO_LATER_FOUNDATION_PHASE | Recovery (later Foundation) |
 
 ## Summary
-- REQUIRED_NOW: 20 acceptance tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,45,46,47,48,49) — all green, proven by 41 core-spine unit tests (35 prior + 6 cross-tenant authority regression R1-R6) PLUS live GitHub gate evidence (#45, #47).
+- REQUIRED_NOW: 25 acceptance tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,45,46,47,48,49) — all green, proven by 41 core-spine unit tests (35 prior + 6 cross-tenant authority regression R1-R6) PLUS live GitHub gate evidence (#45, #47).
 - REQUIRED_NOW but WAITING_ON_OWNER: 0.
-- STRUCTURAL_PREREQUISITE: 2 (14,16,44) — schema/primitive present; full enforcement DEFERRED. (#47 promoted to REQUIRED_NOW — PASS via live main protection.)
-- DEFERRED_TO_LATER_FOUNDATION_PHASE: 26 — explicitly identified, not faked.
+- STRUCTURAL_PREREQUISITE: 3 (14,16,44) — schema/primitive present; full enforcement DEFERRED.
+- DEFERRED_TO_LATER_FOUNDATION_PHASE: 25 — explicitly identified, not faked.
 - NOT_APPLICABLE: 0.
 
 Phase 1 gate evaluates only REQUIRED_NOW scope plus the security properties
