@@ -52,6 +52,7 @@ export const STATE_FILE = 'artifacts/build-runner/state.json';
 export const PHASE_CONTRACT_FILE = 'artifacts/build-runner/current-phase.json';
 export const LOCK_DIR = 'artifacts/build-runner/.run.lock';
 export const TRANSITION_LOG = 'artifacts/build-runner/transitions.jsonl';
+export const REVIEW_SCHEMA_FILE = 'scripts/review-verdict.schema.json';
 
 // Native local-authenticated CLIs. Secrets are deliberately not read by the
 // runner and therefore cannot enter argv, environment, prompts, or logs.
@@ -509,6 +510,33 @@ export function parseVerdict(output) {
   return found[0];
 }
 
+export const REVIEW_PROTOCOL_ERROR = 'REVIEW_PROTOCOL_ERROR';
+
+// Codex emits JSONL events; only the final agent_message is authoritative.
+// The message itself must be exactly the schema-shaped JSON object.
+export function parseReviewResult(output) {
+  if (typeof output !== 'string') return { ok: false, code: REVIEW_PROTOCOL_ERROR };
+  const candidates = [];
+  for (const line of output.split(/\r?\n/)) {
+    try {
+      const event = JSON.parse(line);
+      if (event?.item?.type === 'agent_message' && typeof event.item.text === 'string') candidates.push(event.item.text);
+      if (typeof event?.result === 'string') candidates.push(event.result);
+      if (event && !event.type && !event.item && !event.result) candidates.push(line);
+    } catch {}
+  }
+  candidates.push(output.trim());
+  for (const candidate of candidates.reverse()) {
+    let value;
+    try { value = JSON.parse(candidate.trim()); } catch { continue; }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    if (Object.keys(value).sort().join(',') !== 'blockers,verdict') continue;
+    if (!VERDICTS.includes(value.verdict) || !Array.isArray(value.blockers) || value.blockers.some((b) => typeof b !== 'string')) continue;
+    return { ok: true, verdict: value.verdict, blockers: value.blockers };
+  }
+  return { ok: false, code: REVIEW_PROTOCOL_ERROR };
+}
+
 // ---------------------------------------------------------------------------
 // Phase branch creation (from last accepted state; never merges main)
 // ---------------------------------------------------------------------------
@@ -577,7 +605,7 @@ export function defaultCodexInvoker(root, prompt, deps = {}) {
   try {
     return execFile(
       bin,
-      ['exec', '-C', root, '-s', 'read-only', '--ephemeral', '--json', prompt],
+      ['exec', '-C', root, '-s', 'read-only', '--ephemeral', '--json', '--output-schema', join(root, REVIEW_SCHEMA_FILE), prompt],
       {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -649,8 +677,8 @@ export function buildReviewerPrompt(contract, baseSha) {
     'Inspect: docs/master-sot/ (06/07/12), git diff, migrations, src, tests, evidence.',
     'Verify: business_write_autonomy stays DISABLED; no auto-merge; no SOT edits;',
     'acceptance tests for this phase are covered; no fail-open; no unsafe retry.',
-    'Return exactly one verdict on its own line: PASS | PASS WITH FIXES | FAIL.',
-    'If fixes are needed, give the smallest concrete fix list.',
+    'Return ONLY this JSON object, with no Markdown, prose, or extra keys: {"verdict":"PASS|PASS_WITH_FIXES|FAIL","blockers":[]}.',
+    'Use PASS_WITH_FIXES or FAIL only with concrete blocker strings; use an empty blockers array for PASS.',
   ].join('\n');
 }
 
@@ -682,6 +710,26 @@ async function runUnlocked(root, opts = {}) {
   if (!preflighted) verifyGitState(root);
 
   let state = loadState(root);
+
+  // Recover the prior runner's malformed review without replaying Cursor or
+  // deterministic tests. The durable transition log proves both completed.
+  const priorReviewProtocolFailure = state.status === 'FAILED_ACCEPTANCE_GATE' &&
+    state.last_verdict === 'MALFORMED_VERDICT' && state.cursor_runs > 0 &&
+    existsSync(join(root, TRANSITION_LOG)) &&
+    readFileSync(join(root, TRANSITION_LOG), 'utf8').includes('"state":"TESTS_PASSED"');
+  if (priorReviewProtocolFailure) {
+    state = saveState(root, { ...state, status: REVIEW_PROTOCOL_ERROR, last_verdict: REVIEW_PROTOCOL_ERROR, codex_verdicts: [] });
+  }
+
+  // Review-only resume path for a completed build/test phase.
+  if (state.status === REVIEW_PROTOCOL_ERROR) {
+    const contract = JSON.parse(readFileSync(join(root, PHASE_CONTRACT_FILE), 'utf8'));
+    validatePhaseContract(contract);
+    const review = reviewOnce(codexInvoker, root, contract, state.base_sha);
+    if (!review.ok) return saveState(root, { ...state, status: REVIEW_PROTOCOL_ERROR, last_verdict: REVIEW_PROTOCOL_ERROR });
+    if (review.verdict !== 'PASS') return saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: review.verdict, codex_verdicts: [review.verdict] });
+    return acceptPhase(root, { ...state, status: 'CODEX_VERDICT_1', codex_verdicts: ['PASS'], last_verdict: 'PASS' }, { phase_id: state.current_phase_id });
+  }
 
   // If already at a terminal stop state, report and stop — except a dry-run
   // WAITING_ON_OWNER checkpoint, which a later normal run must resume.
@@ -783,20 +831,20 @@ async function runUnlocked(root, opts = {}) {
   // ---- Codex review (read-only; only after tests pass) ----
   // Max 2 verdicts. First verdict:
   const v1 = reviewOnce(codexInvoker, root, contract, baseSha);
+  if (!v1.ok) return saveState(root, { ...state, status: REVIEW_PROTOCOL_ERROR, last_verdict: REVIEW_PROTOCOL_ERROR });
   state = saveState(root, {
     ...state,
     status: 'CODEX_VERDICT_1',
-    codex_verdicts: [v1],
-    last_verdict: v1,
+    codex_verdicts: [v1.verdict],
+    last_verdict: v1.verdict,
   });
 
-  if (v1 === 'FAIL' || v1 === null) {
-    // Malformed verdict or FAIL -> fail closed.
-    state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: v1 || 'MALFORMED_VERDICT' });
+  if (v1.verdict === 'FAIL') {
+    state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: 'FAIL' });
     return state;
   }
 
-  if (v1 === 'PASS') {
+  if (v1.verdict === 'PASS') {
     return acceptPhase(root, state, slice);
   }
 
@@ -820,16 +868,16 @@ async function runUnlocked(root, opts = {}) {
 
   // Second Codex verdict MUST be PASS.
   const v2 = reviewOnce(codexInvoker, root, contract, baseSha);
+  if (!v2.ok) return saveState(root, { ...state, status: REVIEW_PROTOCOL_ERROR, last_verdict: REVIEW_PROTOCOL_ERROR, codex_verdicts: [v1.verdict] });
   state = saveState(root, {
     ...state,
     status: 'CODEX_VERDICT_2',
-    codex_verdicts: [v1, v2],
-    last_verdict: v2,
+    codex_verdicts: [v1.verdict, v2.verdict],
+    last_verdict: v2.verdict,
   });
 
-  if (v2 !== 'PASS') {
-    // Fail closed: malformed, FAIL, or second PASS_WITH_FIXES (no more cycles).
-    state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: v2 || 'MALFORMED_VERDICT' });
+  if (v2.verdict !== 'PASS') {
+    state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: v2.verdict });
     return state;
   }
 
@@ -849,14 +897,14 @@ export async function run(root, opts = {}) {
 }
 
 function reviewOnce(codexInvoker, root, contract, baseSha) {
-  if (!codexInvoker) return 'PASS'; // dry-run with no reviewer -> deterministic PASS
+  if (!codexInvoker) return { ok: true, verdict: 'PASS', blockers: [] }; // dry-run with no reviewer
   let out;
   try {
     out = codexInvoker(root, buildReviewerPrompt(contract, baseSha));
   } catch (e) {
-    return null; // fail closed
+    return { ok: false, code: REVIEW_PROTOCOL_ERROR };
   }
-  return parseVerdict(out);
+  return parseReviewResult(out);
 }
 
 function acceptPhase(root, state, _slice) {

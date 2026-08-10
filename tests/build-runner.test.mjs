@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSyn
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  run, parseVerdict, verifySot, verifyGitState, determineNextSlice,
+  run, parseVerdict, parseReviewResult, verifySot, verifyGitState, determineNextSlice,
   validatePhaseContract, loadState, saveState, defaultCursorInvoker,
   defaultCodexInvoker, FOUNDATION_SLICES, APPROVED_MANIFEST_SHA256,
   TERMINAL_STOP_STATES, CURSOR_AGENT_BIN,
@@ -22,6 +22,7 @@ const REAL_ROOT = new URL('../', import.meta.url).pathname;
 const REAL_SOT_DIR = join(REAL_ROOT, 'docs/master-sot');
 // Fixtures live inside the workspace so the sandbox permits writes.
 const FIXTURE_ROOT = join('/private/tmp', 'jarvis-build-runner-tests');
+const review = (verdict, blockers = []) => JSON.stringify({ verdict, blockers });
 
 function sha256File(p) {
   return createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -144,7 +145,7 @@ test('dry-run then normal run resumes with injected mocks (no app phase files)',
     let codexCalls = 0;
     const state = await run(root, {
       cursorInvoker: c.invoker,
-      codexInvoker: () => { codexCalls++; return 'PASS'; },
+      codexInvoker: () => { codexCalls++; return review('PASS'); },
       testRunner: passingTests(),
     });
     assert.equal(state.status, 'ACCEPTED');
@@ -171,7 +172,7 @@ test('genuine WAITING_ON_OWNER (dry_run_checkpoint:false) stays permanent', asyn
     let codexCalls = 0;
     const state = await run(root, {
       cursorInvoker: c.invoker,
-      codexInvoker: () => { codexCalls++; return 'PASS'; },
+      codexInvoker: () => { codexCalls++; return review('PASS'); },
       testRunner: passingTests(),
     });
     assert.equal(state.status, 'WAITING_ON_OWNER');
@@ -201,7 +202,7 @@ test('legacy dry-run WAITING_ON_OWNER without dry_run_checkpoint field resumes',
     const c = mockCursor();
     const state = await run(root, {
       cursorInvoker: c.invoker,
-      codexInvoker: () => 'PASS',
+      codexInvoker: () => review('PASS'),
       testRunner: passingTests(),
     });
     assert.equal(state.status, 'ACCEPTED');
@@ -209,15 +210,16 @@ test('legacy dry-run WAITING_ON_OWNER without dry_run_checkpoint field resumes',
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-// 3. Malformed verdict fails closed
-test('malformed verdict fails closed at FAILED_ACCEPTANCE_GATE', async () => {
+// 3. Malformed review is a protocol error, not an acceptance failure
+test('malformed review stops at REVIEW_PROTOCOL_ERROR', async () => {
   const root = makeFixture({ completedSlices: ['F-01'] });
   try {
     const c = mockCursor();
     const codex = () => 'I think the code looks fine';
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
-    assert.equal(state.status, 'FAILED_ACCEPTANCE_GATE');
-    assert.equal(state.last_verdict, 'MALFORMED_VERDICT');
+    assert.equal(state.status, 'REVIEW_PROTOCOL_ERROR');
+    assert.equal(state.last_verdict, 'REVIEW_PROTOCOL_ERROR');
+    assert.equal(state.codex_verdicts.length, 0);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -227,7 +229,7 @@ test('PASS_WITH_FIXES then PASS accepts the phase', async () => {
   try {
     const c = mockCursor();
     let n = 0;
-    const codex = () => { n++; return n === 1 ? 'PASS WITH FIXES' : 'PASS'; };
+    const codex = () => { n++; return n === 1 ? review('PASS_WITH_FIXES', ['fix']) : review('PASS'); };
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
     assert.equal(state.status, 'ACCEPTED');
     assert.deepEqual(state.codex_verdicts, ['PASS_WITH_FIXES', 'PASS']);
@@ -239,7 +241,7 @@ test('PASS_WITH_FIXES twice fails closed (no 3rd cycle)', async () => {
   const root = makeFixture({ completedSlices: ['F-01'] });
   try {
     const c = mockCursor();
-    const codex = () => 'PASS WITH FIXES';
+    const codex = () => review('PASS_WITH_FIXES', ['fix']);
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
     assert.equal(state.status, 'FAILED_ACCEPTANCE_GATE');
     assert.equal(state.codex_verdicts.length, 2, 'max two verdicts');
@@ -252,7 +254,7 @@ test('FAIL on first verdict fails closed', async () => {
   const root = makeFixture({ completedSlices: ['F-01'] });
   try {
     const c = mockCursor();
-    const codex = () => 'FAIL';
+    const codex = () => review('FAIL', ['blocker']);
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
     assert.equal(state.status, 'FAILED_ACCEPTANCE_GATE');
     assert.equal(state.codex_verdicts.length, 1);
@@ -298,7 +300,7 @@ test('dirty + dry-run fails closed before phase work (no writers)', async () => 
       () => run(root, {
         dryRun: true,
         cursorInvoker: () => { cursorCalls++; return 'writer'; },
-        codexInvoker: () => { codexCalls++; return 'PASS'; },
+        codexInvoker: () => { codexCalls++; return review('PASS'); },
         testRunner: passingTests(),
       }),
       (e) => e instanceof BuildRunnerError && e.code === 'DIRTY_GIT'
@@ -318,7 +320,7 @@ test('dirty + normal mode fails closed before phase work (no writers)', async ()
     await assert.rejects(
       () => run(root, {
         cursorInvoker: () => { cursorCalls++; return 'writer'; },
-        codexInvoker: () => { codexCalls++; return 'PASS'; },
+        codexInvoker: () => { codexCalls++; return review('PASS'); },
         testRunner: passingTests(),
       }),
       (e) => e instanceof BuildRunnerError && e.code === 'DIRTY_GIT'
@@ -379,7 +381,7 @@ test('runner never merges to main', async () => {
   const root = makeFixture({ completedSlices: ['F-01'] });
   try {
     const c = mockCursor();
-    const codex = () => 'PASS';
+    const codex = () => review('PASS');
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
     assert.equal(state.status, 'ACCEPTED');
     let mainExists = false;
@@ -418,7 +420,7 @@ test('defaultCodexInvoker uses read-only never-approval ephemeral json form', ()
   });
   assert.equal(captured.bin, 'codex-mock');
   assert.deepEqual(captured.argv, [
-    'exec', '-C', '/repo', '-s', 'read-only', '--ephemeral', '--json', 'review please',
+    'exec', '-C', '/repo', '-s', 'read-only', '--ephemeral', '--json', '--output-schema', '/repo/scripts/review-verdict.schema.json', 'review please',
   ]);
 });
 
@@ -448,6 +450,40 @@ test('parseVerdict fails closed on zero or multiple authoritative tokens', () =>
   // Must never infer PASS from ambiguous contradictory output.
   assert.notEqual(parseVerdict('FAIL\nPASS'), 'PASS');
   assert.notEqual(parseVerdict('PASS\nFAIL'), 'PASS');
+});
+
+test('structured review protocol parses PASS, PASS_WITH_FIXES, and FAIL', () => {
+  assert.deepEqual(parseReviewResult(review('PASS')), { ok: true, verdict: 'PASS', blockers: [] });
+  assert.deepEqual(parseReviewResult(review('PASS_WITH_FIXES', ['one'])), { ok: true, verdict: 'PASS_WITH_FIXES', blockers: ['one'] });
+  assert.deepEqual(parseReviewResult(review('FAIL', ['blocked'])), { ok: true, verdict: 'FAIL', blockers: ['blocked'] });
+});
+
+test('malformed review is REVIEW_PROTOCOL_ERROR and resumes without Cursor/build replay', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    let cursorCalls = 0;
+    let testCalls = 0;
+    const first = await run(root, {
+      cursorInvoker: () => { cursorCalls++; },
+      codexInvoker: () => 'PASS',
+      testRunner: () => { testCalls++; return passingTests()(); },
+    });
+    assert.equal(first.status, 'REVIEW_PROTOCOL_ERROR');
+    assert.equal(first.last_verdict, 'REVIEW_PROTOCOL_ERROR');
+    assert.equal(first.codex_verdicts.length, 0);
+    assert.equal(cursorCalls, 1);
+    assert.equal(testCalls, 1);
+
+    const resumed = await run(root, {
+      cursorInvoker: () => { throw new Error('Cursor must not rerun'); },
+      codexInvoker: () => review('PASS'),
+      testRunner: () => { throw new Error('tests must not rerun'); },
+    });
+    assert.equal(resumed.status, 'ACCEPTED');
+    assert.equal(resumed.last_verdict, 'PASS');
+    assert.equal(resumed.cursor_runs, 1);
+    assert.deepEqual(resumed.codex_verdicts, ['PASS']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 // determineNextSlice: first incomplete slice from SOT, not a phase count
