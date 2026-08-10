@@ -6,4 +6,6 @@ artifacts/phase-1/*.tmp
 .tmp-build-runner-tests/
 artifacts/build-runner/state.json
 artifacts/build-runner/current-phase.json
+artifacts/build-runner/.run.lock/
+artifacts/build-runner/transitions.jsonl
 .env

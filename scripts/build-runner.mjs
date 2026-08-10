@@ -668,6 +668,7 @@ export function buildReviewerPrompt(contract, baseSha) {
 async function runUnlocked(root, opts = {}) {
   const {
     dryRun = false,
+    preflighted = false,
     cursorInvoker = dryRun ? null : defaultCursorInvoker,
     codexInvoker = dryRun ? null : defaultCodexInvoker,
     testRunner = dryRun ? null : defaultTestRunner,
@@ -678,7 +679,7 @@ async function runUnlocked(root, opts = {}) {
   // Clean-Git preflight is identical for dry-run and normal mode: dirty trees
   // fail closed before phase determination, durable state/contract mutation,
   // Cursor/Codex invocation, branch creation, or application-phase work.
-  verifyGitState(root);
+  if (!preflighted) verifyGitState(root);
 
   let state = loadState(root);
 
@@ -837,9 +838,11 @@ async function runUnlocked(root, opts = {}) {
 
 export async function run(root, opts = {}) {
   verifyRepoRoot(root);
+  await verifySot(root);
+  verifyGitState(root);
   const release = acquireRunLock(root);
   try {
-    return await runUnlocked(root, opts);
+    return await runUnlocked(root, { ...opts, preflighted: true });
   } finally {
     release();
   }
