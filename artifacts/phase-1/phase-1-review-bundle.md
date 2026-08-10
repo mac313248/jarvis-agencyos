@@ -100,5 +100,21 @@ enable branch protection on `main` requiring the Phase 1 CI check + a passing
 review before merge. This does not block the Phase 1 secure-core-spine gate.
 
 ## Reviewer verdict
-- Verdict: _(to be filled by Codex)_
-- Findings: _(to be filled by Codex)_
+- Verdict: _(pending — see OWNER ACTION below)_
+
+## Codex gate status: WAITING_ON_OWNER (sandbox-blocked)
+Codex CLI v0.146.0 is installed and authenticated (ChatGPT auth mode, confirmed
+via `codex doctor`). However, running `codex review` / `codex exec` from inside
+the Cursor build sandbox fails with:
+  `Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)`
+and the model provider endpoint (chatgpt.com) is unreachable through the sandbox
+proxy (HTTP 403). The sandbox blocks the syscalls Codex needs and the network it
+requires; this cannot be self-served by the builder.
+
+The review bundle is complete and ready. The single owner action required is to
+run the Codex review from a normal (non-sandboxed) terminal:
+
+  cd ~/Projects/jarvis-agencyos && codex exec "$(cat artifacts/phase-1/codex-review-prompt.txt)"
+
+Then paste the verdict back. Cursor will apply any PASS WITH FIXES / FAIL
+findings via the smallest corrections and re-run the suite + Codex review.
