@@ -25,6 +25,7 @@ import {
   assertBusinessWriteAutonomyDisabled,
   BUSINESS_WRITE_AUTONOMY,
 } from './autonomy.js';
+import { assertWritersAllowed, WritersFrozenError } from './dbos.js';
 import { LOCAL_FAKE_SURFACE } from './local-effect-adapter.js';
 
 export class TrustedExecutorError extends Error {
@@ -257,6 +258,16 @@ export async function executeTrustedEffect(backend, args) {
   assertBusinessWriteAutonomyDisabled();
   if (BUSINESS_WRITE_AUTONOMY !== false) {
     throw new TrustedExecutorError('BUSINESS_WRITE_AUTONOMY_ENABLED', 'business-write autonomy must remain DISABLED');
+  }
+
+  // F-09 restore/#52: material writers stay frozen until reconciliation completes.
+  try {
+    await assertWritersAllowed(backend);
+  } catch (err) {
+    if (err instanceof WritersFrozenError) {
+      throw new TrustedExecutorError('WRITERS_FROZEN', err.message);
+    }
+    throw err;
   }
 
   const adapter = args?.adapter;
