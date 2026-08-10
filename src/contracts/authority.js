@@ -5,17 +5,46 @@
 // writes are DENIED. Epochs are re-read immediately before commit and
 // recorded in the ExecutionReceipt. No live business-effect path is created
 // here; the control logic is exercised against a fake/non-business boundary.
+//
+// RUNTIME PATH (app_runtime): the tenant is derived EXCLUSIVELY from the
+// trusted transaction-local tenant context (cur_tenant()). app_runtime CANNOT
+// select a tenant by argument — there is no runtime-callable function that
+// takes a tenant UUID. Missing tenant context fails closed.
+//
+// BOOTSTRAP PATH (migrator/superuser only): readFreshAuthorityFor() reads a
+// specific tenant directly from authority_control. This is NOT exposed to
+// app_runtime; it is used only by bootstrap/internal/test code that already
+// owns/escapes RLS.
 
 export class AuthorityUnavailableError extends Error {
   constructor(tenantId) { super(`authority state unavailable for tenant ${tenantId} (fail-closed)`); this.name = 'AuthorityUnavailableError'; }
 }
 
-// Read fresh authority/kill state for a tenant. Throws (fail-closed) if the
-// state cannot be obtained (no row). Returns { activeAuthority, revocationEpoch, killEpoch }.
-export async function readFreshAuthority(backend, tenantId) {
-  // Expand the composite return type into columns for portable parsing across
-  // PGlite (WASM) and libpq (node-pg).
-  const r = await backend.query('SELECT * FROM read_authority_state($1);', [tenantId]);
+// RUNTIME reader: zero-arg, derives tenant from trusted context.
+// Calls the DB function read_authority_state() which filters by cur_tenant().
+// Throws (fail-closed) if no tenant context or no authority row.
+export async function readFreshAuthority(backend) {
+  const r = await backend.query('SELECT * FROM read_authority_state();');
+  const row = r.rows?.[0];
+  // cur_tenant() is NULL when no trusted tenant context is set -> no row.
+  if (!row || row.active_authority === null || row.active_authority === undefined) {
+    throw new AuthorityUnavailableError('<runtime: missing tenant context>');
+  }
+  return {
+    activeAuthority: row.active_authority,
+    revocationEpoch: row.revocation_epoch,
+    killEpoch: row.kill_epoch,
+  };
+}
+
+// BOOTSTRAP/internal reader: reads a SPECIFIC tenant directly from
+// authority_control. NOT exposed to app_runtime (caller must be
+// migrator/superuser; RLS does not apply to owners/superusers).
+export async function readFreshAuthorityFor(backend, tenantId) {
+  const r = await backend.query(
+    'SELECT active_authority, revocation_epoch, kill_epoch FROM authority_control WHERE tenant_id = $1;',
+    [tenantId]
+  );
   const row = r.rows?.[0];
   if (!row || row.active_authority === null || row.active_authority === undefined) {
     throw new AuthorityUnavailableError(tenantId);
@@ -37,10 +66,21 @@ export function commitAllowed({ activeAuthority, revocationEpoch, killEpoch, exp
   return { allowed: reasons.length === 0, reasons };
 }
 
-// Revalidate mutable epochs immediately before a (future) material commit.
-// This is the TOCTOU guard. Returns the epochs to record in the receipt.
-export async function revalidateBeforeCommit(backend, tenantId, priorRevocationEpoch, priorKillEpoch) {
-  const fresh = await readFreshAuthority(backend, tenantId);
+// RUNTIME TOCTOU guard: revalidate mutable epochs immediately before a
+// (future) material commit. Tenant comes from trusted context.
+export async function revalidateBeforeCommit(backend, priorRevocationEpoch, priorKillEpoch) {
+  const fresh = await readFreshAuthority(backend);
+  const decision = commitAllowed({
+    ...fresh,
+    expectedRevocationEpoch: priorRevocationEpoch,
+    expectedKillEpoch: priorKillEpoch,
+  });
+  return { decision, fresh };
+}
+
+// BOOTSTRAP TOCTOU guard: as above but for a specific tenant (internal/test).
+export async function revalidateBeforeCommitFor(backend, tenantId, priorRevocationEpoch, priorKillEpoch) {
+  const fresh = await readFreshAuthorityFor(backend, tenantId);
   const decision = commitAllowed({
     ...fresh,
     expectedRevocationEpoch: priorRevocationEpoch,
