@@ -10,10 +10,15 @@
 //
 // Schema/role separation: workflow system state lives in schema `dbos` under
 // role `dbos_runtime` (07_AUTHORITY_SECURITY_EXECUTION.md).
+// Tenant scope comes from trusted transaction-local context (cur_tenant()),
+// never from caller/model-selected nullable tenant arguments.
+// External/tool/LLM steps bind to the deterministic idempotency key +
+// postcondition path shared with trusted-executor (06_SYSTEM_CONTRACTS.md).
 // NON-SCOPE: Temporal/Restate, business-write autonomy (remains DISABLED).
 
 import { randomUUID } from 'node:crypto';
 import { asRole } from '../db/index.js';
+import { idempotencyKey, requestHash } from '../contracts/ids.js';
 import {
   assertBusinessWriteAutonomyDisabled,
   BUSINESS_WRITE_AUTONOMY,
@@ -21,6 +26,9 @@ import {
 
 export const DBOS_SCHEMA = 'dbos';
 export const DBOS_ROLE = 'dbos_runtime';
+
+/** Step kinds that perform nondeterministic external/tool/LLM side effects. */
+export const EFFECT_BOUND_STEP_KINDS = Object.freeze(['EXTERNAL', 'TOOL', 'LLM']);
 
 export class DbosError extends Error {
   constructor(code, message, details = null) {
@@ -38,12 +46,33 @@ export class WritersFrozenError extends DbosError {
   }
 }
 
+/** External effect committed but step checkpoint not durable yet — resume must not re-commit. */
+export class CrashAfterEffectCommitError extends DbosError {
+  constructor(message, details = null) {
+    super('CRASH_AFTER_EFFECT_COMMIT', message, details);
+    this.name = 'CrashAfterEffectCommitError';
+  }
+}
+
 function jsonClone(value) {
   return value === undefined ? null : JSON.parse(JSON.stringify(value));
 }
 
+function requiresEffectBinding(kind) {
+  return EFFECT_BOUND_STEP_KINDS.includes(kind);
+}
+
 async function withDbosRole(db, fn) {
   return asRole(db, DBOS_ROLE, fn);
+}
+
+async function requireTrustedTenant(backend) {
+  const r = await backend.query('SELECT require_tenant() AS t;');
+  const t = r.rows[0]?.t;
+  if (!t) {
+    throw new DbosError('MISSING_TENANT_CONTEXT', 'missing tenant context (fail-closed)');
+  }
+  return t;
 }
 
 async function loadWorkflow(backend, workflowId) {
@@ -58,7 +87,8 @@ async function loadWorkflow(backend, workflowId) {
 
 async function loadStep(backend, workflowId, stepId) {
   const r = await backend.query(
-    `SELECT workflow_id, function_id, step_id, step_kind, status, output_json, error_json, completed_at
+    `SELECT workflow_id, tenant_id, function_id, step_id, step_kind, status,
+            output_json, error_json, idempotency_key, completed_at
        FROM dbos.operation_outputs
       WHERE workflow_id = $1 AND step_id = $2;`,
     [workflowId, stepId]
@@ -68,7 +98,8 @@ async function loadStep(backend, workflowId, stepId) {
 
 async function loadWait(backend, workflowId, stepId) {
   const r = await backend.query(
-    `SELECT wait_id, workflow_id, step_id, proposal_id, status, signal_payload, created_at, signaled_at
+    `SELECT wait_id, workflow_id, tenant_id, step_id, proposal_id, status,
+            signal_payload, created_at, signaled_at
        FROM dbos.approval_waits
       WHERE workflow_id = $1 AND step_id = $2;`,
     [workflowId, stepId]
@@ -104,11 +135,21 @@ export async function assertWritersAllowed(backend) {
 /**
  * Create a DBOS Transact-style durable runtime bound to this Postgres backend.
  * Process restart = new runtime instance against the same durable tables.
+ *
+ * @param {object} db
+ * @param {{ trustedTenantId: string }} opts - tenant MUST come from trusted
+ *   infrastructure identity, never from model/client-selected scope.
  */
-export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
+export function createDbosRuntime(db, { trustedTenantId } = {}) {
   assertBusinessWriteAutonomyDisabled();
   if (BUSINESS_WRITE_AUTONOMY !== false) {
     throw new DbosError('AUTONOMY_ENABLED', 'BUSINESS_WRITE_AUTONOMY must remain DISABLED');
+  }
+  if (!trustedTenantId) {
+    throw new DbosError(
+      'MISSING_TENANT_CONTEXT',
+      'createDbosRuntime requires trustedTenantId from trusted infrastructure (fail-closed)'
+    );
   }
 
   const registry = new Map(); // workflow_name -> async fn(ctx, input)
@@ -124,11 +165,42 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
     return name;
   }
 
-  async function startWorkflow(name, input = {}, { workflowId = randomUUID(), tenantId = null } = {}) {
+  /**
+   * Run fn as dbos_runtime inside a transaction with trusted tenant context set.
+   * Tenant is fixed at runtime construction — never taken from call arguments.
+   */
+  async function withTrustedTenantTx(fn) {
+    return withDbosRole(db, async (backend) => {
+      return backend.tx(async (tx) => {
+        await tx.query('SELECT set_tenant($1);', [trustedTenantId]);
+        await requireTrustedTenant(tx);
+        return fn(tx);
+      });
+    });
+  }
+
+  /** Control-plane recovery_control access (singleton; not tenant-owned). */
+  async function withRecoveryTx(fn) {
+    return withDbosRole(db, async (backend) => {
+      return backend.tx(async (tx) => fn(tx));
+    });
+  }
+
+  async function startWorkflow(name, input = {}, options = {}) {
     if (!registry.has(name)) {
       throw new DbosError('UNKNOWN_WORKFLOW', `workflow not registered: ${name}`);
     }
-    await withDbosRole(db, async (backend) => {
+    if (options && Object.prototype.hasOwnProperty.call(options, 'tenantId')) {
+      throw new DbosError(
+        'CALLER_TENANT_SCOPE_FORBIDDEN',
+        'startWorkflow must not accept caller-selected tenantId; use trusted runtime tenant context'
+      );
+    }
+    const workflowId = options.workflowId || randomUUID();
+
+    await withTrustedTenantTx(async (backend) => {
+      await assertWritersAllowed(backend);
+      const tenantId = await requireTrustedTenant(backend);
       const existing = await loadWorkflow(backend, workflowId);
       if (existing) {
         throw new DbosError('WORKFLOW_EXISTS', `workflow already exists: ${workflowId}`);
@@ -145,6 +217,7 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
 
   async function makeContext(backend, workflow) {
     let functionIdCursor = workflow.next_function_id;
+    const tenantId = workflow.tenant_id;
 
     async function allocateFunctionId(stepId) {
       const existing = await loadStep(backend, workflow.workflow_id, stepId);
@@ -160,10 +233,196 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
       return { existing: null, functionId };
     }
 
-    async function runStep(stepId, fn, { kind = 'STEP' } = {}) {
+    async function checkpointStep({
+      functionId,
+      stepId,
+      kind,
+      status,
+      output = null,
+      error = null,
+      effectKey = null,
+    }) {
+      await assertWritersAllowed(backend);
+      await backend.query(
+        `INSERT INTO dbos.operation_outputs
+           (workflow_id, tenant_id, function_id, step_id, step_kind, status,
+            output_json, error_json, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9);`,
+        [
+          workflow.workflow_id,
+          tenantId,
+          functionId,
+          stepId,
+          kind,
+          status,
+          output === null ? null : JSON.stringify(output),
+          error === null ? null : JSON.stringify(error),
+          effectKey,
+        ]
+      );
+    }
+
+    /**
+     * Bind EXTERNAL/TOOL/LLM steps to deterministic idempotency key +
+     * adapter postcondition path (same formula as trusted-executor).
+     * Crash after external commit but before checkpoint must not re-commit.
+     */
+    async function runEffectBoundStep(stepId, fn, { kind, effect }) {
+      if (!effect || typeof effect !== 'object') {
+        throw new DbosError(
+          'EFFECT_BINDING_REQUIRED',
+          `${kind} steps require effect binding { capability_id, request|request_hash, adapter }`
+        );
+      }
+      const capabilityId = effect.capability_id;
+      const adapter = effect.adapter;
+      if (!capabilityId || !adapter) {
+        throw new DbosError(
+          'EFFECT_BINDING_REQUIRED',
+          `${kind} steps require effect.capability_id and effect.adapter`
+        );
+      }
+      if (typeof adapter.hasCommitted !== 'function'
+        || typeof adapter.commit !== 'function'
+        || typeof adapter.verifyPostcondition !== 'function') {
+        throw new DbosError(
+          'EFFECT_ADAPTER_INVALID',
+          'effect.adapter must expose hasCommitted/commit/verifyPostcondition (trusted-executor path)'
+        );
+      }
+
+      const reqHash = effect.request_hash
+        || requestHash(effect.request ?? effect.canonical_request ?? {});
+      const key = idempotencyKey({
+        tenant_id: tenantId,
+        workflow_id: workflow.workflow_id,
+        step_id: stepId,
+        capability_id: capabilityId,
+        request_hash: reqHash,
+      });
+
+      const { existing, functionId } = await allocateFunctionId(stepId);
+      if (existing) {
+        if (existing.status === 'ERROR') {
+          const err = new DbosError('STEP_PREVIOUSLY_FAILED', `step ${stepId} previously failed`);
+          err.causePayload = existing.error_json;
+          throw err;
+        }
+        return existing.output_json;
+      }
+
+      await assertWritersAllowed(backend);
+
+      // Crash recovery: external effect already committed → do not re-execute fn/commit.
+      if (adapter.hasCommitted(key)) {
+        const post = await adapter.verifyPostcondition({ idempotency_key: key });
+        if (post.status !== 'VERIFIED') {
+          throw new DbosError(
+            'EFFECT_POSTCONDITION_UNVERIFIED',
+            `postcondition ${post.status} after prior commit; refuse duplicate (fail-closed)`,
+            { idempotency_key: key, postcondition_status: post.status }
+          );
+        }
+        const recovered = {
+          ok: true,
+          resumed: true,
+          idempotency_key: key,
+          commit_token: adapter.getCommitted?.(key)?.commit_token ?? null,
+          postcondition_status: post.status,
+        };
+        await checkpointStep({
+          functionId,
+          stepId,
+          kind,
+          status: 'SUCCESS',
+          output: recovered,
+          effectKey: key,
+        });
+        return recovered;
+      }
+
+      let output;
+      try {
+        // Optional preparatory fn (must NOT itself commit the external effect).
+        const prep = typeof fn === 'function' ? await fn({ idempotency_key: key, request_hash: reqHash }) : null;
+        const commitResult = await adapter.commit({
+          idempotency_key: key,
+          request: effect.request ?? effect.canonical_request ?? prep ?? {},
+        });
+        const post = await adapter.verifyPostcondition({ idempotency_key: key });
+        if (post.status !== 'VERIFIED') {
+          throw new DbosError(
+            'EFFECT_POSTCONDITION_UNVERIFIED',
+            `postcondition ${post.status}; success not claimed (fail-closed)`,
+            { idempotency_key: key, postcondition_status: post.status }
+          );
+        }
+        output = {
+          ok: true,
+          resumed: false,
+          duplicate: commitResult.already_present === true,
+          idempotency_key: key,
+          commit_token: commitResult.commit_token,
+          postcondition_status: post.status,
+          prep: prep ?? null,
+        };
+      } catch (e) {
+        if (e instanceof DbosError) {
+          await checkpointStep({
+            functionId,
+            stepId,
+            kind,
+            status: 'ERROR',
+            error: { message: e.message, name: e.name, code: e.code },
+            effectKey: key,
+          });
+          throw e;
+        }
+        // Crash-after-commit: if adapter committed, do not checkpoint ERROR and
+        // leave workflow recoverable so resume uses hasCommitted (no duplicate).
+        if (adapter.hasCommitted(key)) {
+          throw new CrashAfterEffectCommitError(
+            e.message || 'crash after external commit before step checkpoint',
+            { idempotency_key: key, cause_name: e.name || null }
+          );
+        }
+        await checkpointStep({
+          functionId,
+          stepId,
+          kind,
+          status: 'ERROR',
+          error: { message: e.message, name: e.name },
+          effectKey: key,
+        });
+        throw e;
+      }
+
+      await checkpointStep({
+        functionId,
+        stepId,
+        kind,
+        status: 'SUCCESS',
+        output,
+        effectKey: key,
+      });
+      return output;
+    }
+
+    async function runStep(stepId, fn, { kind = 'STEP', effect = null } = {}) {
       if (typeof stepId !== 'string' || !stepId) {
         throw new DbosError('INVALID_STEP_ID', 'step_id required');
       }
+
+      if (requiresEffectBinding(kind)) {
+        if (!effect) {
+          throw new DbosError(
+            'EFFECT_BINDING_REQUIRED',
+            `nondeterministic ${kind} step must bind effect/idempotency key + postcondition path (fail-closed)`
+          );
+        }
+        return runEffectBoundStep(stepId, fn, { kind, effect });
+      }
+
       if (typeof fn !== 'function') {
         throw new DbosError('INVALID_STEP_FN', 'step function required');
       }
@@ -178,33 +437,31 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
         return existing.output_json;
       }
 
+      await assertWritersAllowed(backend);
+
       // Nondeterministic work runs only when no checkpoint exists.
       let output;
       try {
         output = await fn();
       } catch (e) {
-        await backend.query(
-          `INSERT INTO dbos.operation_outputs
-             (workflow_id, function_id, step_id, step_kind, status, error_json)
-           VALUES ($1, $2, $3, $4, 'ERROR', $5::jsonb);`,
-          [
-            workflow.workflow_id,
-            functionId,
-            stepId,
-            kind,
-            JSON.stringify({ message: e.message, name: e.name }),
-          ]
-        );
+        await checkpointStep({
+          functionId,
+          stepId,
+          kind,
+          status: 'ERROR',
+          error: { message: e.message, name: e.name },
+        });
         throw e;
       }
 
       const stored = jsonClone(output);
-      await backend.query(
-        `INSERT INTO dbos.operation_outputs
-           (workflow_id, function_id, step_id, step_kind, status, output_json)
-         VALUES ($1, $2, $3, $4, 'SUCCESS', $5::jsonb);`,
-        [workflow.workflow_id, functionId, stepId, kind, JSON.stringify(stored)]
-      );
+      await checkpointStep({
+        functionId,
+        stepId,
+        kind,
+        status: 'SUCCESS',
+        output: stored,
+      });
       return stored;
     }
 
@@ -223,12 +480,13 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
 
       let wait = await loadWait(backend, workflow.workflow_id, stepId);
       if (!wait) {
+        await assertWritersAllowed(backend);
         const waitId = randomUUID();
         await backend.query(
           `INSERT INTO dbos.approval_waits
-             (wait_id, workflow_id, step_id, proposal_id, status)
-           VALUES ($1, $2, $3, $4, 'WAITING');`,
-          [waitId, workflow.workflow_id, stepId, proposalId]
+             (wait_id, workflow_id, tenant_id, step_id, proposal_id, status)
+           VALUES ($1, $2, $3, $4, $5, 'WAITING');`,
+          [waitId, workflow.workflow_id, tenantId, stepId, proposalId]
         );
         await backend.query(
           `UPDATE dbos.workflows
@@ -240,6 +498,7 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
       }
 
       if (wait.status === 'WAITING') {
+        await assertWritersAllowed(backend);
         await backend.query(
           `UPDATE dbos.workflows
               SET status = 'WAITING', updated_at = now()
@@ -275,7 +534,8 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
   }
 
   async function resumeWorkflow(workflowId) {
-    return withDbosRole(db, async (backend) => {
+    return withTrustedTenantTx(async (backend) => {
+      await assertWritersAllowed(backend);
       const workflow = await loadWorkflow(backend, workflowId);
       if (!workflow) {
         throw new DbosError('WORKFLOW_NOT_FOUND', `workflow not found: ${workflowId}`);
@@ -318,6 +578,7 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
       try {
         const output = await fn(ctx, workflow.input_json);
         const stored = jsonClone(output);
+        await assertWritersAllowed(backend);
         await backend.query(
           `UPDATE dbos.workflows
               SET status = 'SUCCESS', output_json = $2::jsonb, error_json = NULL, updated_at = now()
@@ -335,6 +596,17 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
             wait: e.details,
           };
         }
+        // Keep PENDING so restart resumes the effect-bound step without re-commit.
+        if (e instanceof CrashAfterEffectCommitError || e.code === 'CRASH_AFTER_EFFECT_COMMIT') {
+          return {
+            status: 'ERROR',
+            workflow_id: workflowId,
+            output: null,
+            error: { message: e.message, name: e.name, code: e.code || 'CRASH_AFTER_EFFECT_COMMIT' },
+            recoverable: true,
+          };
+        }
+        await assertWritersAllowed(backend);
         await backend.query(
           `UPDATE dbos.workflows
               SET status = 'ERROR', error_json = $2::jsonb, updated_at = now()
@@ -352,7 +624,8 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
   }
 
   async function signalApproval(workflowId, stepId, payload = {}) {
-    return withDbosRole(db, async (backend) => {
+    return withTrustedTenantTx(async (backend) => {
+      await assertWritersAllowed(backend);
       const wait = await loadWait(backend, workflowId, stepId);
       if (!wait) {
         throw new DbosError('WAIT_NOT_FOUND', `no approval wait for ${workflowId}/${stepId}`);
@@ -380,9 +653,9 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
   }
 
   async function listCompletedSteps(workflowId) {
-    return withDbosRole(db, async (backend) => {
+    return withTrustedTenantTx(async (backend) => {
       const r = await backend.query(
-        `SELECT function_id, step_id, step_kind, status, output_json, completed_at
+        `SELECT function_id, step_id, step_kind, status, output_json, idempotency_key, completed_at
            FROM dbos.operation_outputs
           WHERE workflow_id = $1
           ORDER BY function_id ASC;`,
@@ -393,13 +666,15 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
   }
 
   async function getWorkflow(workflowId) {
-    return withDbosRole(db, async (backend) => loadWorkflow(backend, workflowId));
+    return withTrustedTenantTx(async (backend) => loadWorkflow(backend, workflowId));
   }
 
   // --- Restore / PITR writer freeze (#52) ---
 
   async function beginRestore() {
-    return withDbosRole(db, async (backend) => {
+    return withRecoveryTx(async (backend) => {
+      // Recovery control-plane transition: refuse if writers already mid-flight
+      // without an explicit freeze epoch bump from open state is allowed.
       const prior = await readRecovery(backend);
       const nextEpoch = Number(prior.recovery_epoch) + 1;
       await backend.query(
@@ -426,7 +701,7 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
     if (!col) {
       throw new DbosError('UNKNOWN_RECONCILE_SURFACE', `unknown surface: ${surface}`);
     }
-    return withDbosRole(db, async (backend) => {
+    return withRecoveryTx(async (backend) => {
       const state = await readRecovery(backend);
       if (!state.writers_frozen) {
         throw new DbosError('NOT_IN_RESTORE', 'markReconciled requires an active restore freeze');
@@ -443,7 +718,7 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
    * Premature thaw is refused (stop condition).
    */
   async function completeRestore() {
-    return withDbosRole(db, async (backend) => {
+    return withRecoveryTx(async (backend) => {
       const state = await readRecovery(backend);
       if (!state.writers_frozen) {
         return { ...state, already_open: true };
@@ -467,10 +742,11 @@ export function createDbosRuntime(db, { role = DBOS_ROLE } = {}) {
   }
 
   async function getRecoveryState() {
-    return withDbosRole(db, async (backend) => readRecovery(backend));
+    return withRecoveryTx(async (backend) => readRecovery(backend));
   }
 
   return {
+    trustedTenantId,
     registerWorkflow,
     startWorkflow,
     resumeWorkflow,

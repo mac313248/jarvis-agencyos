@@ -4,6 +4,12 @@
 //   #51 approval wait survives restart
 //   #52 restore sequence freezes writers until Postgres/DBOS/providers reconcile
 //
+// Codex repair coverage:
+//   RLS tenant isolation on workflows/operation_outputs/approval_waits
+//   startWorkflow derives trusted tenant (no caller-selected nullable scope)
+//   mutating ops gated by restore writer-freeze
+//   EXTERNAL/TOOL/LLM steps bind idempotency key + postcondition path
+//
 // Stop conditions: duplicate execution after restart;
 // writers reactivated before reconciliation.
 // Business-write autonomy remains DISABLED.
@@ -11,7 +17,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { freshCluster, seedTwoTenants, asRuntimeTenant } from './_helpers.mjs';
+import { freshCluster, seedTwoTenants, asRuntimeTenant, asRole } from './_helpers.mjs';
 import {
   createDbosRuntime,
   DbosError,
@@ -19,6 +25,8 @@ import {
   DBOS_ROLE,
   assertWritersAllowed,
 } from '../src/runtime/dbos.js';
+import { createLocalEffectAdapter } from '../src/runtime/local-effect-adapter.js';
+import { idempotencyKey, requestHash } from '../src/contracts/ids.js';
 import {
   BUSINESS_WRITE_AUTONOMY,
   LIVE_EXTERNAL_SIDE_EFFECTS,
@@ -36,6 +44,10 @@ before(async () => {
 });
 
 after(async () => { await db.close(); });
+
+function runtimeFor(tenantId) {
+  return createDbosRuntime(db, { trustedTenantId: tenantId });
+}
 
 function registerDemoWorkflow(runtime, counters) {
   runtime.registerWorkflow('demo.llm_then_tool', async (ctx, input) => {
@@ -74,6 +86,17 @@ describe('F-09 autonomy posture', () => {
     );
     assert.equal(schema.rows.length, 1);
   });
+
+  test('createDbosRuntime requires trusted tenant context (fail-closed)', () => {
+    assert.throws(
+      () => createDbosRuntime(db),
+      (err) => err instanceof DbosError && err.code === 'MISSING_TENANT_CONTEXT'
+    );
+    assert.throws(
+      () => createDbosRuntime(db, {}),
+      (err) => err instanceof DbosError && err.code === 'MISSING_TENANT_CONTEXT'
+    );
+  });
 });
 
 describe('F-09 #50 completed step survives restart without duplicate execution', () => {
@@ -82,12 +105,12 @@ describe('F-09 #50 completed step survives restart without duplicate execution',
     const workflowId = randomUUID();
 
     // Process A: run both durable steps to completion.
-    const runtimeA = createDbosRuntime(db);
+    const runtimeA = runtimeFor(A);
     registerDemoWorkflow(runtimeA, counters);
     const first = await runtimeA.startWorkflow(
       'demo.llm_then_tool',
       { goal: 'brief' },
-      { workflowId, tenantId: A }
+      { workflowId }
     );
     assert.equal(first.status, 'SUCCESS');
     assert.equal(counters.llm, 1);
@@ -97,7 +120,7 @@ describe('F-09 #50 completed step survives restart without duplicate execution',
 
     // Process B: new runtime instance (restart). Same Postgres checkpoints.
     const countersAfterRestart = { llm: 0, tool: 0 };
-    const runtimeB = createDbosRuntime(db);
+    const runtimeB = runtimeFor(A);
     registerDemoWorkflow(runtimeB, countersAfterRestart);
     const resumed = await runtimeB.resumeWorkflow(workflowId);
 
@@ -134,19 +157,19 @@ describe('F-09 #50 completed step survives restart without duplicate execution',
       });
     }
 
-    const runtimeA = createDbosRuntime(db);
+    const runtimeA = runtimeFor(A);
     register(runtimeA);
     const parked = await runtimeA.startWorkflow(
       'demo.partial',
       { goal: 'x' },
-      { workflowId, tenantId: A }
+      { workflowId }
     );
     assert.equal(parked.status, 'WAITING');
     assert.equal(counters.llm, 1);
     assert.equal(counters.tool, 0);
 
     // Restart before gate is signaled — completed llm step must not re-run.
-    const runtimeB = createDbosRuntime(db);
+    const runtimeB = runtimeFor(A);
     register(runtimeB);
     const still = await runtimeB.resumeWorkflow(workflowId);
     assert.equal(still.status, 'WAITING');
@@ -182,12 +205,12 @@ describe('F-09 #51 approval wait survives restart', () => {
       });
     }
 
-    const runtimeA = createDbosRuntime(db);
+    const runtimeA = runtimeFor(A);
     register(runtimeA);
     const waiting = await runtimeA.startWorkflow(
       'demo.needs_approval',
       {},
-      { workflowId, tenantId: A }
+      { workflowId }
     );
     assert.equal(waiting.status, 'WAITING');
     assert.equal(waiting.wait.step_id, 'owner.approve');
@@ -195,7 +218,7 @@ describe('F-09 #51 approval wait survives restart', () => {
     assert.equal(counters.after, 0);
 
     // Restart while still waiting — wait row must survive.
-    const runtimeB = createDbosRuntime(db);
+    const runtimeB = runtimeFor(A);
     register(runtimeB);
     const stillWaiting = await runtimeB.resumeWorkflow(workflowId);
     assert.equal(stillWaiting.status, 'WAITING');
@@ -213,7 +236,7 @@ describe('F-09 #51 approval wait survives restart', () => {
     assert.equal(counters.after, 1);
 
     // Another restart after completion still does not re-run steps.
-    const runtimeC = createDbosRuntime(db);
+    const runtimeC = runtimeFor(A);
     register(runtimeC);
     const again = await runtimeC.resumeWorkflow(workflowId);
     assert.equal(again.status, 'SUCCESS');
@@ -224,7 +247,7 @@ describe('F-09 #51 approval wait survives restart', () => {
 
 describe('F-09 #52 restore freezes writers until reconcile', () => {
   test('writers stay frozen until Postgres/DBOS/providers reconcile; premature thaw refused', async () => {
-    const runtime = createDbosRuntime(db);
+    const runtime = runtimeFor(A);
 
     const frozen = await runtime.beginRestore();
     assert.equal(frozen.writers_frozen, true);
@@ -280,5 +303,221 @@ describe('F-09 #52 restore freezes writers until reconcile', () => {
     assert.equal(open.providers_reconciled, true);
 
     await assertWritersAllowed(db);
+  });
+});
+
+describe('F-09 repair: RLS tenant isolation', () => {
+  test('FORCE RLS on dbos workflows/operation_outputs/approval_waits; cross-tenant invisible', async () => {
+    for (const table of ['workflows', 'operation_outputs', 'approval_waits']) {
+      const r = await db.query(
+        `SELECT c.relrowsecurity, c.relforcerowsecurity
+           FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'dbos' AND c.relname = $1;`,
+        [table]
+      );
+      assert.equal(r.rows.length, 1, table);
+      assert.equal(r.rows[0].relrowsecurity, true, `${table} RLS`);
+      assert.equal(r.rows[0].relforcerowsecurity, true, `${table} FORCE RLS`);
+    }
+
+    const workflowId = randomUUID();
+    const runtimeA = runtimeFor(A);
+    runtimeA.registerWorkflow('demo.iso', async (ctx) => {
+      await ctx.runStep('only', async () => ({ tenant: 'A' }));
+      return { ok: true };
+    });
+    const done = await runtimeA.startWorkflow('demo.iso', {}, { workflowId });
+    assert.equal(done.status, 'SUCCESS');
+
+    // Tenant B runtime cannot see Tenant A's workflow rows.
+    const runtimeB = runtimeFor(B);
+    const invisible = await runtimeB.getWorkflow(workflowId);
+    assert.equal(invisible, null);
+
+    await assert.rejects(
+      () => runtimeB.resumeWorkflow(workflowId),
+      (err) => err instanceof DbosError && err.code === 'WORKFLOW_NOT_FOUND'
+    );
+
+    // Direct dbos_runtime query under B also sees zero rows (RLS, not app filter).
+    await asRole(db, DBOS_ROLE, async (backend) => {
+      await backend.tx(async (tx) => {
+        await tx.query('SELECT set_tenant($1);', [B]);
+        const wf = await tx.query(
+          `SELECT count(*)::int AS n FROM dbos.workflows WHERE workflow_id = $1;`,
+          [workflowId]
+        );
+        assert.equal(wf.rows[0].n, 0);
+        const steps = await tx.query(
+          `SELECT count(*)::int AS n FROM dbos.operation_outputs WHERE workflow_id = $1;`,
+          [workflowId]
+        );
+        assert.equal(steps.rows[0].n, 0);
+      });
+    });
+
+    // Tenant A still sees its own rows.
+    const again = await runtimeA.getWorkflow(workflowId);
+    assert.equal(again.tenant_id, A);
+    assert.equal(again.status, 'SUCCESS');
+  });
+});
+
+describe('F-09 repair: startWorkflow trusted tenant only', () => {
+  test('caller-selected tenantId option is rejected; tenant comes from trusted runtime context', async () => {
+    const runtime = runtimeFor(A);
+    runtime.registerWorkflow('demo.no_caller_tenant', async () => ({ ok: true }));
+
+    await assert.rejects(
+      () => runtime.startWorkflow('demo.no_caller_tenant', {}, { tenantId: B }),
+      (err) => err instanceof DbosError && err.code === 'CALLER_TENANT_SCOPE_FORBIDDEN'
+    );
+    await assert.rejects(
+      () => runtime.startWorkflow('demo.no_caller_tenant', {}, { tenantId: null }),
+      (err) => err instanceof DbosError && err.code === 'CALLER_TENANT_SCOPE_FORBIDDEN'
+    );
+
+    const workflowId = randomUUID();
+    const result = await runtime.startWorkflow('demo.no_caller_tenant', {}, { workflowId });
+    assert.equal(result.status, 'SUCCESS');
+    const wf = await runtime.getWorkflow(workflowId);
+    assert.equal(wf.tenant_id, A);
+  });
+});
+
+describe('F-09 repair: writer-freeze gates mutating DBOS ops', () => {
+  test('start, step checkpoint, approval signal blocked while writers frozen', async () => {
+    const runtime = runtimeFor(A);
+    const workflowId = randomUUID();
+
+    runtime.registerWorkflow('demo.freeze_gate', async (ctx) => {
+      await ctx.runStep('before', async () => ({ n: 1 }));
+      await ctx.waitForApproval('gate');
+      await ctx.runStep('after', async () => ({ n: 2 }));
+      return { ok: true };
+    });
+
+    const waiting = await runtime.startWorkflow('demo.freeze_gate', {}, { workflowId });
+    assert.equal(waiting.status, 'WAITING');
+
+    await runtime.beginRestore();
+
+    await assert.rejects(
+      () => runtime.startWorkflow('demo.freeze_gate', {}, { workflowId: randomUUID() }),
+      (err) => err instanceof WritersFrozenError || (err instanceof DbosError && err.code === 'WRITERS_FROZEN')
+    );
+
+    await assert.rejects(
+      () => runtime.signalApproval(workflowId, 'gate', { ok: true }),
+      (err) => err instanceof WritersFrozenError || (err instanceof DbosError && err.code === 'WRITERS_FROZEN')
+    );
+
+    await assert.rejects(
+      () => runtime.resumeWorkflow(workflowId),
+      (err) => err instanceof WritersFrozenError || (err instanceof DbosError && err.code === 'WRITERS_FROZEN')
+    );
+
+    // Thaw properly so later suites are not poisoned.
+    await runtime.markReconciled('postgres');
+    await runtime.markReconciled('dbos');
+    await runtime.markReconciled('providers');
+    await runtime.completeRestore();
+  });
+});
+
+describe('F-09 repair: effect-bound EXTERNAL/TOOL steps', () => {
+  test('EXTERNAL/TOOL/LLM without effect binding fails closed', async () => {
+    const runtime = runtimeFor(A);
+    runtime.registerWorkflow('demo.unbound_external', async (ctx) => {
+      await ctx.runStep('x', async () => ({ bad: true }), { kind: 'EXTERNAL' });
+      return { ok: true };
+    });
+    const result = await runtime.startWorkflow('demo.unbound_external', {});
+    assert.equal(result.status, 'ERROR');
+    assert.equal(result.error.code, 'EFFECT_BINDING_REQUIRED');
+  });
+
+  test('effect-bound TOOL step uses deterministic idempotency key; crash-after-commit does not duplicate', async () => {
+    const store = new Map();
+    const adapter = createLocalEffectAdapter(store);
+    const workflowId = randomUUID();
+    const capabilityId = 'cap.local.dbos.tool';
+    const canonical = { op: 'tool_write', n: 1 };
+    const rh = requestHash(canonical);
+    const expectedKey = idempotencyKey({
+      tenant_id: A,
+      workflow_id: workflowId,
+      step_id: 'tool.write',
+      capability_id: capabilityId,
+      request_hash: rh,
+    });
+
+    let commitCalls = 0;
+    const crashingAdapter = {
+      surface: adapter.surface,
+      hasCommitted: (k) => adapter.hasCommitted(k),
+      getCommitted: (k) => adapter.getCommitted(k),
+      verifyPostcondition: (args) => adapter.verifyPostcondition(args),
+      async commit(args) {
+        commitCalls += 1;
+        const result = await adapter.commit(args);
+        if (commitCalls === 1) {
+          const err = new Error('injected crash after external commit before checkpoint');
+          err.name = 'CrashAfterExternalCommit';
+          throw err;
+        }
+        return result;
+      },
+    };
+
+    function register(runtime) {
+      runtime.registerWorkflow('demo.effect_tool', async (ctx) => {
+        const out = await ctx.runStep(
+          'tool.write',
+          async () => ({ prepared: true }),
+          {
+            kind: 'TOOL',
+            effect: {
+              capability_id: capabilityId,
+              request: canonical,
+              request_hash: rh,
+              adapter: crashingAdapter,
+            },
+          }
+        );
+        return { out };
+      });
+    }
+
+    const runtimeA = runtimeFor(A);
+    register(runtimeA);
+    const crashed = await runtimeA.startWorkflow('demo.effect_tool', {}, { workflowId });
+    assert.equal(crashed.status, 'ERROR');
+    assert.equal(crashed.recoverable, true);
+    assert.equal(crashed.error.code, 'CRASH_AFTER_EFFECT_COMMIT');
+    assert.equal(commitCalls, 1);
+    assert.equal(store.has(expectedKey), true, 'external effect committed once');
+
+    // Workflow stays PENDING (recoverable); no SUCCESS/ERROR step checkpoint yet.
+    const wfAfterCrash = await runtimeA.getWorkflow(workflowId);
+    assert.equal(wfAfterCrash.status, 'PENDING');
+    const stepsAfterCrash = await runtimeA.listCompletedSteps(workflowId);
+    assert.equal(stepsAfterCrash.length, 0);
+
+    const runtimeB = runtimeFor(A);
+    register(runtimeB);
+    const recovered = await runtimeB.resumeWorkflow(workflowId);
+    assert.equal(recovered.status, 'SUCCESS');
+    assert.equal(commitCalls, 1, 'adapter.commit must not run again after crash');
+    assert.equal(recovered.output.out.idempotency_key, expectedKey);
+    assert.equal(recovered.output.out.resumed, true);
+    assert.equal(recovered.output.out.postcondition_status, 'VERIFIED');
+    assert.equal(store.size, 1);
+
+    const steps = await runtimeB.listCompletedSteps(workflowId);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].idempotency_key, expectedKey);
+    assert.equal(steps[0].step_kind, 'TOOL');
   });
 });
