@@ -27,6 +27,7 @@ import {
 } from './autonomy.js';
 import { assertWritersAllowed, WritersFrozenError } from './dbos.js';
 import { LOCAL_FAKE_SURFACE } from './local-effect-adapter.js';
+import { createExecutionTrace } from './observability.js';
 import { acquireLocalEffectScopeLock } from './reconciliation.js';
 
 export class TrustedExecutorError extends Error {
@@ -195,6 +196,18 @@ async function completeFromCommitted({
     );
   }
 
+  // F-12: receipts must bind to a real execution_traces row (no dangling UUIDs).
+  const trace = await createExecutionTrace(backend, {
+    tenant_id: proposal.tenant_id,
+    workflow_id: proposal.workflow_id,
+    root_span: 'trusted_executor',
+    attributes: {
+      step_id: proposal.step_id,
+      capability_id: proposal.capability_id,
+      effect_id: ledger.effect_id,
+    },
+  });
+
   const receiptId = await appendReceipt(backend, {
     tenant_id: proposal.tenant_id,
     workflow_id: proposal.workflow_id,
@@ -217,7 +230,7 @@ async function completeFromCommitted({
     postcondition_verifier: capability.postcondition_verifier,
     verification_status: verificationStatus,
     error_class: outcome === 'SUCCEEDED' ? null : `postcondition_${post.status.toLowerCase()}`,
-    trace_id: randomUUID(),
+    trace_id: trace.trace_id,
   });
 
   // Completion may land AMBIGUOUS/UNKNOWN/UNVERIFIED — same scope lock as REPAIR.

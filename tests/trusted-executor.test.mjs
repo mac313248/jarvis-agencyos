@@ -200,6 +200,19 @@ describe('Master #22 at-most-once', () => {
     assert.equal(commitCalls, 1);
     assert.equal(store.size, 1);
 
+    // F-12: live executor receipts must resolve to a real execution_traces row.
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const { resolveReceiptTrace } = await import('../src/runtime/observability.js');
+      const resolved = await resolveReceiptTrace(tx, {
+        receipt_id: first.receipt_id,
+        tenant_id: A,
+      });
+      assert.ok(resolved.trace_id);
+      assert.ok(resolved.trace);
+      assert.equal(resolved.trace.root_span, 'trusted_executor');
+      assert.equal(resolved.trace.status, 'open');
+    });
+
     // Same logical effect (same workflow/step/request) on a new proposal row is
     // still the same idempotency key when fields match — seed identical inputs.
     const second = await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {

@@ -116,6 +116,64 @@ describe('F-12 #18 non-silenceable classes cannot be SILENCED', () => {
     });
   }
 
+  test('caller cannot demote non_silenceable or owner visibility on open', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => openOrRefreshAttentionItem(tx, {
+          tenant_id: A,
+          condition_key: 'sec.demote',
+          event_class: 'tenant_isolation_security',
+          non_silenceable: false,
+          severity: 'INFO',
+          owner_action_required: false,
+          payload: { attempt: 1 },
+        }),
+        (e) => e instanceof ObservabilityError && e.code === 'NON_SILENCEABLE_SILENCED'
+      );
+
+      await assert.rejects(
+        () => openOrRefreshAttentionItem(tx, {
+          tenant_id: A,
+          condition_key: 'sec.invisible',
+          event_class: 'material_financial',
+          owner_action_required: false,
+          severity: 'HIGH',
+          payload: { attempt: 1 },
+        }),
+        (e) => e instanceof ObservabilityError && e.code === 'NON_SILENCEABLE_SILENCED'
+      );
+    });
+  });
+
+  test('DB rejects silenced non-silenceable attention rows', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO attention_items (
+             attention_id, tenant_id, condition_key, state_hash, severity,
+             owner_action_required, event_class, non_silenceable, status
+           ) VALUES (
+             $1,$2,'db.silence.flag','hash1','HIGH',true,
+             'tenant_isolation_security', false, 'open'
+           );`,
+          [randomUUID(), A]
+        )
+      );
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO attention_items (
+             attention_id, tenant_id, condition_key, state_hash, severity,
+             owner_action_required, event_class, non_silenceable, status
+           ) VALUES (
+             $1,$2,'db.silence.vis','hash2','INFO',false,
+             'severe_production_fault', true, 'open'
+           );`,
+          [randomUUID(), A]
+        )
+      );
+    });
+  });
+
   test('non-silenceable events open owner-visible attention items', async () => {
     await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
       for (const eventClass of [
@@ -170,6 +228,18 @@ describe('F-12 #19 10k healthy/no-op events → zero strong-model wakes', () => 
     assert.equal(metrics.strong_model_wakes, 0);
     assert.equal(metrics.silences, 10_000);
     assert.equal(metrics.notifications, 0);
+  });
+
+  test('LLM cannot escalate healthy/no-op events to WAKE', () => {
+    for (const eventClass of HEALTHY_NOOP_CLASSES) {
+      const d = evaluateMateriality(
+        { event_class: eventClass },
+        { llmSuggestion: 'WAKE' }
+      );
+      assert.equal(d.action, 'SILENCE');
+      assert.equal(d.strong_model_wake, false);
+      assert.match(d.reason, /llm escalation blocked/);
+    }
   });
 
   test('mixed batch: only non-noop material classes may wake', () => {

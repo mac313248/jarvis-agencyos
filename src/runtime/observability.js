@@ -152,10 +152,12 @@ export function evaluateMateriality(event, {
     reason = 'batchable non-critical delta';
   }
 
-  // LLM / heuristic may increase urgency only.
+  // LLM / heuristic may increase urgency only — never for healthy/no-op (#19),
+  // and never to SILENCE a non-silenceable class (#18 / stop condition).
   if (llmSuggestion && MATERIALITY_ACTIONS.includes(llmSuggestion)) {
-    if (nonSilenceable && llmSuggestion === 'SILENCE') {
-      // Stop condition: never honor silence of a non-silenceable class.
+    if (healthyNoop) {
+      reason = `${reason}; llm escalation blocked for healthy/no-op`;
+    } else if (nonSilenceable && llmSuggestion === 'SILENCE') {
       reason = `${reason}; llm SILENCE blocked`;
     } else {
       action = maxAction(action, llmSuggestion);
@@ -255,11 +257,40 @@ export async function openOrRefreshAttentionItem(backend, fields) {
   assertBusinessWriteAutonomyDisabled();
 
   const eventClass = fields.event_class;
-  const nonSilenceable = fields.non_silenceable ?? isNonSilenceable(eventClass);
-  const severity = fields.severity
+  if (!eventClass) {
+    throw new ObservabilityError('INVALID_ATTENTION', 'event_class required');
+  }
+
+  // Registry wins: callers cannot demote a non-silenceable class (#18 / stop).
+  const registryNonSilenceable = isNonSilenceable(eventClass);
+  if (fields.non_silenceable === false && registryNonSilenceable) {
+    throw new ObservabilityError(
+      'NON_SILENCEABLE_SILENCED',
+      `Refuse to clear non_silenceable for class=${eventClass}`,
+      { event_class: eventClass }
+    );
+  }
+  const nonSilenceable = registryNonSilenceable || fields.non_silenceable === true;
+
+  let severity = fields.severity
     || CLASS_DEFAULT_SEVERITY[eventClass]
     || 'WARNING';
-  const ownerActionRequired = fields.owner_action_required ?? nonSilenceable;
+  let ownerActionRequired = fields.owner_action_required ?? nonSilenceable;
+
+  if (nonSilenceable) {
+    if (fields.owner_action_required === false) {
+      throw new ObservabilityError(
+        'NON_SILENCEABLE_SILENCED',
+        `Refuse owner-invisible attention for class=${eventClass}`,
+        { event_class: eventClass }
+      );
+    }
+    ownerActionRequired = true;
+    if (!fields.severity || severity === 'INFO') {
+      severity = CLASS_DEFAULT_SEVERITY[eventClass] || 'HIGH';
+    }
+  }
+
   const stateHash = fields.state_hash
     || computeAttentionStateHash({
       condition_key: fields.condition_key,
@@ -283,6 +314,13 @@ export async function openOrRefreshAttentionItem(backend, fields) {
     trace_id: fields.trace_id ?? null,
   };
   validateAttentionItem(candidate);
+
+  // Serialize open/refresh for the same tenant condition so concurrent
+  // deliveries of a new state_hash cannot both claim notified=true (#20).
+  await backend.query(
+    'SELECT pg_advisory_xact_lock(hashtext($1::text), hashtext($2::text));',
+    [candidate.tenant_id, candidate.condition_key]
+  );
 
   const existing = await backend.query(
     `SELECT attention_id, tenant_id, condition_key, state_hash, severity,

@@ -53,12 +53,36 @@ CREATE TABLE attention_items (
 );
 ALTER TABLE attention_items OWNER TO app_migrator;
 
--- DB stop-gate: non-silenceable attention rows cannot be marked resolved via a
--- "silenced" severity/status escape hatch that drops owner visibility while open.
+-- DB stop-gate: known non-silenceable classes cannot be persisted as silenceable
+-- or owner-invisible while unresolved (acceptance #18 / stop condition).
+ALTER TABLE attention_items
+  ADD CONSTRAINT attention_items_non_silenceable_class_locked
+  CHECK (
+    event_class NOT IN (
+      'tenant_isolation_security',
+      'credential_authentication_anomaly',
+      'authority_permission_change',
+      'kill_switch_fail_closed',
+      'material_financial',
+      'privacy_legal_opt_out',
+      'unknown_ambiguous_customer_effect',
+      'control_store_outage',
+      'severe_production_fault'
+    )
+    OR non_silenceable = true
+  );
+
 ALTER TABLE attention_items
   ADD CONSTRAINT attention_items_non_silenceable_visible
   CHECK (
-    NOT (non_silenceable = true AND status = 'open' AND severity = 'INFO' AND owner_action_required = false)
+    NOT (
+      non_silenceable = true
+      AND status IN ('open', 'acked', 'snoozed')
+      AND (
+        owner_action_required = false
+        OR severity = 'INFO'
+      )
+    )
   );
 
 ALTER TABLE execution_traces ENABLE ROW LEVEL SECURITY;
