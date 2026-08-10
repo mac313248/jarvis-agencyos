@@ -36,17 +36,29 @@ import {
 } from '../src/runtime/observability.js';
 
 let db;
+let harnessReady = false;
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
 
 before(async () => {
-  db = await freshCluster({ dataDir: './.pgdata/observability-test' });
+  // Unique per-process/test-run PGlite dir: fixed paths + review/concurrent
+  // contamination previously produced RuntimeError: unreachable and cancelled
+  // the whole suite (cancelled ≠ pass).
+  db = await freshCluster({ unique: 'observability-test' });
   await seedTwoTenants(db, { aId: A, bId: B });
+  harnessReady = true;
 });
 
-after(async () => { await db.close(); });
+after(async () => {
+  if (db) await db.close();
+});
 
 describe('F-12 autonomy + contract surface', () => {
+  test('acceptance harness initialized (cancelled suite is not a pass)', () => {
+    assert.equal(harnessReady, true);
+    assert.ok(db, 'freshCluster must succeed before F-12 acceptance runs');
+  });
+
   test('business-write autonomy remains DISABLED', () => {
     assert.equal(BUSINESS_WRITE_AUTONOMY, false);
     assert.equal(LIVE_EXTERNAL_SIDE_EFFECTS, false);
@@ -347,6 +359,11 @@ describe('F-12 receipts/trace linkage', () => {
     const stepId = 'step.link-1';
 
     await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const provisional = await createExecutionTrace(tx, {
+        tenant_id: A,
+        workflow_id: workflowId,
+        root_span: 'provisional',
+      });
       const trace = await createExecutionTrace(tx, {
         tenant_id: A,
         workflow_id: workflowId,
@@ -354,6 +371,7 @@ describe('F-12 receipts/trace linkage', () => {
         attributes: { phase: 'F-12' },
       });
 
+      // FK requires a real same-tenant trace at insert time (no dangling UUIDs).
       await tx.query(
         `INSERT INTO execution_receipts (
            receipt_id, tenant_id, workflow_id, step_id, actor, capability_id,
@@ -370,7 +388,7 @@ describe('F-12 receipts/trace linkage', () => {
           workflowId,
           stepId,
           `idem-${receiptId}`,
-          randomUUID(), // provisional; will be linked
+          provisional.trace_id,
         ]
       );
 
@@ -428,6 +446,130 @@ describe('F-12 receipts/trace linkage', () => {
         [traceId]
       );
       assert.equal(traces.rows[0].n, 0);
+    });
+  });
+
+  test('DB rejects dangling execution_receipts.trace_id', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO execution_receipts (
+             receipt_id, tenant_id, workflow_id, step_id, actor, capability_id,
+             provider, operation, target_ref, idempotency_key, request_hash,
+             revocation_epoch_at_commit, kill_epoch_at_commit, started_at,
+             verification_status, retry_count, trace_id
+           ) VALUES (
+             $1,$2,$3,'s','test','cap','local','op','t',$4,'h',0,0,now(),'VERIFIED',0,$5
+           );`,
+          [randomUUID(), A, randomUUID(), `idem-dangling-${randomUUID()}`, randomUUID()]
+        ),
+        /foreign key|violates foreign key/i
+      );
+    });
+  });
+
+  test('DB rejects dangling attention_items.trace_id', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO attention_items (
+             attention_id, tenant_id, condition_key, state_hash, severity,
+             owner_action_required, event_class, non_silenceable, status, trace_id
+           ) VALUES (
+             $1,$2,'fk.trace.dangle','hash-t','HIGH',true,
+             'noop', false, 'open', $3
+           );`,
+          [randomUUID(), A, randomUUID()]
+        ),
+        /foreign key|violates foreign key/i
+      );
+    });
+  });
+
+  test('DB rejects dangling attention_items.receipt_id', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO attention_items (
+             attention_id, tenant_id, condition_key, state_hash, severity,
+             owner_action_required, event_class, non_silenceable, status, receipt_id
+           ) VALUES (
+             $1,$2,'fk.receipt.dangle','hash-r','HIGH',true,
+             'noop', false, 'open', $3
+           );`,
+          [randomUUID(), A, randomUUID()]
+        ),
+        /foreign key|violates foreign key/i
+      );
+    });
+  });
+
+  test('DB rejects cross-tenant receipt→trace link', async () => {
+    const workflowId = randomUUID();
+    let traceB;
+
+    await asRuntimeTenant(db, 'app_runtime', B, async (tx) => {
+      traceB = await createExecutionTrace(tx, {
+        tenant_id: B,
+        workflow_id: workflowId,
+      });
+    });
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO execution_receipts (
+             receipt_id, tenant_id, workflow_id, step_id, actor, capability_id,
+             provider, operation, target_ref, idempotency_key, request_hash,
+             revocation_epoch_at_commit, kill_epoch_at_commit, started_at,
+             verification_status, retry_count, trace_id
+           ) VALUES (
+             $1,$2,$3,'s','test','cap','local','op','t',$4,'h',0,0,now(),'VERIFIED',0,$5
+           );`,
+          [randomUUID(), A, workflowId, `idem-xtrace-${randomUUID()}`, traceB.trace_id]
+        ),
+        /foreign key|violates foreign key/i
+      );
+    });
+  });
+
+  test('DB rejects cross-tenant attention→receipt link', async () => {
+    const workflowId = randomUUID();
+    let receiptB;
+
+    await asRuntimeTenant(db, 'app_runtime', B, async (tx) => {
+      const traceB = await createExecutionTrace(tx, {
+        tenant_id: B,
+        workflow_id: workflowId,
+      });
+      receiptB = randomUUID();
+      await tx.query(
+        `INSERT INTO execution_receipts (
+           receipt_id, tenant_id, workflow_id, step_id, actor, capability_id,
+           provider, operation, target_ref, idempotency_key, request_hash,
+           revocation_epoch_at_commit, kill_epoch_at_commit, started_at,
+           verification_status, retry_count, trace_id
+         ) VALUES (
+           $1,$2,$3,'s','test','cap','local','op','t',$4,'h',0,0,now(),'VERIFIED',0,$5
+         );`,
+        [receiptB, B, workflowId, `idem-b-${receiptB}`, traceB.trace_id]
+      );
+    });
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await assert.rejects(
+        () => tx.query(
+          `INSERT INTO attention_items (
+             attention_id, tenant_id, condition_key, state_hash, severity,
+             owner_action_required, event_class, non_silenceable, status, receipt_id
+           ) VALUES (
+             $1,$2,'fk.xreceipt','hash-x','HIGH',true,
+             'noop', false, 'open', $3
+           );`,
+          [randomUUID(), A, receiptB]
+        ),
+        /foreign key|violates foreign key/i
+      );
     });
   });
 });

@@ -13,19 +13,40 @@
 
 import { createDb, asRole } from '../src/db/index.js';
 import { applyMigrations } from '../src/db/migrator.js';
-import { rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 
 const dataDir = process.env.TEST_PGDATA || new URL('../.pgdata/test', import.meta.url).pathname;
+const pgdataRoot = new URL('../.pgdata/', import.meta.url).pathname;
 
-export async function freshCluster({ dataDir: dir } = {}) {
-  const target = dir || dataDir;
+export async function freshCluster({ dataDir: dir, unique = false } = {}) {
+  let target = dir || dataDir;
+  let ownedUniqueDir = null;
+  // Optional unique per-process/test-run dir avoids PGlite WASM RuntimeError
+  // when a fixed path is contaminated by a concurrent/review process.
+  if (unique) {
+    const prefix = typeof unique === 'string' ? unique : 'cluster';
+    await mkdir(pgdataRoot, { recursive: true });
+    ownedUniqueDir = await mkdtemp(join(pgdataRoot, `${prefix}-${process.pid}-`));
+    target = ownedUniqueDir;
+  }
   // Guarantee a TRULY fresh cluster on every call (including re-runs): remove
   // any persisted PGlite data from a previous run so fixed-UUID seeding does
   // not hit duplicate-key errors. Each test file uses its own data dir and
   // closes its db in `after`, so the dir is never locked when we remove it.
-  try { await rm(target, { recursive: true, force: true }); } catch {}
+  if (!ownedUniqueDir) {
+    try { await rm(target, { recursive: true, force: true }); } catch {}
+  }
   const db = await createDb({ dataDir: target });
   await applyMigrations(db, new URL('../migrations/', import.meta.url).pathname);
+  if (ownedUniqueDir) {
+    const close = db.close.bind(db);
+    db.close = async () => {
+      try { await close(); } finally {
+        try { await rm(ownedUniqueDir, { recursive: true, force: true }); } catch {}
+      }
+    };
+  }
   return db;
 }
 

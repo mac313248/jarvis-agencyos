@@ -61,7 +61,13 @@ describe('authority / kill fail-closed (bootstrap path)', () => {
   test('33. Receipt records commit-time revocation/kill epochs', async () => {
     const fresh = await readFreshAuthorityFor(db, A);
     const receiptId = randomUUID();
+    const traceId = randomUUID();
     await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO execution_traces (trace_id, tenant_id, root_span)
+         VALUES ($1, $2, 'authority-kill-test');`,
+        [traceId, A]
+      );
       await tx.query(
         `INSERT INTO execution_receipts
            (receipt_id, tenant_id, workflow_id, step_id, actor, capability_id, provider,
@@ -70,7 +76,7 @@ describe('authority / kill fail-closed (bootstrap path)', () => {
             verification_status, trace_id)
          VALUES ($1,$2,$3,'step-1','agent0','cap.fake','fake-provider','noop','noop-target',$4,$5,
                  $6,$7, now(), now(), 'VERIFIED', $8);`,
-        [receiptId, A, randomUUID(), 'idem-' + randomUUID(), 'rh', fresh.revocationEpoch, fresh.killEpoch, randomUUID()]
+        [receiptId, A, randomUUID(), 'idem-' + randomUUID(), 'rh', fresh.revocationEpoch, fresh.killEpoch, traceId]
       );
     });
     const stored = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>

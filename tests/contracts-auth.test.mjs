@@ -264,10 +264,16 @@ describe('receipts / PII', () => {
   test('18. Immutable receipt storage does not require raw customer PII', async () => {
     // Create an opaque subject_ref pointing to a deletable PII store row.
     const subjectRef = randomUUID();
+    const traceId = randomUUID();
     await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
       await tx.query(
         `INSERT INTO pii_subjects (subject_ref, tenant_id, pii_store_ref, status) VALUES ($1, $2, 'pii-store://row-42', 'active');`,
         [subjectRef, A]
+      );
+      await tx.query(
+        `INSERT INTO execution_traces (trace_id, tenant_id, root_span)
+         VALUES ($1, $2, 'contracts-auth-test');`,
+        [traceId, A]
       );
       // Receipt references subject_ref only; NO raw PII columns exist on it.
       await tx.query(
@@ -278,7 +284,7 @@ describe('receipts / PII', () => {
             verification_status, trace_id)
          VALUES ($1,$2,$3,'step-1','agent0','cap.refund','fake-provider','refund','acct-1',$4,$5,$6,
                  0,0, now(), now(), 'VERIFIED', $7);`,
-        [randomUUID(), A, randomUUID(), subjectRef, 'idem-' + randomUUID(), sha256Hex('r'), randomUUID()]
+        [randomUUID(), A, randomUUID(), subjectRef, 'idem-' + randomUUID(), sha256Hex('r'), traceId]
       );
     });
     // Verify the receipt schema has no raw PII columns (only subject_ref).
