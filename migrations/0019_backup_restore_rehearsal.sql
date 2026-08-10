@@ -12,10 +12,15 @@
 -- "Backup is not proven until restore is tested."
 -- Stop condition: unrehearsed restore.
 -- Business-write autonomy remains DISABLED.
+--
+-- Tenant isolation (01_ARCHITECTURE_LOCKS.md): backup_artifacts and
+-- backup_rehearsal_runs are tenant-owned — RLS + FORCE RLS; backup_epoch
+-- cannot cross tenants.
 
--- Inventory of backup artifacts per required surface.
+-- Inventory of backup artifacts per required surface (tenant-scoped).
 CREATE TABLE backup_artifacts (
   artifact_id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(tenant_id),
   surface text NOT NULL
     CHECK (surface IN (
       'postgres_pitr',
@@ -28,16 +33,24 @@ CREATE TABLE backup_artifacts (
   payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT backup_artifacts_payload_is_object
-    CHECK (jsonb_typeof(payload_json) = 'object')
+    CHECK (jsonb_typeof(payload_json) = 'object'),
+  UNIQUE (tenant_id, surface, backup_epoch)
 );
 ALTER TABLE backup_artifacts OWNER TO app_migrator;
 
-CREATE INDEX backup_artifacts_surface_epoch_idx
-  ON backup_artifacts (surface, backup_epoch DESC);
+CREATE INDEX backup_artifacts_tenant_surface_epoch_idx
+  ON backup_artifacts (tenant_id, surface, backup_epoch DESC);
+
+ALTER TABLE backup_artifacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backup_artifacts FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY backup_artifacts_iso ON backup_artifacts
+  USING (tenant_id = cur_tenant()) WITH CHECK (tenant_id = cur_tenant());
 
 -- Proof that a restore was actually rehearsed (not merely claimed).
 CREATE TABLE backup_rehearsal_runs (
   rehearsal_id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(tenant_id),
   backup_epoch int NOT NULL,
   status text NOT NULL
     CHECK (status IN ('RUNNING', 'SUCCESS', 'FAILED')),
@@ -75,6 +88,15 @@ CREATE TABLE backup_rehearsal_runs (
 );
 ALTER TABLE backup_rehearsal_runs OWNER TO app_migrator;
 
+CREATE INDEX backup_rehearsal_runs_tenant_epoch_idx
+  ON backup_rehearsal_runs (tenant_id, backup_epoch DESC);
+
+ALTER TABLE backup_rehearsal_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backup_rehearsal_runs FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY backup_rehearsal_runs_iso ON backup_rehearsal_runs
+  USING (tenant_id = cur_tenant()) WITH CHECK (tenant_id = cur_tenant());
+
 -- Rebuildable derived index ledger (pgvector/FTS stand-ins for foundation).
 CREATE TABLE derived_index_entries (
   index_id uuid PRIMARY KEY,
@@ -94,21 +116,26 @@ ALTER TABLE derived_index_entries FORCE ROW LEVEL SECURITY;
 CREATE POLICY derived_index_entries_iso ON derived_index_entries
   USING (tenant_id = cur_tenant()) WITH CHECK (tenant_id = cur_tenant());
 
--- Object-storage versioning/retention stand-in for rehearsal.
+-- Object-storage versioning/retention stand-in for rehearsal (tenant-scoped).
 CREATE TABLE object_storage_versions (
   version_id uuid PRIMARY KEY,
+  tenant_id uuid NOT NULL REFERENCES tenants(tenant_id),
   bucket_key text NOT NULL,
   object_key text NOT NULL,
   version_number int NOT NULL,
   content_sha256 text NOT NULL,
   retained boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (bucket_key, object_key, version_number)
+  UNIQUE (tenant_id, bucket_key, object_key, version_number)
 );
 ALTER TABLE object_storage_versions OWNER TO app_migrator;
 
--- Control-plane tables: no RLS (singleton recovery plane).
--- Runtime may read/write rehearsal state; derived indexes are tenant-scoped.
+ALTER TABLE object_storage_versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE object_storage_versions FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY object_storage_versions_iso ON object_storage_versions
+  USING (tenant_id = cur_tenant()) WITH CHECK (tenant_id = cur_tenant());
+
 GRANT SELECT, INSERT, UPDATE ON backup_artifacts, backup_rehearsal_runs TO app_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON derived_index_entries TO app_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON object_storage_versions TO app_runtime;

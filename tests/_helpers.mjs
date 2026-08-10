@@ -14,20 +14,25 @@
 import { createDb, asRole } from '../src/db/index.js';
 import { applyMigrations } from '../src/db/migrator.js';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const dataDir = process.env.TEST_PGDATA || new URL('../.pgdata/test', import.meta.url).pathname;
-const pgdataRoot = new URL('../.pgdata/', import.meta.url).pathname;
+// Unique clusters use OS tempdir so read-only Codex review (no write to
+// repo-local .pgdata) can still run phase suites like npm run test:f13.
+const uniquePgdataRoot = join(tmpdir(), 'jarvis-agencyos-pgdata');
 
 export async function freshCluster({ dataDir: dir, unique = false } = {}) {
   let target = dir || dataDir;
   let ownedUniqueDir = null;
   // Optional unique per-process/test-run dir avoids PGlite WASM RuntimeError
   // when a fixed path is contaminated by a concurrent/review process.
+  // Prefer OS tempdir for unique clusters; preserve fixed-path behavior when
+  // callers intentionally pass dataDir (e.g. './.pgdata/...').
   if (unique) {
     const prefix = typeof unique === 'string' ? unique : 'cluster';
-    await mkdir(pgdataRoot, { recursive: true });
-    ownedUniqueDir = await mkdtemp(join(pgdataRoot, `${prefix}-${process.pid}-`));
+    await mkdir(uniquePgdataRoot, { recursive: true });
+    ownedUniqueDir = await mkdtemp(join(uniquePgdataRoot, `${prefix}-${process.pid}-`));
     target = ownedUniqueDir;
   }
   // Guarantee a TRULY fresh cluster on every call (including re-runs): remove
