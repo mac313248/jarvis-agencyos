@@ -39,14 +39,14 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 | 9 | Owner session requires authentication | REQUIRED_NOW (primitive) | `owner_sessions` schema + `validateApproval` session checks; live auth provider (OAuth/MFA provider) DEFERRED |
 | 10 | High-risk approval requires recent step-up MFA | REQUIRED_NOW | contracts-auth test 13 (+ exact session/principal binding tests 14a/14b/14c) |
 | 11 | APPROVE works only for exact proposal_id + request_hash | REQUIRED_NOW | contracts-auth test 14 |
-| 12 | Payload/state mutation invalidates prior approval | REQUIRED_NOW | contracts-auth test 15 |
+| 12 | Payload/state mutation invalidates prior approval | REQUIRED_NOW | contracts-auth test 15 + DB-backed test 1DB (persisted loader path) |
 | 13 | Raw text "owner approved" has zero value | REQUIRED_NOW | contracts-auth test 16 |
 | 14 | Revoked/expired grant blocks next action | STRUCTURAL_PREREQUISITE | `authority_grants` status + `revocation_epoch`; full grant-check at execution DEFERRED to executor phase |
 
 ## Inbound authenticity
 | # | Test | Disposition | Evidence |
 |---|---|---|---|
-| 15 | Forged/invalid-signature webhook cannot materialize canonical state | REQUIRED_NOW | contracts-auth test 17 (fake adapter boundary) |
+| 15 | Forged/invalid-signature webhook cannot materialize canonical state | REQUIRED_NOW | contracts-auth test 17 (fake adapter boundary) + DB-enforced CHECK + direct DB tests 2DBa/2DBb |
 | 16 | Replay/duplicate creates one canonical event | STRUCTURAL_PREREQUISITE | `canonical_events.dedup_key` UNIQUE; full ingestion dedupe DEFERRED |
 | 17 | Authenticated payload text remains untrusted for instruction | REQUIRED_NOW | `content_trust` UNTRUSTED_PAYLOAD + `canMaterializeCanonicalState` (structured materialization only); contracts-auth test 17 |
 
@@ -119,7 +119,7 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 | 53 | Backup restore actually rehearsed | DEFERRED_TO_LATER_FOUNDATION_PHASE | Recovery (later Foundation) |
 
 ## Summary
-- REQUIRED_NOW: 18 acceptance tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,45,46,48,49) — all green, proven by 29 unit tests (26 original + 3 new approval session/principal binding tests 14a/14b/14c).
+- REQUIRED_NOW: 18 acceptance tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,45,46,48,49) — all green, proven by 35 unit tests (29 prior + 6 new: 14d non-UUID session, 1DB DB-backed state invalidation, 2DBa/2DBb/2DBc/2DBd inbound authenticity DB enforcement).
 - STRUCTURAL_PREREQUISITE: 4 (14,16,44,47) — schema/primitive present; full enforcement DEFERRED.
 - DEFERRED_TO_LATER_FOUNDATION_PHASE: 26 — explicitly identified, not faked.
 - NOT_APPLICABLE: 0.

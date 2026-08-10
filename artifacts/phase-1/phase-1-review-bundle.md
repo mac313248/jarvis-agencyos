@@ -100,21 +100,28 @@ enable branch protection on `main` requiring the Phase 1 CI check + a passing
 review before merge. This does not block the Phase 1 secure-core-spine gate.
 
 ## Reviewer verdict
-- First Codex review: **PASS WITH FIXES** (2 findings).
-- Findings addressed by Cursor (this repair pass):
-  1. **Approval must bind to the exact owner session.** `validateApproval()`
-     now rejects unless `session.session_id === approval.owner_auth_session_id`
-     AND `session.owner_principal_id === approval.owner_principal_id`. Added
-     focused negative tests 14a (different valid step-up session_id rejected),
-     14b (different owner_principal_id rejected), 14c (correctly bound session
-     validates). No new auth architecture.
-  2. **Stale evidence binding repaired.** Evidence now binds to the reviewed
-     implementation SHA (the code+migrations+tests commit whose suite was run),
-     not to the evidence artifact commit. Wording corrected ("Reviewed
-     implementation SHA" vs evidence/review-only SHA). Self-referential Git-SHA
-     loop avoided (an artifact cannot cryptographically contain its own final
-     commit SHA). First Codex verdict + findings recorded here.
-- Status: ready for Codex rerun (RERUN_CODEX_GATE). The first review has run;
-  the WAITING_ON_OWNER sandbox-block status from the initial pass is resolved
-  (the first review was completed by the owner running Codex outside the
-  sandbox and returning PASS WITH FIXES).
+- First Codex review: **PASS WITH FIXES** (2 findings) — addressed.
+- Second Codex review: **PASS WITH FIXES** (4 findings) — addressed below.
+- Findings addressed by Cursor (second repair pass):
+  1. **DB-backed approval state binding.** `loadProposal()` now selects
+     `precondition_snapshot_ref`. Added DB-backed negative test (1DB) that
+     persists ActionProposal + ApprovalDecision + OwnerAuthContext session,
+     loads them through the real persisted loaders, proves the approval is
+     initially valid, mutates the persisted `precondition_snapshot_ref`,
+     reloads, and proves the prior approval becomes invalid.
+  2. **Enforce inbound authenticity.** Added DB-enforced CHECK constraint
+     `canonical_events_no_materialize_on_failed_auth` (migration 0009) rejecting
+     `materialized_state=true` with `authenticity_status IN ('FAILED','UNKNOWN')`.
+     Direct DB negative tests (2DBa FAILED, 2DBb UNKNOWN) prove PostgreSQL
+     rejects; 2DBc/2DBd prove VERIFIED/NOT_APPLICABLE and FAILED-with-false still allowed.
+  3. **Match canonical session-id types.** `owner_sessions.session_id` and
+     `approval_decisions.owner_auth_session_id` altered to `text` (migration 0009)
+     to match 06_SYSTEM_CONTRACTS.md (`string`). Non-UUID string session id
+     `owner-session-test-001` proven to honor exact binding (14d + 1DB).
+  4. **Postgres DATABASE_URL reproducibility.** `pg` added as a direct
+     dependency; package-lock refreshed; clean `npm ci` resolves `import('pg')`.
+     Evidence wording distinguishes PGlite (actually executed) from
+     DATABASE_URL multi-process PostgreSQL (supported, NOT executed in this
+     build environment; no real external cluster tested).
+- Status: ready for Codex rerun (RERUN_CODEX_GATE). Both Codex reviews have
+  now run and returned PASS WITH FIXES; all findings addressed.

@@ -102,13 +102,14 @@ for (const a of attacks) {
 write('rls-negative-tests.txt', rlsTxt);
 
 // ---- Build binding record ----
+const codexFirstVerdict = 'PASS WITH FIXES (first review; 2 findings addressed)';
+const codexSecondVerdict = process.env.CODEX_VERDICT2 || 'PASS WITH FIXES (second review; 4 findings addressed)';
 await recordBuildBinding(db, {
   sotManifestSha256: sot.manifestHash,
   gitCommitSha: implSha,
   builderRuntime: 'Cursor (GLM-5.2)',
-  reviewerRuntime: 'Codex (first review: PASS WITH FIXES)',
+  reviewerRuntime: 'Codex (1st: PASS WITH FIXES; 2nd: PASS WITH FIXES)',
 });
-const codexVerdict = process.env.CODEX_VERDICT || 'PASS WITH FIXES (first review; 2 findings addressed)';
 const binding = {
   sot_manifest_sha256: sot.manifestHash,
   reviewed_implementation_sha: implSha,
@@ -118,10 +119,13 @@ const binding = {
   branch,
   origin,
   builder_runtime: 'Cursor (GLM-5.2)',
-  reviewer_runtime: 'Codex (first review: PASS WITH FIXES)',
-  codex_first_verdict: codexVerdict,
+  reviewer_runtime: 'Codex (1st: PASS WITH FIXES; 2nd: PASS WITH FIXES)',
+  codex_first_verdict: codexFirstVerdict,
+  codex_second_verdict: codexSecondVerdict,
   postgres_engine: 'PGlite (real PostgreSQL WASM)',
   postgres_server_version: await serverVersion(db),
+  pg_path_actually_executed: 'PGlite (WASM) — actually executed in the Phase 1 test run',
+  database_url_path: 'node pg driver + DATABASE_URL — installable/supported by the same code and migrations; NOT actually exercised in this build environment (no real external PostgreSQL cluster was tested)',
   note: 'git_commit_sha binds to the exact code+migrations+tests implementation commit whose suite was run. Any later commit is evidence/review-only and does not modify implementation. The evidence artifact cannot cryptographically contain its own final commit SHA.',
   created_at: new Date().toISOString(),
 };
@@ -159,12 +163,18 @@ evidence/review-only and does not modify implementation.
   set_config are the real PostgreSQL implementation. Same migrations/tests
   run unchanged against a real multi-process PostgreSQL via DATABASE_URL.
 - server_version: ${binding.postgres_server_version}
+- PGlite/PostgreSQL WASM path: ACTUALLY EXECUTED in the Phase 1 test run.
+- DATABASE_URL multi-process PostgreSQL path: installable/supported by the same
+  code and migrations (pg is a declared dependency; clean npm ci resolves
+  import('pg')), but NOT actually exercised in this build environment. No real
+  external PostgreSQL cluster was tested.
 
 ## What was built
-- Migrations 0001-0008: roles + trusted tenant context, tenants/users/memberships
+- Migrations 0001-0009: roles + trusted tenant context, tenants/users/memberships
   (RLS + FORCE RLS), owner auth (principals/sessions/MFA), contract metadata +
   SOT build binding, authority/proposal/approval/policy, events/state/evidence,
-  receipts/PII subject refs, authority/kill epoch control.
+  receipts/PII subject refs, authority/kill epoch control, second-Codex repair
+  (canonical string session-id types + DB-enforced inbound authenticity invariant).
 - Least-privilege runtime role app_runtime (not superuser, no BYPASSRLS, not
   table owner). Migrator role owns objects. Owner/contract tables are not
   granted to the runtime role.
@@ -173,23 +183,38 @@ evidence/review-only and does not modify implementation.
 - Contract primitives: deterministic canonical IDs + request_hash; deterministic
   idempotency key SHA256(tenant||workflow||step||cap||request_hash); SOT mismatch
   guard; approval binding (proposal_id + request_hash + state version + EXACT
-  owner session/principal) with step-up MFA enforcement; inbound authenticity
-  boundary (FAILED/UNKNOWN cannot materialize canonical state); authority/kill
-  fail-closed epoch revalidation.
+  owner session/principal, canonical string session id) with step-up MFA
+  enforcement; inbound authenticity boundary (FAILED/UNKNOWN cannot materialize
+  canonical state, DB-enforced CHECK); authority/kill fail-closed epoch
+  revalidation.
 - No business-write autonomy. No live providers. No DBOS. No Agent 0.
 
-## Codex first review
-- Verdict: ${codexVerdict}
-- Findings addressed:
-  1. Approval now binds to the exact owner session (session_id) and principal
-     (owner_principal_id) recorded on ApprovalDecision. Added 3 negative tests.
-  2. Stale evidence binding repaired: evidence now binds to the reviewed
-     implementation SHA; wording corrected; self-referential SHA loop avoided;
-     first Codex verdict + findings recorded.
+## Codex reviews
+- First Codex review: ${codexFirstVerdict}
+  - Finding 1 (approval must bind to exact owner session) — addressed: exact
+    session_id + owner_principal_id binding + 3 negative tests.
+  - Finding 2 (stale evidence binding) — addressed: evidence bound to reviewed
+    implementation SHA; self-referential SHA loop avoided.
+- Second Codex review: ${codexSecondVerdict}
+  - Finding 1 (DB-backed approval state binding) — addressed: loadProposal()
+    now selects precondition_snapshot_ref; DB-backed test persists
+    proposal+approval+session, loads via real loaders, mutates state, reloads,
+    proves prior approval invalid.
+  - Finding 2 (enforce inbound authenticity) — addressed: DB CHECK constraint
+    canonical_events_no_materialize_on_failed_auth rejects
+    materialized_state=true with FAILED/UNKNOWN; direct DB negative tests.
+  - Finding 3 (match canonical session-id types) — addressed:
+    owner_sessions.session_id + approval_decisions.owner_auth_session_id
+    altered to text; non-UUID string session id test.
+  - Finding 4 (Postgres DATABASE_URL reproducibility) — addressed: pg declared
+    as direct dependency; package-lock refreshed; clean npm ci resolves
+    import('pg'); evidence wording distinguishes PGlite (executed) from
+    DATABASE_URL (supported, not executed).
 
 ## Required negative security tests (all green)
-See acceptance-map.md and test-results.txt. 29 tests across 7 suites
-(26 original + 3 new approval session/principal binding tests).
+See acceptance-map.md and test-results.txt. 35 tests across 9 suites
+(29 prior + 6 new: 14d non-UUID session, 1DB DB-backed state invalidation,
+ 2DBa/2DBb/2DBc/2DBd inbound authenticity DB enforcement).
 Direct RLS attacks against the real runtime role: see rls-negative-tests.txt.
 
 ## Known deferrals
