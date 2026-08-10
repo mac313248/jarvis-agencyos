@@ -22,13 +22,18 @@ import { idempotencyKey, requestHash } from '../contracts/ids.js';
 import {
   assertBusinessWriteAutonomyDisabled,
   BUSINESS_WRITE_AUTONOMY,
+  LIVE_EXTERNAL_SIDE_EFFECTS,
 } from './autonomy.js';
+import { LOCAL_FAKE_SURFACE } from './local-effect-adapter.js';
 
 export const DBOS_SCHEMA = 'dbos';
 export const DBOS_ROLE = 'dbos_runtime';
 
 /** Step kinds that perform nondeterministic external/tool/LLM side effects. */
 export const EFFECT_BOUND_STEP_KINDS = Object.freeze(['EXTERNAL', 'TOOL', 'LLM']);
+
+/** Non-terminal postcondition statuses that stay recoverable for reconciliation. */
+export const RECOVERABLE_POSTCONDITION_STATUSES = Object.freeze(['UNKNOWN', 'AMBIGUOUS']);
 
 export class DbosError extends Error {
   constructor(code, message, details = null) {
@@ -51,6 +56,20 @@ export class CrashAfterEffectCommitError extends DbosError {
   constructor(message, details = null) {
     super('CRASH_AFTER_EFFECT_COMMIT', message, details);
     this.name = 'CrashAfterEffectCommitError';
+  }
+}
+
+/** Effect committed but postcondition UNKNOWN/AMBIGUOUS — recoverable, never SUCCEEDED. */
+export class AmbiguousPostconditionError extends DbosError {
+  constructor(message, details = null) {
+    const status = details?.postcondition_status === 'UNKNOWN' ? 'UNKNOWN' : 'AMBIGUOUS';
+    super(
+      status === 'UNKNOWN' ? 'EFFECT_POSTCONDITION_UNKNOWN' : 'EFFECT_POSTCONDITION_AMBIGUOUS',
+      message,
+      details
+    );
+    this.name = 'AmbiguousPostconditionError';
+    this.postcondition_status = status;
   }
 }
 
@@ -222,6 +241,8 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
     async function allocateFunctionId(stepId) {
       const existing = await loadStep(backend, workflow.workflow_id, stepId);
       if (existing) return { existing, functionId: existing.function_id };
+      // Writer-freeze gate before every DBOS mutation (including next_function_id).
+      await assertWritersAllowed(backend);
       const functionId = functionIdCursor;
       functionIdCursor += 1;
       await backend.query(
@@ -247,7 +268,13 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
         `INSERT INTO dbos.operation_outputs
            (workflow_id, tenant_id, function_id, step_id, step_kind, status,
             output_json, error_json, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9);`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+         ON CONFLICT (workflow_id, step_id) DO UPDATE SET
+           status = EXCLUDED.status,
+           output_json = EXCLUDED.output_json,
+           error_json = EXCLUDED.error_json,
+           idempotency_key = COALESCE(EXCLUDED.idempotency_key, operation_outputs.idempotency_key),
+           completed_at = now();`,
         [
           workflow.workflow_id,
           tenantId,
@@ -259,6 +286,98 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
           error === null ? null : JSON.stringify(error),
           effectKey,
         ]
+      );
+    }
+
+    function assertApprovedDisabledEffectBoundary(adapter) {
+      assertBusinessWriteAutonomyDisabled();
+      if (LIVE_EXTERNAL_SIDE_EFFECTS !== false) {
+        throw new DbosError(
+          'LIVE_EXTERNAL_FORBIDDEN',
+          'LIVE_EXTERNAL_SIDE_EFFECTS must remain false; live effect adapters are forbidden'
+        );
+      }
+      if (!adapter || adapter.surface !== LOCAL_FAKE_SURFACE) {
+        throw new DbosError(
+          'LIVE_EXTERNAL_FORBIDDEN',
+          'DBOS effect-bound steps may only execute the approved disabled local_fake boundary'
+        );
+      }
+    }
+
+    async function resumeAmbiguousEffectStep({
+      existing,
+      stepId,
+      kind,
+      adapter,
+      key,
+      functionId,
+    }) {
+      assertApprovedDisabledEffectBoundary(adapter);
+      if (!adapter.hasCommitted(key)) {
+        throw new DbosError(
+          'EFFECT_AMBIGUOUS_MISSING_COMMIT',
+          `ambiguous step ${stepId} has no committed effect to reconcile (fail-closed)`,
+          { idempotency_key: key, prior_status: existing.status }
+        );
+      }
+      const post = await adapter.verifyPostcondition({ idempotency_key: key });
+      if (post.status === 'VERIFIED') {
+        const recovered = {
+          ok: true,
+          resumed: true,
+          reconciled: true,
+          idempotency_key: key,
+          commit_token: adapter.getCommitted?.(key)?.commit_token ?? null,
+          postcondition_status: post.status,
+        };
+        await checkpointStep({
+          functionId,
+          stepId,
+          kind,
+          status: 'SUCCESS',
+          output: recovered,
+          effectKey: key,
+        });
+        return recovered;
+      }
+      if (RECOVERABLE_POSTCONDITION_STATUSES.includes(post.status)) {
+        const ambiguous = {
+          ok: false,
+          resumed: true,
+          idempotency_key: key,
+          commit_token: adapter.getCommitted?.(key)?.commit_token ?? null,
+          postcondition_status: post.status,
+        };
+        await checkpointStep({
+          functionId,
+          stepId,
+          kind,
+          status: post.status,
+          output: ambiguous,
+          effectKey: key,
+        });
+        throw new AmbiguousPostconditionError(
+          `postcondition ${post.status} after prior commit; remains recoverable (fail-closed)`,
+          { idempotency_key: key, postcondition_status: post.status }
+        );
+      }
+      await checkpointStep({
+        functionId,
+        stepId,
+        kind,
+        status: 'ERROR',
+        error: {
+          message: `postcondition ${post.status} is terminal after ambiguous recovery`,
+          name: 'DbosError',
+          code: 'EFFECT_POSTCONDITION_UNVERIFIED',
+        },
+        effectKey: key,
+      });
+      throw new DbosError(
+        'EFFECT_POSTCONDITION_UNVERIFIED',
+        `postcondition ${post.status} after ambiguous recovery; refuse success (fail-closed)`,
+        { idempotency_key: key, postcondition_status: post.status }
       );
     }
 
@@ -290,6 +409,7 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
           'effect.adapter must expose hasCommitted/commit/verifyPostcondition (trusted-executor path)'
         );
       }
+      assertApprovedDisabledEffectBoundary(adapter);
 
       const reqHash = effect.request_hash
         || requestHash(effect.request ?? effect.canonical_request ?? {});
@@ -308,6 +428,16 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
           err.causePayload = existing.error_json;
           throw err;
         }
+        if (RECOVERABLE_POSTCONDITION_STATUSES.includes(existing.status)) {
+          return resumeAmbiguousEffectStep({
+            existing,
+            stepId,
+            kind,
+            adapter,
+            key: existing.idempotency_key || key,
+            functionId: existing.function_id,
+          });
+        }
         return existing.output_json;
       }
 
@@ -316,6 +446,27 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
       // Crash recovery: external effect already committed → do not re-execute fn/commit.
       if (adapter.hasCommitted(key)) {
         const post = await adapter.verifyPostcondition({ idempotency_key: key });
+        if (RECOVERABLE_POSTCONDITION_STATUSES.includes(post.status)) {
+          const ambiguous = {
+            ok: false,
+            resumed: true,
+            idempotency_key: key,
+            commit_token: adapter.getCommitted?.(key)?.commit_token ?? null,
+            postcondition_status: post.status,
+          };
+          await checkpointStep({
+            functionId,
+            stepId,
+            kind,
+            status: post.status,
+            output: ambiguous,
+            effectKey: key,
+          });
+          throw new AmbiguousPostconditionError(
+            `postcondition ${post.status} after prior commit; remains recoverable (fail-closed)`,
+            { idempotency_key: key, postcondition_status: post.status }
+          );
+        }
         if (post.status !== 'VERIFIED') {
           throw new DbosError(
             'EFFECT_POSTCONDITION_UNVERIFIED',
@@ -350,6 +501,29 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
           request: effect.request ?? effect.canonical_request ?? prep ?? {},
         });
         const post = await adapter.verifyPostcondition({ idempotency_key: key });
+        if (RECOVERABLE_POSTCONDITION_STATUSES.includes(post.status)) {
+          const ambiguous = {
+            ok: false,
+            resumed: false,
+            duplicate: commitResult.already_present === true,
+            idempotency_key: key,
+            commit_token: commitResult.commit_token,
+            postcondition_status: post.status,
+            prep: prep ?? null,
+          };
+          await checkpointStep({
+            functionId,
+            stepId,
+            kind,
+            status: post.status,
+            output: ambiguous,
+            effectKey: key,
+          });
+          throw new AmbiguousPostconditionError(
+            `postcondition ${post.status}; success not claimed; remains recoverable (fail-closed)`,
+            { idempotency_key: key, postcondition_status: post.status }
+          );
+        }
         if (post.status !== 'VERIFIED') {
           throw new DbosError(
             'EFFECT_POSTCONDITION_UNVERIFIED',
@@ -367,6 +541,9 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
           prep: prep ?? null,
         };
       } catch (e) {
+        if (e instanceof AmbiguousPostconditionError) {
+          throw e;
+        }
         if (e instanceof DbosError) {
           await checkpointStep({
             functionId,
@@ -605,6 +782,27 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
             error: { message: e.message, name: e.name, code: e.code || 'CRASH_AFTER_EFFECT_COMMIT' },
             recoverable: true,
           };
+        }
+        // UNKNOWN/AMBIGUOUS stay recoverable — never terminal ERROR, never SUCCEEDED.
+        if (
+          e instanceof AmbiguousPostconditionError
+          || e.code === 'EFFECT_POSTCONDITION_AMBIGUOUS'
+          || e.code === 'EFFECT_POSTCONDITION_UNKNOWN'
+        ) {
+          const postStatus = e.postcondition_status
+            || e.details?.postcondition_status
+            || (e.code === 'EFFECT_POSTCONDITION_UNKNOWN' ? 'UNKNOWN' : 'AMBIGUOUS');
+          return {
+            status: postStatus,
+            workflow_id: workflowId,
+            output: null,
+            error: { message: e.message, name: e.name, code: e.code, postcondition_status: postStatus },
+            recoverable: true,
+            postcondition_status: postStatus,
+          };
+        }
+        if (e instanceof WritersFrozenError || e.code === 'WRITERS_FROZEN') {
+          throw e;
         }
         await assertWritersAllowed(backend);
         await backend.query(

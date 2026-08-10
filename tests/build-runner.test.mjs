@@ -15,7 +15,7 @@ import {
   validatePhaseContract, loadState, saveState, defaultCursorInvoker,
   defaultCodexInvoker, FOUNDATION_SLICES, APPROVED_MANIFEST_SHA256,
   TERMINAL_STOP_STATES, CURSOR_AGENT_BIN,
-  isDryRunOwnerCheckpoint, BuildRunnerError,
+  isDryRunOwnerCheckpoint, BuildRunnerError, formatStatusReport,
 } from '../scripts/build-runner.mjs';
 
 const REAL_ROOT = new URL('../', import.meta.url).pathname;
@@ -254,10 +254,82 @@ test('FAIL on first verdict fails closed', async () => {
   const root = makeFixture({ completedSlices: ['F-01'] });
   try {
     const c = mockCursor();
-    const codex = () => review('FAIL', ['blocker']);
+    const blockers = [
+      'allocateFunctionId mutates before assertWritersAllowed',
+      'UNKNOWN/AMBIGUOUS treated as terminal ERROR',
+    ];
+    const codex = () => review('FAIL', blockers);
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
     assert.equal(state.status, 'FAILED_ACCEPTANCE_GATE');
     assert.equal(state.codex_verdicts.length, 1);
+    assert.deepEqual(state.blockers, blockers);
+    const report = formatStatusReport(state);
+    assert.match(report, /allocateFunctionId mutates before assertWritersAllowed/);
+    assert.match(report, /UNKNOWN\/AMBIGUOUS treated as terminal ERROR/);
+    assert.doesNotMatch(report, /blockers:\s*2\s*$/m);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('FAILED_ACCEPTANCE_GATE durable report includes actual blockers; terminal re-run does not replay Cursor', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    const c = mockCursor();
+    const blockers = [
+      'DBOS effect-bound steps accept arbitrary adapters',
+      'migration 0013 in-place edit skipped for existing DBs',
+    ];
+    const state = await run(root, {
+      cursorInvoker: c.invoker,
+      codexInvoker: () => review('FAIL', blockers),
+      testRunner: passingTests(),
+    });
+    assert.equal(state.status, 'FAILED_ACCEPTANCE_GATE');
+    assert.deepEqual(state.blockers, blockers);
+    assert.equal(c.calls.length, 1);
+
+    const durable = loadState(root);
+    assert.deepEqual(durable.blockers, blockers);
+    const report = formatStatusReport(durable);
+    assert.match(report, /FAILED_ACCEPTANCE_GATE/);
+    assert.match(report, /DBOS effect-bound steps accept arbitrary adapters/);
+    assert.match(report, /migration 0013 in-place edit skipped for existing DBs/);
+    // Must list the blockers themselves, not only a generic count.
+    assert.ok(report.includes(blockers[0]));
+    assert.ok(report.includes(blockers[1]));
+
+    const c2 = mockCursor();
+    let codexCalls = 0;
+    const again = await run(root, {
+      cursorInvoker: c2.invoker,
+      codexInvoker: () => { codexCalls++; return review('PASS'); },
+      testRunner: passingTests(),
+    });
+    assert.equal(again.status, 'FAILED_ACCEPTANCE_GATE');
+    assert.deepEqual(again.blockers, blockers);
+    assert.equal(c2.calls.length, 0, 'no duplicate Cursor replay on terminal FAILED_ACCEPTANCE_GATE');
+    assert.equal(codexCalls, 0, 'no Codex replay on terminal stop');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('PASS_WITH_FIXES then FAIL persists second-verdict blockers', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    const c = mockCursor();
+    let n = 0;
+    const secondBlockers = ['remaining freeze-gate hole', 'ambiguous postcondition still terminal'];
+    const codex = () => {
+      n++;
+      return n === 1
+        ? review('PASS_WITH_FIXES', ['first pass issues'])
+        : review('FAIL', secondBlockers);
+    };
+    const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
+    assert.equal(state.status, 'FAILED_ACCEPTANCE_GATE');
+    assert.deepEqual(state.blockers, secondBlockers);
+    assert.equal(c.calls.length, 2, 'exactly one repair cycle, no third Cursor replay');
+    const report = formatStatusReport(state);
+    assert.match(report, /remaining freeze-gate hole/);
+    assert.match(report, /ambiguous postcondition still terminal/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

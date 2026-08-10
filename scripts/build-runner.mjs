@@ -403,6 +403,7 @@ export function defaultState() {
     cursor_runs: 0,
     codex_verdicts: [],
     last_verdict: null,
+    blockers: [],
     // dry_run_checkpoint omitted on purpose: absent/undefined means "unknown /
     // legacy" so isDryRunOwnerCheckpoint can apply the contracted-only heuristic.
     // Explicit false is a genuine permanent owner gate.
@@ -454,8 +455,33 @@ export function saveState(root, state) {
     artifact_paths: [STATE_FILE, PHASE_CONTRACT_FILE],
     test_summary: out.test_summary || null,
     review_verdict: out.last_verdict || null,
+    blockers: Array.isArray(out.blockers) ? out.blockers : [],
   }) + '\n');
   return out;
+}
+
+/**
+ * Durable/final status reporting for the CLI and tests.
+ * FAILED_ACCEPTANCE_GATE must include the actual blocker list, never only a count.
+ */
+export function formatStatusReport(state) {
+  const lines = ['BUILD_RUNNER status=' + state.status];
+  if (state.current_phase_id) lines.push('  phase=' + state.current_phase_id);
+  if (state.last_accepted_sha) lines.push('  last_accepted_sha=' + state.last_accepted_sha);
+  if (state.codex_verdicts && state.codex_verdicts.length) {
+    lines.push('  codex_verdicts=' + state.codex_verdicts.join(','));
+  }
+  if (state.last_verdict) lines.push('  last_verdict=' + state.last_verdict);
+  if (state.status === 'FAILED_ACCEPTANCE_GATE') {
+    const blockers = Array.isArray(state.blockers) ? state.blockers : [];
+    lines.push('  blockers (' + blockers.length + '):');
+    if (blockers.length === 0) {
+      lines.push('  - (none recorded)');
+    } else {
+      for (const b of blockers) lines.push('  - ' + b);
+    }
+  }
+  return lines.join('\n');
 }
 
 export function acquireRunLock(root) {
@@ -728,8 +754,16 @@ async function runUnlocked(root, opts = {}) {
     validatePhaseContract(contract);
     const review = reviewOnce(codexInvoker, root, contract, state.base_sha);
     if (!review.ok) return saveState(root, { ...state, status: REVIEW_PROTOCOL_ERROR, last_verdict: REVIEW_PROTOCOL_ERROR });
-    if (review.verdict !== 'PASS') return saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: review.verdict, codex_verdicts: [review.verdict] });
-    return acceptPhase(root, { ...state, status: 'CODEX_VERDICT_1', codex_verdicts: ['PASS'], last_verdict: 'PASS' }, { phase_id: state.current_phase_id });
+    if (review.verdict !== 'PASS') {
+      return saveState(root, {
+        ...state,
+        status: 'FAILED_ACCEPTANCE_GATE',
+        last_verdict: review.verdict,
+        codex_verdicts: [review.verdict],
+        blockers: Array.isArray(review.blockers) ? review.blockers : [],
+      });
+    }
+    return acceptPhase(root, { ...state, status: 'CODEX_VERDICT_1', codex_verdicts: ['PASS'], last_verdict: 'PASS', blockers: [] }, { phase_id: state.current_phase_id });
   }
 
   // If already at a terminal stop state, report and stop — except a dry-run
@@ -803,6 +837,7 @@ async function runUnlocked(root, opts = {}) {
         ...state,
         status: 'FAILED_ACCEPTANCE_GATE',
         last_verdict: 'WRITER_ERROR',
+        blockers: ['Cursor writer failed: ' + (e && e.message ? e.message : 'unknown error')],
       });
       return state;
     }
@@ -823,6 +858,7 @@ async function runUnlocked(root, opts = {}) {
         ...state,
         status: 'FAILED_ACCEPTANCE_GATE',
         last_verdict: 'TESTS_FAILED',
+        blockers: ['Deterministic tests failed before Codex review'],
       });
       return state;
     }
@@ -841,7 +877,12 @@ async function runUnlocked(root, opts = {}) {
   });
 
   if (v1.verdict === 'FAIL') {
-    state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: 'FAIL' });
+    state = saveState(root, {
+      ...state,
+      status: 'FAILED_ACCEPTANCE_GATE',
+      last_verdict: 'FAIL',
+      blockers: Array.isArray(v1.blockers) ? v1.blockers : [],
+    });
     return state;
   }
 
@@ -854,14 +895,24 @@ async function runUnlocked(root, opts = {}) {
     try {
       cursorInvoker(root, buildWriterPrompt(contract) + '\n\nREPAIR CYCLE (Codex returned PASS_WITH_FIXES). Resolve the smallest concrete fixes only; do not expand scope.');
     } catch (e) {
-      state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: 'REPAIR_WRITER_ERROR' });
+      state = saveState(root, {
+        ...state,
+        status: 'FAILED_ACCEPTANCE_GATE',
+        last_verdict: 'REPAIR_WRITER_ERROR',
+        blockers: ['Bounded repair Cursor writer failed: ' + (e && e.message ? e.message : 'unknown error')],
+      });
       return state;
     }
   }
   if (testRunner) {
     const res = testRunner(root);
     if (!res.ok) {
-      state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: 'REPAIR_TESTS_FAILED' });
+      state = saveState(root, {
+        ...state,
+        status: 'FAILED_ACCEPTANCE_GATE',
+        last_verdict: 'REPAIR_TESTS_FAILED',
+        blockers: ['Deterministic tests failed after bounded repair'],
+      });
       return state;
     }
   }
@@ -878,7 +929,12 @@ async function runUnlocked(root, opts = {}) {
   });
 
   if (v2.verdict !== 'PASS') {
-    state = saveState(root, { ...state, status: 'FAILED_ACCEPTANCE_GATE', last_verdict: v2.verdict });
+    state = saveState(root, {
+      ...state,
+      status: 'FAILED_ACCEPTANCE_GATE',
+      last_verdict: v2.verdict,
+      blockers: Array.isArray(v2.blockers) ? v2.blockers : [],
+    });
     return state;
   }
 
@@ -929,12 +985,7 @@ export async function main(argv) {
   const root = process.cwd();
   try {
     const state = await run(root, { dryRun });
-    console.log('BUILD_RUNNER status=' + state.status);
-    if (state.current_phase_id) console.log('  phase=' + state.current_phase_id);
-    if (state.last_accepted_sha) console.log('  last_accepted_sha=' + state.last_accepted_sha);
-    if (state.codex_verdicts && state.codex_verdicts.length)
-      console.log('  codex_verdicts=' + state.codex_verdicts.join(','));
-    if (state.last_verdict) console.log('  last_verdict=' + state.last_verdict);
+    console.log(formatStatusReport(state));
     if (TERMINAL_STOP_STATES.includes(state.status)) process.exitCode = 0;
     else process.exitCode = 1; // non-terminal -> needs another run (resume)
   } catch (e) {

@@ -25,7 +25,7 @@ import {
   DBOS_ROLE,
   assertWritersAllowed,
 } from '../src/runtime/dbos.js';
-import { createLocalEffectAdapter } from '../src/runtime/local-effect-adapter.js';
+import { createLocalEffectAdapter, LOCAL_FAKE_SURFACE } from '../src/runtime/local-effect-adapter.js';
 import { idempotencyKey, requestHash } from '../src/contracts/ids.js';
 import {
   BUSINESS_WRITE_AUTONOMY,
@@ -33,6 +33,11 @@ import {
   DBOS_DURABLE_WORKFLOWS,
   assertBusinessWriteAutonomyDisabled,
 } from '../src/runtime/autonomy.js';
+import { applyMigrations } from '../src/db/migrator.js';
+import { createDb } from '../src/db/index.js';
+import { mkdirSync, writeFileSync, rmSync, copyFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 let db;
 const A = '11111111-1111-1111-1111-111111111111';
@@ -519,5 +524,319 @@ describe('F-09 repair: effect-bound EXTERNAL/TOOL steps', () => {
     assert.equal(steps.length, 1);
     assert.equal(steps[0].idempotency_key, expectedKey);
     assert.equal(steps[0].step_kind, 'TOOL');
+  });
+
+  test('non-local_fake adapter is refused even when LIVE_EXTERNAL_SIDE_EFFECTS constant is false', async () => {
+    const runtime = runtimeFor(A);
+    const liveAdapter = {
+      surface: 'live_http',
+      hasCommitted: () => false,
+      commit: async () => ({ commit_token: 'x' }),
+      verifyPostcondition: async () => ({ status: 'VERIFIED' }),
+    };
+    runtime.registerWorkflow('demo.live_forbidden', async (ctx) => {
+      await ctx.runStep('x', async () => ({}), {
+        kind: 'EXTERNAL',
+        effect: {
+          capability_id: 'cap.live',
+          request: { a: 1 },
+          adapter: liveAdapter,
+        },
+      });
+      return { ok: true };
+    });
+    const result = await runtime.startWorkflow('demo.live_forbidden', {});
+    assert.equal(result.status, 'ERROR');
+    assert.equal(result.error.code, 'LIVE_EXTERNAL_FORBIDDEN');
+  });
+
+  test('adapter missing local_fake surface is refused (constant alone is insufficient)', async () => {
+    const runtime = runtimeFor(A);
+    const bare = {
+      hasCommitted: () => false,
+      commit: async () => ({ commit_token: 'x' }),
+      verifyPostcondition: async () => ({ status: 'VERIFIED' }),
+    };
+    runtime.registerWorkflow('demo.bare_adapter', async (ctx) => {
+      await ctx.runStep('x', async () => ({}), {
+        kind: 'TOOL',
+        effect: { capability_id: 'cap.bare', request: {}, adapter: bare },
+      });
+      return { ok: true };
+    });
+    const result = await runtime.startWorkflow('demo.bare_adapter', {});
+    assert.equal(result.status, 'ERROR');
+    assert.equal(result.error.code, 'LIVE_EXTERNAL_FORBIDDEN');
+    assert.equal(LIVE_EXTERNAL_SIDE_EFFECTS, false);
+    assert.equal(LOCAL_FAKE_SURFACE, 'local_fake');
+  });
+
+  test('UNKNOWN postcondition checkpoints as UNKNOWN and stays recoverable (not terminal ERROR)', async () => {
+    const store = new Map();
+    const adapter = createLocalEffectAdapter(store, { defaultPostcondition: 'UNKNOWN' });
+    const workflowId = randomUUID();
+    const capabilityId = 'cap.local.dbos.unknown';
+    const canonical = { op: 'unknown_write' };
+    let commitCalls = 0;
+    const counting = {
+      surface: adapter.surface,
+      hasCommitted: (k) => adapter.hasCommitted(k),
+      getCommitted: (k) => adapter.getCommitted(k),
+      verifyPostcondition: (args) => adapter.verifyPostcondition(args),
+      async commit(args) {
+        commitCalls += 1;
+        return adapter.commit(args);
+      },
+    };
+
+    function register(runtime, postOverride = null) {
+      runtime.registerWorkflow('demo.unknown_post', async (ctx) => {
+        const effectAdapter = postOverride
+          ? {
+            ...counting,
+            verifyPostcondition: async (args) => ({ status: postOverride, present: postOverride === 'VERIFIED' }),
+          }
+          : counting;
+        const out = await ctx.runStep('ext.write', null, {
+          kind: 'EXTERNAL',
+          effect: {
+            capability_id: capabilityId,
+            request: canonical,
+            adapter: effectAdapter,
+          },
+        });
+        return { out };
+      });
+    }
+
+    const runtimeA = runtimeFor(A);
+    register(runtimeA);
+    const ambiguous = await runtimeA.startWorkflow('demo.unknown_post', {}, { workflowId });
+    assert.equal(ambiguous.status, 'UNKNOWN');
+    assert.equal(ambiguous.recoverable, true);
+    assert.equal(ambiguous.postcondition_status, 'UNKNOWN');
+    assert.equal(commitCalls, 1);
+
+    const wf = await runtimeA.getWorkflow(workflowId);
+    assert.equal(wf.status, 'PENDING', 'workflow must remain recoverable, not terminal ERROR');
+    const steps = await runtimeA.listCompletedSteps(workflowId);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].status, 'UNKNOWN');
+    assert.notEqual(steps[0].status, 'ERROR');
+    assert.notEqual(steps[0].status, 'SUCCESS');
+
+    // Resume while still UNKNOWN: no duplicate commit, still recoverable.
+    const runtimeB = runtimeFor(A);
+    register(runtimeB);
+    const still = await runtimeB.resumeWorkflow(workflowId);
+    assert.equal(still.status, 'UNKNOWN');
+    assert.equal(still.recoverable, true);
+    assert.equal(commitCalls, 1, 'must not re-commit while UNKNOWN');
+
+    // Reconcile to VERIFIED without re-commit.
+    const runtimeC = runtimeFor(A);
+    register(runtimeC, 'VERIFIED');
+    const done = await runtimeC.resumeWorkflow(workflowId);
+    assert.equal(done.status, 'SUCCESS');
+    assert.equal(commitCalls, 1);
+    assert.equal(done.output.out.postcondition_status, 'VERIFIED');
+    assert.equal(done.output.out.reconciled, true);
+  });
+
+  test('AMBIGUOUS postcondition never claims success and is not terminal ERROR', async () => {
+    const store = new Map();
+    const adapter = createLocalEffectAdapter(store, { defaultPostcondition: 'AMBIGUOUS' });
+    const workflowId = randomUUID();
+    function register(runtime) {
+      runtime.registerWorkflow('demo.ambiguous_post', async (ctx) => {
+        await ctx.runStep('tool.write', null, {
+          kind: 'TOOL',
+          effect: {
+            capability_id: 'cap.local.dbos.ambiguous',
+            request: { op: 1 },
+            adapter,
+          },
+        });
+        return { ok: true };
+      });
+    }
+    const runtime = runtimeFor(A);
+    register(runtime);
+    const result = await runtime.startWorkflow('demo.ambiguous_post', {}, { workflowId });
+    assert.equal(result.status, 'AMBIGUOUS');
+    assert.equal(result.recoverable, true);
+    assert.equal(result.postcondition_status, 'AMBIGUOUS');
+    const wf = await runtime.getWorkflow(workflowId);
+    assert.equal(wf.status, 'PENDING');
+    const steps = await runtime.listCompletedSteps(workflowId);
+    assert.equal(steps[0].status, 'AMBIGUOUS');
+  });
+});
+
+describe('F-09 repair: allocateFunctionId writer-freeze before mutation', () => {
+  test('mid-flight freeze blocks next_function_id allocation; workflow stays non-terminal', async () => {
+    const runtime = runtimeFor(A);
+    const workflowId = randomUUID();
+    runtime.registerWorkflow('demo.alloc_freeze', async (ctx) => {
+      await ctx.runStep('one', async () => ({ n: 1 }));
+      await runtime.beginRestore();
+      await ctx.runStep('two', async () => ({ n: 2 }));
+      return { ok: true };
+    });
+
+    await assert.rejects(
+      () => runtime.startWorkflow('demo.alloc_freeze', {}, { workflowId }),
+      (err) => err instanceof WritersFrozenError || (err instanceof DbosError && err.code === 'WRITERS_FROZEN')
+    );
+
+    const wf = await runtime.getWorkflow(workflowId);
+    assert.equal(wf.status, 'PENDING');
+    assert.equal(wf.next_function_id, 1, 'second step must not allocate under freeze');
+    const steps = await runtime.listCompletedSteps(workflowId);
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].step_id, 'one');
+
+    await runtime.markReconciled('postgres');
+    await runtime.markReconciled('dbos');
+    await runtime.markReconciled('providers');
+    await runtime.completeRestore();
+  });
+});
+
+describe('F-09 repair: forward migration 0014 for existing 0013 DBs', () => {
+  test('0014 brings pre-RLS 0013 databases to tenant columns/RLS/policies without reset', async () => {
+    const migRoot = join(tmpdir(), 'f09-fwd-' + randomUUID());
+    const dataDir = join(tmpdir(), 'f09-fwd-pg-' + randomUUID());
+    mkdirSync(migRoot, { recursive: true });
+    const realMig = new URL('../migrations/', import.meta.url).pathname;
+    for (const f of readdirSync(realMig).sort()) {
+      if (!f.endsWith('.sql')) continue;
+      if (f.startsWith('0013') || f.startsWith('0014')) continue;
+      copyFileSync(join(realMig, f), join(migRoot, f));
+    }
+    // Pre-repair 0013 (nullable tenant, no RLS) — what existing F-09 DBs recorded.
+    writeFileSync(join(migRoot, '0013_dbos_durable_workflows.sql'), `
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dbos_runtime') THEN
+    CREATE ROLE dbos_runtime LOGIN NOSUPERUSER NOBYPASSRLS;
+  END IF;
+END $$;
+CREATE SCHEMA IF NOT EXISTS dbos AUTHORIZATION app_migrator;
+REVOKE ALL ON SCHEMA dbos FROM PUBLIC;
+GRANT USAGE ON SCHEMA dbos TO dbos_runtime;
+GRANT USAGE ON SCHEMA dbos TO app_runtime;
+CREATE TABLE dbos.workflows (
+  workflow_id uuid PRIMARY KEY,
+  workflow_name text NOT NULL,
+  tenant_id uuid,
+  status text NOT NULL CHECK (status IN ('PENDING','WAITING','SUCCESS','ERROR','CANCELLED')),
+  input_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  output_json jsonb,
+  error_json jsonb,
+  next_function_id int NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE dbos.workflows OWNER TO app_migrator;
+CREATE TABLE dbos.operation_outputs (
+  workflow_id uuid NOT NULL REFERENCES dbos.workflows(workflow_id),
+  function_id int NOT NULL,
+  step_id text NOT NULL,
+  step_kind text NOT NULL CHECK (step_kind IN ('STEP','APPROVAL_WAIT')),
+  status text NOT NULL CHECK (status IN ('SUCCESS','ERROR')),
+  output_json jsonb,
+  error_json jsonb,
+  completed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workflow_id, function_id),
+  UNIQUE (workflow_id, step_id)
+);
+ALTER TABLE dbos.operation_outputs OWNER TO app_migrator;
+CREATE TABLE dbos.approval_waits (
+  wait_id uuid PRIMARY KEY,
+  workflow_id uuid NOT NULL REFERENCES dbos.workflows(workflow_id),
+  step_id text NOT NULL,
+  proposal_id uuid,
+  status text NOT NULL CHECK (status IN ('WAITING','SIGNALED','CANCELLED')),
+  signal_payload jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  signaled_at timestamptz,
+  UNIQUE (workflow_id, step_id)
+);
+ALTER TABLE dbos.approval_waits OWNER TO app_migrator;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbos.workflows TO dbos_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbos.operation_outputs TO dbos_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbos.approval_waits TO dbos_runtime;
+GRANT SELECT ON dbos.workflows TO app_runtime;
+GRANT SELECT ON dbos.operation_outputs TO app_runtime;
+GRANT SELECT ON dbos.approval_waits TO app_runtime;
+CREATE TABLE recovery_control (
+  control_id int PRIMARY KEY DEFAULT 1 CHECK (control_id = 1),
+  writers_frozen boolean NOT NULL DEFAULT false,
+  recovery_epoch int NOT NULL DEFAULT 0,
+  postgres_reconciled boolean NOT NULL DEFAULT false,
+  dbos_reconciled boolean NOT NULL DEFAULT false,
+  providers_reconciled boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE recovery_control OWNER TO app_migrator;
+INSERT INTO recovery_control (control_id, writers_frozen, recovery_epoch)
+VALUES (1, false, 0) ON CONFLICT (control_id) DO NOTHING;
+GRANT SELECT ON recovery_control TO app_runtime;
+GRANT SELECT, UPDATE ON recovery_control TO dbos_runtime;
+GRANT SELECT, UPDATE ON recovery_control TO app_migrator;
+`);
+    copyFileSync(
+      join(realMig, '0014_dbos_tenant_rls_forward.sql'),
+      join(migRoot, '0014_dbos_tenant_rls_forward.sql')
+    );
+
+    let cluster;
+    try {
+      try { rmSync(dataDir, { recursive: true, force: true }); } catch {}
+      cluster = await createDb({ dataDir });
+      const log = await applyMigrations(cluster, migRoot);
+      const applied = log.filter((l) => l.status === 'applied').map((l) => l.id);
+      assert.ok(applied.includes('0013_dbos_durable_workflows'));
+      assert.ok(applied.includes('0014_dbos_tenant_rls_forward'));
+
+      // Seed a tenant and a pre-existing workflow row, then re-check isolation surfaces.
+      await cluster.query(
+        `INSERT INTO tenants (tenant_id, name, confidentiality_class)
+         VALUES ($1,'Fwd','FIRST_PARTY_PORTFOLIO');`,
+        [A]
+      );
+      await cluster.query(
+        `INSERT INTO dbos.workflows (workflow_id, workflow_name, tenant_id, status)
+         VALUES ($1,'demo.fwd',$2,'PENDING');`,
+        [randomUUID(), A]
+      );
+
+      for (const table of ['workflows', 'operation_outputs', 'approval_waits']) {
+        const r = await cluster.query(
+          `SELECT c.relrowsecurity, c.relforcerowsecurity
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'dbos' AND c.relname = $1;`,
+          [table]
+        );
+        assert.equal(r.rows[0].relrowsecurity, true, `${table} RLS via 0014`);
+        assert.equal(r.rows[0].relforcerowsecurity, true, `${table} FORCE RLS via 0014`);
+      }
+      const cols = await cluster.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema='dbos' AND table_name='operation_outputs'
+            AND column_name IN ('tenant_id','idempotency_key')
+          ORDER BY column_name;`
+      );
+      assert.deepEqual(cols.rows.map((r) => r.column_name), ['idempotency_key', 'tenant_id']);
+
+      // Re-running 0014 is skipped by recorded id (no destructive reset required).
+      const again = await applyMigrations(cluster, migRoot);
+      assert.equal(again.find((l) => l.id === '0014_dbos_tenant_rls_forward').status, 'skipped');
+    } finally {
+      if (cluster) await cluster.close();
+      try { rmSync(migRoot, { recursive: true, force: true }); } catch {}
+      try { rmSync(dataDir, { recursive: true, force: true }); } catch {}
+    }
   });
 });
