@@ -74,6 +74,8 @@ const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
 await db.query(`INSERT INTO tenants (tenant_id, name, confidentiality_class) VALUES ($1,'A','FIRST_PARTY_PORTFOLIO'), ($2,'B','THIRD_PARTY_ISOLATED');`, [A, B]);
 await db.query(`INSERT INTO users (user_id, tenant_id, external_principal_id) VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',$1,'pa'), ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',$2,'pb');`, [A, B]);
+// Seed authority_control for both tenants with distinguishable epochs.
+await db.query(`INSERT INTO authority_control (tenant_id, active_authority, revocation_epoch, kill_epoch) VALUES ($1,true,0,0), ($2,true,7,9);`, [A, B]);
 
 const attacks = [];
 async function attack(name, fn) {
@@ -93,6 +95,9 @@ await asRole(db, 'app_runtime', async (b) => {
   await attack('runtime tries CREATE ROLE', async () => (await b.query('CREATE ROLE evil;')));
   await attack('runtime tries DISABLE RLS', async () => (await b.query('ALTER TABLE users DISABLE ROW LEVEL SECURITY;')));
   await attack('pool leak: post-commit visibility', async () => { await b.tx(async (tx) => { await tx.query('SELECT set_tenant($1);', [A]); await tx.query('SELECT count(*)::int n FROM users;'); }); return (await b.query('SELECT count(*)::int n FROM users;')).rows[0].n; });
+  await attack('authority: A reads A state via runtime reader', async () => { let f; await b.tx(async (tx) => { await tx.query('SELECT set_tenant($1);', [A]); f = (await tx.query('SELECT * FROM read_authority_state();')).rows[0]; }); return f ? `${f.active_authority},rev=${f.revocation_epoch},kill=${f.kill_epoch}` : 'none'; });
+  await attack('authority: old caller-selected reader (B) impossible', async () => { await b.tx(async (tx) => { await tx.query('SELECT set_tenant($1);', [A]); await tx.query('SELECT * FROM read_authority_state($1);', [B]); }); });
+  await attack('authority: no-context read fails closed', async () => (await b.query('SELECT * FROM read_authority_state();')).rows[0]?.active_authority ?? 'none');
 });
 
 rlsTxt += `\nDirect RLS attack results (real runtime role, real PostgreSQL RLS):\n`;
@@ -103,12 +108,13 @@ write('rls-negative-tests.txt', rlsTxt);
 
 // ---- Build binding record ----
 const codexFirstVerdict = 'PASS WITH FIXES (first review; 2 findings addressed)';
-const codexSecondVerdict = process.env.CODEX_VERDICT2 || 'PASS WITH FIXES (second review; 4 findings addressed)';
+const codexSecondVerdict = 'PASS WITH FIXES (second review; 4 findings addressed)';
+const codexGoalVerdict = process.env.CODEX_VERDICT3 || 'PASS WITH FIXES (current goal review; 2 findings: 1 addressed, 2 (#45) WAITING_ON_OWNER)';
 await recordBuildBinding(db, {
   sotManifestSha256: sot.manifestHash,
   gitCommitSha: implSha,
   builderRuntime: 'Cursor (GLM-5.2)',
-  reviewerRuntime: 'Codex (1st: PASS WITH FIXES; 2nd: PASS WITH FIXES)',
+  reviewerRuntime: 'Codex (1st & 2nd: PASS WITH FIXES; goal: PASS WITH FIXES)',
 });
 const binding = {
   sot_manifest_sha256: sot.manifestHash,
@@ -119,9 +125,11 @@ const binding = {
   branch,
   origin,
   builder_runtime: 'Cursor (GLM-5.2)',
-  reviewer_runtime: 'Codex (1st: PASS WITH FIXES; 2nd: PASS WITH FIXES)',
+  reviewer_runtime: 'Codex (1st & 2nd: PASS WITH FIXES; goal: PASS WITH FIXES)',
   codex_first_verdict: codexFirstVerdict,
   codex_second_verdict: codexSecondVerdict,
+  codex_goal_verdict: codexGoalVerdict,
+  acceptance_45_status: 'WAITING_ON_OWNER — CI workflow exists; live GitHub branch-protection enforcement not yet verified (gh token invalid). See artifacts/phase-1/github-gate-verification.txt',
   postgres_engine: 'PGlite (real PostgreSQL WASM)',
   postgres_server_version: await serverVersion(db),
   pg_path_actually_executed: 'PGlite (WASM) — actually executed in the Phase 1 test run',
@@ -191,31 +199,28 @@ evidence/review-only and does not modify implementation.
 
 ## Codex reviews
 - First Codex review: ${codexFirstVerdict}
-  - Finding 1 (approval must bind to exact owner session) — addressed: exact
-    session_id + owner_principal_id binding + 3 negative tests.
-  - Finding 2 (stale evidence binding) — addressed: evidence bound to reviewed
-    implementation SHA; self-referential SHA loop avoided.
+  - Finding 1 (approval must bind to exact owner session) — addressed.
+  - Finding 2 (stale evidence binding) — addressed.
 - Second Codex review: ${codexSecondVerdict}
-  - Finding 1 (DB-backed approval state binding) — addressed: loadProposal()
-    now selects precondition_snapshot_ref; DB-backed test persists
-    proposal+approval+session, loads via real loaders, mutates state, reloads,
-    proves prior approval invalid.
-  - Finding 2 (enforce inbound authenticity) — addressed: DB CHECK constraint
-    canonical_events_no_materialize_on_failed_auth rejects
-    materialized_state=true with FAILED/UNKNOWN; direct DB negative tests.
-  - Finding 3 (match canonical session-id types) — addressed:
-    owner_sessions.session_id + approval_decisions.owner_auth_session_id
-    altered to text; non-UUID string session id test.
-  - Finding 4 (Postgres DATABASE_URL reproducibility) — addressed: pg declared
-    as direct dependency; package-lock refreshed; clean npm ci resolves
-    import('pg'); evidence wording distinguishes PGlite (executed) from
-    DATABASE_URL (supported, not executed).
+  - Finding 1 (DB-backed approval state binding) — addressed.
+  - Finding 2 (enforce inbound authenticity) — addressed.
+  - Finding 3 (match canonical session-id types) — addressed.
+  - Finding 4 (Postgres DATABASE_URL reproducibility) — addressed.
+- Current Codex goal review: ${codexGoalVerdict}
+  - Finding 1 (cross-tenant authority read bypass) — addressed: runtime
+    reader is now zero-arg and context-bound; old caller-selected reader
+    dropped (migration 0010); 6 regression tests R1-R6.
+  - Finding 2 (acceptance #45 needs real enforcement) — WAITING_ON_OWNER:
+    CI workflow exists but live GitHub branch-protection enforcement
+    could not be verified/configured because the gh token is invalid
+    (Forbidden). See artifacts/phase-1/github-gate-verification.txt.
+    #45 kept REQUIRED_NOW (not relabeled deferred); not claimed PASS.
 
 ## Required negative security tests (all green)
-See acceptance-map.md and test-results.txt. 35 tests across 9 suites
-(29 prior + 6 new: 14d non-UUID session, 1DB DB-backed state invalidation,
- 2DBa/2DBb/2DBc/2DBd inbound authenticity DB enforcement).
-Direct RLS attacks against the real runtime role: see rls-negative-tests.txt.
+See acceptance-map.md and test-results.txt. 41 tests across 10 suites
+(35 prior + 6 new cross-tenant authority regression R1-R6).
+Direct RLS attacks against the real runtime role: see rls-negative-tests.txt
+(now includes the authority-control cross-tenant path).
 
 ## Known deferrals
 See acceptance-map.md: 26 tests DEFERRED_TO_LATER_FOUNDATION_PHASE, 4

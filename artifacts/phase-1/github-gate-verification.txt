@@ -1,0 +1,72 @@
+# Acceptance #45 — GitHub Merge-Gate Verification
+
+Acceptance #45 (12_ACCEPTANCE_AND_IMPLEMENTATION.md): "Cursor builder cannot merge failed CI."
+
+## What the workflow proves
+`.github/workflows/phase-1.yml` proves a CI workflow EXISTS and runs the
+Phase 1 checks (SOT guard, clean migrate, full suite) on push/PR to main
+and to `phase-1/**` branches. The workflow YAML alone does NOT prove that a
+failed/missing required CI check blocks merge to main. That requires a
+GitHub branch-protection / ruleset enforcement, which is repository
+configuration, not code.
+
+## Live GitHub inspection attempt (2026-08-10)
+Tool used: authenticated GitHub CLI (`gh`), account `mac313248`.
+
+Attempted read-only inspection of mac313248/jarvis-agencyos:
+  - branch protection on `main`
+  - repository rulesets
+  - required pull-request rules
+  - required status checks
+  - enforcement status
+
+Command:
+  gh api repos/mac313248/jarvis-agencyos --jq '.private,.default_branch,.permissions'
+
+Result:
+  Get "https://api.github.com/repos/mac313248/jarvis-agencyos": Forbidden
+
+`gh auth status` reports:
+  - account mac313248: "The token in keyring is invalid."
+  - account increaseroasir: "The token in keyring is invalid."
+
+Both stored tokens are invalid/expired. The builder therefore CANNOT:
+  - read the live branch-protection / ruleset configuration; nor
+  - configure the minimal repository protection needed to make #45 true.
+
+This is an authentication/login gate, not an engineering choice. The
+wrong-owner-backup remote (increaseroasir/jarvis-agencyos) was NOT touched.
+
+## #45 status
+REQUIRED_NOW — NOT YET PROVEN. WAITING_ON_OWNER.
+
+The workflow YAML is insufficient evidence. Real enforcement requires
+either existing active GitHub branch protection (to be captured here once the
+owner re-authenticates the builder) OR a minimal ruleset the builder can
+configure after re-authentication.
+
+## Exact owner action required (one action)
+Re-authenticate the GitHub CLI so the builder can inspect and configure
+branch protection on mac313248/jarvis-agencyos:
+
+  gh auth refresh -h github.com
+
+After this single action, the builder will (read-only first, then configure
+only if enforcement is absent and credentials permit):
+  1. inspect mac313248/jarvis-agencyos branch protection / rulesets /
+     required status checks;
+  2. if an active rule already requires the Phase 1 CI check before
+     merge, capture the exact GitHub enforcement evidence here and mark
+     #45 PASS;
+  3. if enforcement is absent, configure the MINIMAL protection on main
+     (require the Phase 1 CI status check emitted by .github/workflows/phase-1.yml
+     to pass before merge; do not alter wrong-owner-backup; do not merge
+     Phase 1), capture the returned configuration here, and mark #45 PASS.
+
+Until then, #45 remains WAITING_ON_OWNER and is NOT claimed PASS.
+
+## Note on #47
+#47 ("Protected main rejects unauthorized direct push") depends on the
+same branch-protection configuration. Its disposition is not changed by
+this repair; it remains STRUCTURAL_PREREQUISITE and resolves together
+with #45 once the owner re-authenticates.

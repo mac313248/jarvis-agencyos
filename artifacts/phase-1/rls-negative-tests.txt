@@ -35,3 +35,6 @@ Direct RLS attack results (real runtime role, real PostgreSQL RLS):
   runtime tries CREATE ROLE          -> BLOCKED: permission denied to create role
   runtime tries DISABLE RLS          -> BLOCKED: must be owner of table users
   pool leak: post-commit visibility  -> result=0
+  authority: A reads A state via runtime reader -> result=true,rev=0,kill=0
+  authority: old caller-selected reader (B) impossible -> BLOCKED: function read_authority_state(unknown) does not exist
+  authority: no-context read fails closed -> result=none

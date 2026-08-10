@@ -8,6 +8,7 @@ MIGRATE (clean database)
   applied  0007_receipts_pii  sha256=a242985bc35b5796
   applied  0008_kill_authority_epoch  sha256=27cb343d4ce60138
   applied  0009_second_codex_repair  sha256=343fc9be22eb6e15
+  applied  0010_authority_runtime_context_bound  sha256=ece0faa8c76caa22
 
 Postgres engine: PGlite (real PostgreSQL WASM)
 server_version=16.4

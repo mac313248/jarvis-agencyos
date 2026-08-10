@@ -101,27 +101,24 @@ review before merge. This does not block the Phase 1 secure-core-spine gate.
 
 ## Reviewer verdict
 - First Codex review: **PASS WITH FIXES** (2 findings) — addressed.
-- Second Codex review: **PASS WITH FIXES** (4 findings) — addressed below.
-- Findings addressed by Cursor (second repair pass):
-  1. **DB-backed approval state binding.** `loadProposal()` now selects
-     `precondition_snapshot_ref`. Added DB-backed negative test (1DB) that
-     persists ActionProposal + ApprovalDecision + OwnerAuthContext session,
-     loads them through the real persisted loaders, proves the approval is
-     initially valid, mutates the persisted `precondition_snapshot_ref`,
-     reloads, and proves the prior approval becomes invalid.
-  2. **Enforce inbound authenticity.** Added DB-enforced CHECK constraint
-     `canonical_events_no_materialize_on_failed_auth` (migration 0009) rejecting
-     `materialized_state=true` with `authenticity_status IN ('FAILED','UNKNOWN')`.
-     Direct DB negative tests (2DBa FAILED, 2DBb UNKNOWN) prove PostgreSQL
-     rejects; 2DBc/2DBd prove VERIFIED/NOT_APPLICABLE and FAILED-with-false still allowed.
-  3. **Match canonical session-id types.** `owner_sessions.session_id` and
-     `approval_decisions.owner_auth_session_id` altered to `text` (migration 0009)
-     to match 06_SYSTEM_CONTRACTS.md (`string`). Non-UUID string session id
-     `owner-session-test-001` proven to honor exact binding (14d + 1DB).
-  4. **Postgres DATABASE_URL reproducibility.** `pg` added as a direct
-     dependency; package-lock refreshed; clean `npm ci` resolves `import('pg')`.
-     Evidence wording distinguishes PGlite (actually executed) from
-     DATABASE_URL multi-process PostgreSQL (supported, NOT executed in this
-     build environment; no real external cluster tested).
-- Status: ready for Codex rerun (RERUN_CODEX_GATE). Both Codex reviews have
-  now run and returned PASS WITH FIXES; all findings addressed.
+- Second Codex review: **PASS WITH FIXES** (4 findings) — addressed.
+- Current Codex goal review: **PASS WITH FIXES** (2 findings) — 1 addressed, 1 WAITING_ON_OWNER.
+- Current goal findings:
+  1. **Cross-tenant authority read bypass.** Addressed: the runtime
+     reader `read_authority_state()` is now zero-arg and derives the tenant
+     exclusively from trusted transaction-local context (`cur_tenant()`); the
+     old `read_authority_state(uuid)` was DROPPED (migration 0010) so
+     app_runtime cannot request another tenant's authority state by argument.
+     `src/contracts/authority.js` splits the runtime path (context-bound,
+     fail-closed) from the bootstrap path (tenant-specific, not exposed to
+     app_runtime). 6 regression tests R1-R6 exercise the actual SQL/runtime
+     path under app_runtime + tenant context.
+  2. **Acceptance #45 needs real enforcement.** WAITING_ON_OWNER:
+     the CI workflow exists but live GitHub branch-protection enforcement
+     could not be verified/configured because the `gh` token is invalid
+     (Forbidden). #45 kept REQUIRED_NOW (not relabeled deferred); not
+     claimed PASS. See `github-gate-verification.txt`.
+- Status: Finding 1 fully addressed and verified (41/41 tests green).
+  Finding 2 (#45) is WAITING_ON_OWNER on a single owner action
+  (re-authenticate `gh`); after that the builder will inspect and, if
+  needed, configure minimal branch protection and capture evidence.

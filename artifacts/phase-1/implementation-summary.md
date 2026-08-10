@@ -2,13 +2,13 @@
 
 ## SHAs (implementation vs evidence)
 - Starting main SHA: 5b861f2afefe41090de57ddcdbafd22435160056
-- Reviewed implementation SHA (code+migrations+tests whose suite was run): 61f5fb6cb9db45920392e2e0c4f5a964a59224c3
+- Reviewed implementation SHA (code+migrations+tests whose suite was run): 10609039d438553ae3d3d7738f27ce9c09ed9cc5
 - Evidence/review-only SHA: pending — evidence/review-only commit created after this binding; not embedded (avoids self-referential Git-SHA loop)
 - Branch: phase-1/secure-core-spine
 - Origin: https://github.com/mac313248/jarvis-agencyos.git
 
 NOTE: git_commit_sha in build-binding.json binds to the reviewed implementation
-SHA (61f5fb6cb9db45920392e2e0c4f5a964a59224c3), NOT to the evidence artifact commit. The evidence artifact
+SHA (10609039d438553ae3d3d7738f27ce9c09ed9cc5), NOT to the evidence artifact commit. The evidence artifact
 cannot cryptographically contain its own final commit SHA; any later commit is
 evidence/review-only and does not modify implementation.
 
@@ -51,31 +51,28 @@ evidence/review-only and does not modify implementation.
 
 ## Codex reviews
 - First Codex review: PASS WITH FIXES (first review; 2 findings addressed)
-  - Finding 1 (approval must bind to exact owner session) — addressed: exact
-    session_id + owner_principal_id binding + 3 negative tests.
-  - Finding 2 (stale evidence binding) — addressed: evidence bound to reviewed
-    implementation SHA; self-referential SHA loop avoided.
+  - Finding 1 (approval must bind to exact owner session) — addressed.
+  - Finding 2 (stale evidence binding) — addressed.
 - Second Codex review: PASS WITH FIXES (second review; 4 findings addressed)
-  - Finding 1 (DB-backed approval state binding) — addressed: loadProposal()
-    now selects precondition_snapshot_ref; DB-backed test persists
-    proposal+approval+session, loads via real loaders, mutates state, reloads,
-    proves prior approval invalid.
-  - Finding 2 (enforce inbound authenticity) — addressed: DB CHECK constraint
-    canonical_events_no_materialize_on_failed_auth rejects
-    materialized_state=true with FAILED/UNKNOWN; direct DB negative tests.
-  - Finding 3 (match canonical session-id types) — addressed:
-    owner_sessions.session_id + approval_decisions.owner_auth_session_id
-    altered to text; non-UUID string session id test.
-  - Finding 4 (Postgres DATABASE_URL reproducibility) — addressed: pg declared
-    as direct dependency; package-lock refreshed; clean npm ci resolves
-    import('pg'); evidence wording distinguishes PGlite (executed) from
-    DATABASE_URL (supported, not executed).
+  - Finding 1 (DB-backed approval state binding) — addressed.
+  - Finding 2 (enforce inbound authenticity) — addressed.
+  - Finding 3 (match canonical session-id types) — addressed.
+  - Finding 4 (Postgres DATABASE_URL reproducibility) — addressed.
+- Current Codex goal review: PASS WITH FIXES (current goal review; 2 findings: 1 addressed, 2 (#45) WAITING_ON_OWNER)
+  - Finding 1 (cross-tenant authority read bypass) — addressed: runtime
+    reader is now zero-arg and context-bound; old caller-selected reader
+    dropped (migration 0010); 6 regression tests R1-R6.
+  - Finding 2 (acceptance #45 needs real enforcement) — WAITING_ON_OWNER:
+    CI workflow exists but live GitHub branch-protection enforcement
+    could not be verified/configured because the gh token is invalid
+    (Forbidden). See artifacts/phase-1/github-gate-verification.txt.
+    #45 kept REQUIRED_NOW (not relabeled deferred); not claimed PASS.
 
 ## Required negative security tests (all green)
-See acceptance-map.md and test-results.txt. 35 tests across 9 suites
-(29 prior + 6 new: 14d non-UUID session, 1DB DB-backed state invalidation,
- 2DBa/2DBb/2DBc/2DBd inbound authenticity DB enforcement).
-Direct RLS attacks against the real runtime role: see rls-negative-tests.txt.
+See acceptance-map.md and test-results.txt. 41 tests across 10 suites
+(35 prior + 6 new cross-tenant authority regression R1-R6).
+Direct RLS attacks against the real runtime role: see rls-negative-tests.txt
+(now includes the authority-control cross-tenant path).
 
 ## Known deferrals
 See acceptance-map.md: 26 tests DEFERRED_TO_LATER_FOUNDATION_PHASE, 4
@@ -90,14 +87,14 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  .github/workflows/phase-1.yml                      |  33 ++
  .gitignore                                         |   6 +
  artifacts/phase-1/acceptance-map.md                | 130 ++++++
- artifacts/phase-1/build-binding.json               |  16 +
+ artifacts/phase-1/build-binding.json               |  19 +
  artifacts/phase-1/codex-review-prompt.txt          |  50 ++
- artifacts/phase-1/implementation-summary.md        | 106 +++++
- artifacts/phase-1/migration-verification.txt       |  12 +
- artifacts/phase-1/phase-1-review-bundle.md         | 120 +++++
+ artifacts/phase-1/implementation-summary.md        | 128 ++++++
+ artifacts/phase-1/migration-verification.txt       |  13 +
+ artifacts/phase-1/phase-1-review-bundle.md         | 127 +++++
  artifacts/phase-1/rls-negative-tests.txt           |  37 ++
  artifacts/phase-1/sot-verification.txt             |  17 +
- artifacts/phase-1/test-results.txt                 | 240 ++++++++++
+ artifacts/phase-1/test-results.txt                 | 290 ++++++++++++
  migrations/0001_roles_and_tenant_context.sql       |  50 ++
  migrations/0002_tenants_users_memberships.sql      |  54 +++
  migrations/0003_owner_auth.sql                     |  38 ++
@@ -107,13 +104,14 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  migrations/0007_receipts_pii.sql                   |  63 +++
  migrations/0008_kill_authority_epoch.sql           |  36 ++
  migrations/0009_second_codex_repair.sql            |  16 +
+ .../0010_authority_runtime_context_bound.sql       |  31 ++
  package-lock.json                                  | 168 +++++++
  package.json                                       |  18 +
- scripts/build-evidence.mjs                         | 211 +++++++++
+ scripts/build-evidence.mjs                         | 236 ++++++++++
  scripts/migrate.mjs                                |  18 +
  scripts/verify-sot.mjs                             |  22 +
  src/contracts/approval.js                          |  99 ++++
- src/contracts/authority.js                         |  50 ++
+ src/contracts/authority.js                         |  90 ++++
  src/contracts/events.js                            |  51 ++
  src/contracts/ids.js                               |  44 ++
  src/contracts/sot-binding.js                       |  71 +++
@@ -121,8 +119,8 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  src/db/migrator.js                                 |  59 +++
  src/security/tenant-context.js                     |  40 ++
  tests/_helpers.mjs                                 |  56 +++
- tests/authority-kill.test.mjs                      |  97 ++++
+ tests/authority-kill.test.mjs                      | 190 ++++++++
  tests/contracts-auth.test.mjs                      | 511 +++++++++++++++++++++
  tests/rls-negative.test.mjs                        | 183 ++++++++
- 37 files changed, 3051 insertions(+)
+ 38 files changed, 3323 insertions(+)
 
