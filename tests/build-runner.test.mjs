@@ -16,6 +16,7 @@ import {
   defaultCodexInvoker, FOUNDATION_SLICES, APPROVED_MANIFEST_SHA256,
   TERMINAL_STOP_STATES, CURSOR_AGENT_BIN,
   isDryRunOwnerCheckpoint, BuildRunnerError, formatStatusReport,
+  acquireRunLock,
 } from '../scripts/build-runner.mjs';
 
 const REAL_ROOT = new URL('../', import.meta.url).pathname;
@@ -92,6 +93,11 @@ function mockCursor() {
 }
 function passingTests() { return () => ({ ok: true, passed: 1, failed: 0, raw: '# pass 1\n# fail 0' }); }
 function failingTests() { return () => ({ ok: false, passed: 0, failed: 1, raw: '# fail 1' }); }
+function completedThrough(phaseId) {
+  const index = FOUNDATION_SLICES.findIndex((slice) => slice.phase_id === phaseId);
+  assert.notEqual(index, -1, 'unknown phase ' + phaseId);
+  return FOUNDATION_SLICES.slice(0, index + 1).map((slice) => slice.phase_id);
+}
 
 // 1. Dry-run: contracts next slice, no app changes, stops at WAITING_ON_OWNER
 test('dry-run contracts next slice and stops at WAITING_ON_OWNER', async () => {
@@ -559,7 +565,7 @@ test('malformed review is REVIEW_PROTOCOL_ERROR and resumes without Cursor/build
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('successful review reconciliation clears stale failed acceptance state and stops ready', async () => {
+test('successful review reconciliation clears stale failed acceptance state, then next invocation advances', async () => {
   const root = makeFixture({ completedSlices: ['F-01'] });
   try {
     let cursorCalls = 0;
@@ -601,12 +607,157 @@ test('successful review reconciliation clears stale failed acceptance state and 
     assert.deepEqual(durable.blockers, []);
     assert.notDeepEqual(durable.blockers, staleBlockers);
 
-    const stopped = await run(root, {
-      cursorInvoker: () => { throw new Error('ready state must not launch Cursor'); },
-      codexInvoker: () => { throw new Error('ready state must not launch Codex'); },
-      testRunner: () => { throw new Error('ready state must not run tests'); },
+    const c2 = mockCursor();
+    const advanced = await run(root, {
+      cursorInvoker: c2.invoker,
+      codexInvoker: () => review('PASS'),
+      testRunner: passingTests(),
     });
-    assert.equal(stopped.status, 'READY_FOR_NEXT_V1_0_SLICE');
+    assert.equal(advanced.status, 'READY_FOR_NEXT_V1_0_SLICE');
+    assert.equal(advanced.current_phase_id, 'F-03');
+    assert.equal(c2.calls.length, 1, 'next explicit invocation advances exactly once');
+    assert.match(c2.calls[0].prompt, /phase F-03/);
+    assert.doesNotMatch(c2.calls[0].prompt, /phase F-02/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('completed phase remains safely stopped at READY in the accepting invocation', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    const c = mockCursor();
+    const state = await run(root, {
+      cursorInvoker: c.invoker,
+      codexInvoker: () => review('PASS'),
+      testRunner: passingTests(),
+    });
+    assert.equal(state.status, 'READY_FOR_NEXT_V1_0_SLICE');
+    assert.equal(state.current_phase_id, 'F-02');
+    assert.equal(c.calls.length, 1, 'accepting invocation must not recursively launch the following slice');
+    const transitions = readFileSync(join(root, 'artifacts/build-runner/transitions.jsonl'), 'utf8');
+    assert.match(transitions, /"phase":"F-02","state":"READY_FOR_NEXT_V1_0_SLICE"/);
+    assert.doesNotMatch(transitions, /"phase":"F-03","state":"CONTRACTED"/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('F-12 READY advances to SOT-derived F-13 without replaying F-12', async () => {
+  const root = makeFixture({ completedSlices: completedThrough('F-12') });
+  try {
+    const acceptedSha = git(root, ['rev-parse', 'HEAD']);
+    saveState(root, {
+      ...loadState(root),
+      status: 'READY_FOR_NEXT_V1_0_SLICE',
+      current_phase_id: 'F-12',
+      last_accepted_sha: acceptedSha,
+      last_verdict: 'PASS',
+      codex_verdicts: ['PASS_WITH_FIXES', 'FAIL'],
+      blockers: [],
+    });
+
+    const c = mockCursor();
+    const state = await run(root, {
+      cursorInvoker: c.invoker,
+      codexInvoker: () => review('PASS'),
+      testRunner: passingTests(),
+    });
+    assert.equal(state.status, 'READY_FOR_NEXT_V1_0_SLICE');
+    assert.equal(state.current_phase_id, 'F-13');
+    assert.equal(c.calls.length, 1);
+    assert.match(c.calls[0].prompt, /phase F-13/);
+    assert.doesNotMatch(c.calls[0].prompt, /phase F-12/);
+
+    const contract = JSON.parse(readFileSync(join(root, 'artifacts/build-runner/current-phase.json'), 'utf8'));
+    assert.equal(contract.phase_id, 'F-13');
+    assert.match(contract.phase_name, /Backup \/ restore/i);
+
+    const durable = loadState(root);
+    assert.ok(durable.accepted_phase_history.some((entry) =>
+      entry.phase_id === 'F-12' && entry.accepted_sha === acceptedSha && entry.verdict === 'PASS'
+    ), 'F-12 accepted SHA/history must remain intact after F-13 starts');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('READY advancement cannot skip a required SOT slice', async () => {
+  const root = makeFixture({ completedSlices: completedThrough('F-10') });
+  try {
+    const acceptedSha = git(root, ['rev-parse', 'HEAD']);
+    saveState(root, {
+      ...loadState(root),
+      status: 'READY_FOR_NEXT_V1_0_SLICE',
+      current_phase_id: 'F-10',
+      last_accepted_sha: acceptedSha,
+      last_verdict: 'PASS',
+      blockers: [],
+    });
+
+    const state = await run(root, { dryRun: true });
+    assert.equal(state.status, 'WAITING_ON_OWNER');
+    assert.equal(state.current_phase_id, 'F-11');
+    const contract = JSON.parse(readFileSync(join(root, 'artifacts/build-runner/current-phase.json'), 'utf8'));
+    assert.equal(contract.phase_id, 'F-11');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('duplicate READY invocation cannot launch two next phases', async () => {
+  const root = makeFixture({ completedSlices: completedThrough('F-12') });
+  let release = null;
+  try {
+    saveState(root, {
+      ...loadState(root),
+      status: 'READY_FOR_NEXT_V1_0_SLICE',
+      current_phase_id: 'F-12',
+      last_accepted_sha: git(root, ['rev-parse', 'HEAD']),
+      last_verdict: 'PASS',
+      blockers: [],
+    });
+    release = acquireRunLock(root);
+    let cursorCalls = 0;
+    await assert.rejects(
+      () => run(root, {
+        cursorInvoker: () => { cursorCalls++; },
+        codexInvoker: () => review('PASS'),
+        testRunner: passingTests(),
+      }),
+      (e) => e instanceof BuildRunnerError && e.code === 'RUN_ALREADY_ACTIVE'
+    );
+    assert.equal(cursorCalls, 0, 'lock must prevent a duplicate next-phase launch before Cursor starts');
+  } finally {
+    if (release) release();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('READY transition preserves accepted SHA while carrying current clean controller HEAD', async () => {
+  const root = makeFixture({ completedSlices: completedThrough('F-12') });
+  try {
+    const acceptedSha = git(root, ['rev-parse', 'HEAD']);
+    writeFileSync(join(root, 'scripts/controller-transition-fix.mjs'), '// controller-only transition fix\n');
+    git(root, ['add', 'scripts/controller-transition-fix.mjs']);
+    git(root, ['commit', '-q', '-m', 'controller transition fix']);
+    const controllerSha = git(root, ['rev-parse', 'HEAD']);
+
+    saveState(root, {
+      ...loadState(root),
+      status: 'READY_FOR_NEXT_V1_0_SLICE',
+      current_phase_id: 'F-12',
+      last_accepted_sha: acceptedSha,
+      last_verdict: 'PASS',
+      blockers: [],
+    });
+
+    const state = await run(root, { dryRun: true });
+    assert.equal(state.status, 'WAITING_ON_OWNER');
+    assert.equal(state.current_phase_id, 'F-13');
+    assert.equal(state.last_accepted_sha, acceptedSha);
+    assert.equal(state.base_sha, controllerSha);
+
+    const contract = JSON.parse(readFileSync(join(root, 'artifacts/build-runner/current-phase.json'), 'utf8'));
+    assert.equal(contract.phase_id, 'F-13');
+    assert.equal(contract.base_sha, controllerSha);
+
+    const durable = loadState(root);
+    assert.ok(durable.accepted_phase_history.some((entry) =>
+      entry.phase_id === 'F-12' && entry.accepted_sha === acceptedSha
+    ));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

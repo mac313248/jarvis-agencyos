@@ -338,9 +338,45 @@ export function sliceIsComplete(root, slice) {
   return existsSync(join(root, slice.evidence_marker));
 }
 
-export function determineNextSlice(root) {
+export function acceptedPhaseIdsFromState(state) {
+  const ids = new Set();
+  for (const entry of Array.isArray(state?.accepted_phase_history) ? state.accepted_phase_history : []) {
+    if (entry?.phase_id && (!entry.verdict || entry.verdict === 'PASS')) ids.add(entry.phase_id);
+  }
+  // Backward-compatible durable acceptance evidence for phases accepted before
+  // accepted_phase_history existed. READY is terminal for the invocation that
+  // accepted the phase, but the next explicit invocation must not replay it.
+  if (
+    state?.status === 'READY_FOR_NEXT_V1_0_SLICE' &&
+    state?.current_phase_id &&
+    state?.last_accepted_sha &&
+    state?.last_verdict === 'PASS'
+  ) {
+    ids.add(state.current_phase_id);
+  }
+  return [...ids];
+}
+
+function appendAcceptedPhaseHistory(state, phaseId, acceptedSha) {
+  const priorHistory = Array.isArray(state?.accepted_phase_history)
+    ? state.accepted_phase_history
+    : [];
+  if (!phaseId || !acceptedSha) return priorHistory;
+  return [
+    ...priorHistory.filter((entry) => !(entry?.phase_id === phaseId && entry?.accepted_sha === acceptedSha)),
+    {
+      phase_id: phaseId,
+      accepted_sha: acceptedSha,
+      verdict: 'PASS',
+      accepted_at: new Date().toISOString(),
+    },
+  ];
+}
+
+export function determineNextSlice(root, acceptedPhaseIds = []) {
+  const accepted = new Set(acceptedPhaseIds);
   for (const slice of FOUNDATION_SLICES) {
-    if (!sliceIsComplete(root, slice)) return slice;
+    if (!accepted.has(slice.phase_id) && !sliceIsComplete(root, slice)) return slice;
   }
   return null; // V1_0_COMPLETE
 }
@@ -769,8 +805,12 @@ async function runUnlocked(root, opts = {}) {
     return acceptPhase(root, { ...state, status: 'CODEX_VERDICT_1', codex_verdicts: ['PASS'], last_verdict: 'PASS', blockers: [] }, { phase_id: state.current_phase_id });
   }
 
-  // If already at a terminal stop state, report and stop — except a dry-run
-  // WAITING_ON_OWNER checkpoint, which a later normal run must resume.
+  let advancingFromReady = false;
+
+  // If already at a terminal stop state, report and stop — except:
+  //   - a dry-run WAITING_ON_OWNER checkpoint, which a later normal run resumes;
+  //   - READY_FOR_NEXT_V1_0_SLICE, which is terminal for the just-completed
+  //     invocation but advances on the next explicit runner invocation.
   if (TERMINAL_STOP_STATES.includes(state.status)) {
     if (dryRun && state.status === 'WAITING_ON_OWNER' && isDryRunOwnerCheckpoint(state)) {
       // Repeated dry-run: refresh checkpoint marker and remain stopped.
@@ -780,18 +820,24 @@ async function runUnlocked(root, opts = {}) {
         dry_run_checkpoint: true,
       });
     }
-    if (!(state.status === 'WAITING_ON_OWNER' && !dryRun && isDryRunOwnerCheckpoint(state))) {
+    if (state.status === 'READY_FOR_NEXT_V1_0_SLICE' && state.last_verdict === 'PASS') {
+      advancingFromReady = true;
+    } else if (!(state.status === 'WAITING_ON_OWNER' && !dryRun && isDryRunOwnerCheckpoint(state))) {
       return state;
+    } else {
+      // Clear the dry-run checkpoint marker and continue the real flow.
+      state = { ...state, dry_run_checkpoint: false };
     }
-    // Clear the dry-run checkpoint marker and continue the real flow.
-    state = { ...state, dry_run_checkpoint: false };
   }
 
-  // Determine last accepted state: persisted, else current HEAD.
-  const baseSha = state.last_accepted_sha || currentHead(root);
+  // Determine last accepted state: persisted, else current HEAD. When
+  // advancing from READY, preserve last_accepted_sha as historical evidence
+  // while carrying forward the current clean runner/controller HEAD.
+  const acceptedPhaseIds = acceptedPhaseIdsFromState(state);
+  const baseSha = branchBaseShaForNextRun(root, state, advancingFromReady);
 
   // Determine next slice from SOT + evidence markers (not a phase count).
-  const slice = determineNextSlice(root);
+  const slice = determineNextSlice(root, acceptedPhaseIds);
   if (!slice) {
     state = saveState(root, { ...state, status: 'V1_0_COMPLETE', dry_run_checkpoint: false });
     return state;
@@ -801,12 +847,16 @@ async function runUnlocked(root, opts = {}) {
   const contract = buildPhaseContract(root, slice, baseSha);
   validatePhaseContract(contract);
   materializePhaseContract(root, contract);
+  const accepted_phase_history = advancingFromReady
+    ? appendAcceptedPhaseHistory(state, state.current_phase_id, state.last_accepted_sha)
+    : state.accepted_phase_history;
   state = saveState(root, {
     ...state,
     status: 'CONTRACTED',
     current_phase_id: slice.phase_id,
     base_sha: baseSha,
     dry_run_checkpoint: false,
+    accepted_phase_history,
   });
 
   // Dry-run / mock: identify + contract the next slice only. Do NOT invoke a
@@ -967,17 +1017,44 @@ function reviewOnce(codexInvoker, root, contract, baseSha) {
   return parseReviewResult(out);
 }
 
+function branchBaseShaForNextRun(root, state, advancingFromReady) {
+  const persistedAcceptedSha = state.last_accepted_sha || currentHead(root);
+  if (!advancingFromReady) return persistedAcceptedSha;
+
+  // A READY phase is closed/accepted, so the next explicit invocation may
+  // advance. Use the current clean controller HEAD as the new branch base so
+  // runner-only fixes made after the accepted phase are carried forward, while
+  // preserving last_accepted_sha as the completed phase's historical evidence.
+  const head = currentHead(root);
+  if (state.last_accepted_sha) {
+    try {
+      gitSync(root, ['merge-base', '--is-ancestor', state.last_accepted_sha, head]);
+    } catch {
+      throw new BuildRunnerError(
+        'READY state cannot advance: current HEAD ' + head +
+        ' does not descend from last_accepted_sha ' + state.last_accepted_sha,
+        { code: 'READY_HEAD_NOT_DESCENDANT' }
+      );
+    }
+  }
+  return head;
+}
+
 function acceptPhase(root, state, _slice) {
   // Acceptance records the HEAD after the Cursor writer finished. The runner
   // never writes application evidence markers itself (Cursor is sole writer).
   // Successful acceptance is a terminal "ready" state; the owner must invoke
   // the next phase deliberately instead of a stale failure or implicit replay.
+  const acceptedSha = currentHead(root);
+  const phaseId = state.current_phase_id || _slice?.phase_id || null;
+  const accepted_phase_history = appendAcceptedPhaseHistory(state, phaseId, acceptedSha);
   const next = {
     ...state,
     status: 'READY_FOR_NEXT_V1_0_SLICE',
-    last_accepted_sha: currentHead(root),
+    last_accepted_sha: acceptedSha,
     last_verdict: 'PASS',
     blockers: [],
+    accepted_phase_history,
   };
   return saveState(root, next);
 }
