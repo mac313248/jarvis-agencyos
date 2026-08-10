@@ -29,7 +29,7 @@
 // without making application-phase changes.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, rmdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 // ---------------------------------------------------------------------------
@@ -50,15 +50,12 @@ export const TERMINAL_STOP_STATES = Object.freeze([
 
 export const STATE_FILE = 'artifacts/build-runner/state.json';
 export const PHASE_CONTRACT_FILE = 'artifacts/build-runner/current-phase.json';
+export const LOCK_DIR = 'artifacts/build-runner/.run.lock';
+export const TRANSITION_LOG = 'artifacts/build-runner/transitions.jsonl';
 
-// Exact supported headless Cursor CLI form (keychain-backed; never log the key):
-//   CURSOR_API_KEY="$(security find-generic-password -a "$USER" -s "agencyos.cursor.api_key" -w)" \
-//     cursor-agent --trust -p --force --output-format json "<prompt>"
-// Codex review-only (global -a never must precede the exec subcommand):
-//   codex -a never exec -C <root> -s read-only --ephemeral --json "<prompt>"
-export const CURSOR_AGENT_BIN = 'cursor-agent';
-export const CURSOR_KEYCHAIN_ACCOUNT_ENV = 'USER';
-export const CURSOR_KEYCHAIN_SERVICE = 'agencyos.cursor.api_key';
+// Native local-authenticated CLIs. Secrets are deliberately not read by the
+// runner and therefore cannot enter argv, environment, prompts, or logs.
+export const CURSOR_AGENT_BIN = 'agent';
 export const CODEX_BIN = 'codex';
 
 // V1.0 Foundation slice registry, derived from
@@ -447,7 +444,42 @@ export function saveState(root, state) {
   mkdirSync(dir, { recursive: true });
   const out = { ...state, updated_at: new Date().toISOString() };
   writeFileSync(join(root, STATE_FILE), JSON.stringify(out, null, 2) + '\n');
+  appendFileSync(join(root, TRANSITION_LOG), JSON.stringify({
+    timestamp: out.updated_at,
+    phase: out.current_phase_id || null,
+    state: out.status,
+    command_type: 'controller_transition',
+    exit_code: 0,
+    artifact_paths: [STATE_FILE, PHASE_CONTRACT_FILE],
+    test_summary: out.test_summary || null,
+    review_verdict: out.last_verdict || null,
+  }) + '\n');
   return out;
+}
+
+export function acquireRunLock(root) {
+  const lock = join(root, LOCK_DIR);
+  mkdirSync(join(root, 'artifacts/build-runner'), { recursive: true });
+  try {
+    mkdirSync(lock);
+    writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }) + '\n');
+  } catch (e) {
+    const ownerPath = join(lock, 'owner.json');
+    let owner = null;
+    try { owner = JSON.parse(readFileSync(ownerPath, 'utf8')); } catch {}
+    if (owner?.pid) {
+      try { process.kill(owner.pid, 0); throw new BuildRunnerError('another run is active (pid ' + owner.pid + ')', { code: 'RUN_ALREADY_ACTIVE' }); }
+      catch (probe) { if (probe instanceof BuildRunnerError) throw probe; }
+    }
+    try { unlinkSync(ownerPath); } catch {}
+    try { rmdirSync(lock); } catch {}
+    mkdirSync(lock);
+    writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }) + '\n');
+  }
+  return () => {
+    try { unlinkSync(join(lock, 'owner.json')); } catch {}
+    try { rmdirSync(lock); } catch {}
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +539,7 @@ export function createPhaseBranch(root, baseSha, slice) {
 }
 
 // ---------------------------------------------------------------------------
-// Native invokers. Secrets are never placed in prompts or logs.
+// Native invokers. Secrets are never placed in prompts, argv, environment, or logs.
 // ---------------------------------------------------------------------------
 
 function redactSecret(text, secret) {
@@ -515,82 +547,37 @@ function redactSecret(text, secret) {
   return String(text || '').split(secret).join('[REDACTED]');
 }
 
-export function loadCursorApiKey({ securityRunner } = {}) {
-  const account = process.env[CURSOR_KEYCHAIN_ACCOUNT_ENV] || process.env.LOGNAME || '';
-  if (!account) {
-    throw new BuildRunnerError(
-      'unsafe auth: cannot resolve keychain account ($USER)',
-      { code: 'UNSAFE_AUTH' }
-    );
-  }
-  const runSecurity =
-    securityRunner ||
-    ((args) =>
-      execFileSync('security', args, {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim());
-  let key;
-  try {
-    key = runSecurity([
-      'find-generic-password',
-      '-a',
-      account,
-      '-s',
-      CURSOR_KEYCHAIN_SERVICE,
-      '-w',
-    ]);
-  } catch (e) {
-    throw new BuildRunnerError(
-      'unsafe auth: Cursor API key missing from keychain (' + CURSOR_KEYCHAIN_SERVICE + ')',
-      { code: 'UNSAFE_AUTH' }
-    );
-  }
-  if (typeof key !== 'string' || !key.trim()) {
-    throw new BuildRunnerError('unsafe auth: Cursor API key empty', { code: 'UNSAFE_AUTH' });
-  }
-  return key.trim();
-}
-
 export function defaultCursorInvoker(root, prompt, deps = {}) {
-  // Exact form:
-  //   CURSOR_API_KEY="$(security find-generic-password -a "$USER" -s "agencyos.cursor.api_key" -w)" \
-  //     cursor-agent --trust -p --force --output-format json "<prompt>"
-  // Never print or log the key. Do not use Cursor desktop app or Cloud API.
-  const key = loadCursorApiKey({ securityRunner: deps.securityRunner });
   const bin = deps.agentBin || CURSOR_AGENT_BIN;
   const execFile = deps.execFileSync || execFileSync;
-  const env = { ...process.env, CURSOR_API_KEY: key };
   try {
     return execFile(
       bin,
-      ['--trust', '-p', '--force', '--output-format', 'json', prompt],
+      ['--print', '--output-format', 'stream-json', '--workspace', root, '--trust', '--force', '--sandbox', 'disabled', prompt],
       {
         cwd: root,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
         maxBuffer: 64 * 1024 * 1024,
-        env,
       }
     );
   } catch (e) {
     const raw = ((e && (e.stderr || e.stdout || e.message)) || '').toString();
     throw new BuildRunnerError(
-      'cursor-agent failed: ' + redactSecret(raw, key).split('\n')[0],
+      'agent failed: ' + raw.split('\n')[0],
       { code: 'CURSOR_INVOKE_FAILED' }
     );
   }
 }
 
 export function defaultCodexInvoker(root, prompt, deps = {}) {
-  // Exact form (global approval flag before subcommand; read-only + ephemeral):
-  //   codex -a never exec -C <root> -s read-only --ephemeral --json "<prompt>"
+  // Native Codex CLI form: read-only sandbox + ephemeral session + JSONL.
   const bin = deps.codexBin || CODEX_BIN;
   const execFile = deps.execFileSync || execFileSync;
   try {
     return execFile(
       bin,
-      ['-a', 'never', 'exec', '-C', root, '-s', 'read-only', '--ephemeral', '--json', prompt],
+      ['exec', '-C', root, '-s', 'read-only', '--ephemeral', '--json', prompt],
       {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -678,7 +665,7 @@ export function buildReviewerPrompt(contract, baseSha) {
 //   - FAIL or malformed verdict -> FAILED_ACCEPTANCE_GATE (fail closed)
 //   - never auto-merge; never modify SOT; never print credentials
 //   - stops only at a TERMINAL_STOP_STATE
-export async function run(root, opts = {}) {
+async function runUnlocked(root, opts = {}) {
   const {
     dryRun = false,
     cursorInvoker = dryRun ? null : defaultCursorInvoker,
@@ -846,6 +833,16 @@ export async function run(root, opts = {}) {
   }
 
   return acceptPhase(root, state, slice);
+}
+
+export async function run(root, opts = {}) {
+  verifyRepoRoot(root);
+  const release = acquireRunLock(root);
+  try {
+    return await runUnlocked(root, opts);
+  } finally {
+    release();
+  }
 }
 
 function reviewOnce(codexInvoker, root, contract, baseSha) {

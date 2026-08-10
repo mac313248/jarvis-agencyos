@@ -12,16 +12,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   run, parseVerdict, verifySot, verifyGitState, determineNextSlice,
-  validatePhaseContract, loadState, saveState, loadCursorApiKey, defaultCursorInvoker,
+  validatePhaseContract, loadState, saveState, defaultCursorInvoker,
   defaultCodexInvoker, FOUNDATION_SLICES, APPROVED_MANIFEST_SHA256,
-  TERMINAL_STOP_STATES, CURSOR_AGENT_BIN, CURSOR_KEYCHAIN_SERVICE,
+  TERMINAL_STOP_STATES, CURSOR_AGENT_BIN,
   isDryRunOwnerCheckpoint, BuildRunnerError,
 } from '../scripts/build-runner.mjs';
 
 const REAL_ROOT = new URL('../', import.meta.url).pathname;
 const REAL_SOT_DIR = join(REAL_ROOT, 'docs/master-sot');
 // Fixtures live inside the workspace so the sandbox permits writes.
-const FIXTURE_ROOT = join(REAL_ROOT, '.tmp-build-runner-tests');
+const FIXTURE_ROOT = join('/private/tmp', 'jarvis-build-runner-tests');
 
 function sha256File(p) {
   return createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -51,7 +51,7 @@ function makeFixture({ dirty = false, tamperManifest = false, completedSlices = 
     type: 'module', scripts: { test: 'node --test tests/*.test.mjs' },
   }) + '\n');
   writeFileSync(join(root, '.gitignore'),
-    'artifacts/build-runner/state.json\nartifacts/build-runner/current-phase.json\n');
+    'artifacts/\n');
   mkdirSync(join(root, 'scripts'), { recursive: true });
   writeFileSync(join(root, 'scripts/verify-sot.mjs'), '// stub\n');
   mkdirSync(join(root, 'migrations'), { recursive: true });
@@ -390,53 +390,21 @@ test('runner never merges to main', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-// 10. Unsafe auth fails closed; keychain-backed cursor-agent argv; no key leakage
-test('unsafe auth (missing keychain) fails closed', () => {
-  assert.throws(
-    () => loadCursorApiKey({ securityRunner: () => { throw new Error('not found'); } }),
-    (e) => e instanceof BuildRunnerError && e.code === 'UNSAFE_AUTH'
-  );
-  assert.throws(
-    () => loadCursorApiKey({ securityRunner: () => '   ' }),
-    (e) => e instanceof BuildRunnerError && e.code === 'UNSAFE_AUTH'
-  );
-});
-
-test('defaultCursorInvoker uses keychain + cursor-agent flags and never leaks the key', () => {
-  const secret = 'super-secret-cursor-key-DO-NOT-LEAK';
+// 10. Native local-authenticated Cursor CLI; no credential materialization
+test('defaultCursorInvoker uses native headless agent flags with no secret env', () => {
   let captured = null;
   const out = defaultCursorInvoker('/tmp/ws', 'do the work', {
-    securityRunner: (args) => {
-      assert.deepEqual(args.slice(0, 1), ['find-generic-password']);
-      assert.equal(args.includes('-s'), true);
-      assert.equal(args[args.indexOf('-s') + 1], CURSOR_KEYCHAIN_SERVICE);
-      assert.equal(args.includes('-w'), true);
-      return secret;
-    },
-    agentBin: 'cursor-agent-mock',
+    agentBin: 'agent-mock',
     execFileSync: (bin, argv, opts) => {
       captured = { bin, argv, opts };
       return '{"ok":true}';
     },
   });
   assert.equal(out, '{"ok":true}');
-  assert.equal(captured.bin, 'cursor-agent-mock');
-  assert.deepEqual(captured.argv, ['--trust', '-p', '--force', '--output-format', 'json', 'do the work']);
-  assert.equal(captured.opts.env.CURSOR_API_KEY, secret);
-  assert.equal(CURSOR_AGENT_BIN, 'cursor-agent');
-  // Error path must redact the secret.
-  assert.throws(
-    () => defaultCursorInvoker('/tmp/ws', 'x', {
-      securityRunner: () => secret,
-      agentBin: 'cursor-agent-mock',
-      execFileSync: () => { throw new Error('boom ' + secret + ' visible'); },
-    }),
-    (e) =>
-      e instanceof BuildRunnerError &&
-      e.code === 'CURSOR_INVOKE_FAILED' &&
-      !String(e.message).includes(secret) &&
-      String(e.message).includes('[REDACTED]')
-  );
+  assert.equal(captured.bin, 'agent-mock');
+  assert.deepEqual(captured.argv, ['--print', '--output-format', 'stream-json', '--workspace', '/tmp/ws', '--trust', '--force', '--sandbox', 'disabled', 'do the work']);
+  assert.equal(captured.opts.env, undefined);
+  assert.equal(CURSOR_AGENT_BIN, 'agent');
 });
 
 test('defaultCodexInvoker uses read-only never-approval ephemeral json form', () => {
@@ -450,7 +418,7 @@ test('defaultCodexInvoker uses read-only never-approval ephemeral json form', ()
   });
   assert.equal(captured.bin, 'codex-mock');
   assert.deepEqual(captured.argv, [
-    '-a', 'never', 'exec', '-C', '/repo', '-s', 'read-only', '--ephemeral', '--json', 'review please',
+    'exec', '-C', '/repo', '-s', 'read-only', '--ephemeral', '--json', 'review please',
   ]);
 });
 
