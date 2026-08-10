@@ -172,6 +172,25 @@ export function hasReliableObservationFreshness(observation, fallbackMaxAgeSecon
 }
 
 /**
+ * Infer a fail-closed source_status marker from CurrentStateRecord-shaped data.
+ *
+ * OFFLINE/UNKNOWN paths may bump observed_at to "now" while persisting only
+ * freshness (source_status is not a DB column). Later no-provider reconcile
+ * must reconstruct the marker from freshness/source_status so a recent
+ * observed_at cannot be recomputed as FRESH.
+ */
+export function inferFailClosedSourceStatus(state) {
+  if (!state || typeof state !== 'object') return null;
+  const explicit = state.source_status ?? null;
+  if (explicit === 'OFFLINE' || explicit === 'UNREACHABLE') return 'OFFLINE';
+  if (explicit === 'UNKNOWN' || explicit === 'STALE') return explicit;
+  if (state.freshness === 'OFFLINE') return 'OFFLINE';
+  if (state.freshness === 'UNKNOWN') return 'UNKNOWN';
+  if (state.freshness === 'STALE') return 'STALE';
+  return null;
+}
+
+/**
  * Two authoritative evidence refs conflict when they disagree on the same
  * subject/state key with equal authority and incompatible values.
  */
@@ -318,10 +337,14 @@ export function reconcile({
     };
   }
 
-  // #38 stale / offline / unknown source labeling (no provider repair path).
-  const sourceStatus = providerObservation?.source_status
-    ?? localState.source_status
-    ?? null;
+  // #38 stale / offline / unknown source labeling.
+  // With trustworthy provider evidence, use only the provider's source_status
+  // so prior fail-closed markers can clear. Without provider evidence, carry
+  // prior source_status / fail-closed freshness so a bumped observed_at cannot
+  // recompute OFFLINE/UNKNOWN/STALE as FRESH.
+  const sourceStatus = providerObservation
+    ? (providerObservation.source_status ?? null)
+    : (inferFailClosedSourceStatus(localState) ?? localState.source_status ?? null);
 
   if (sourceStatus === 'OFFLINE' || sourceStatus === 'UNREACHABLE') {
     return {
@@ -332,6 +355,7 @@ export function reconcile({
         ...base,
         freshness: 'OFFLINE',
         conflict_status: 'NONE',
+        source_status: 'OFFLINE',
         observed_at: now,
         value: base.value,
       },
@@ -347,6 +371,7 @@ export function reconcile({
         ...base,
         freshness: 'UNKNOWN',
         conflict_status: base.conflict_status === 'NONE' ? 'UNKNOWN' : base.conflict_status,
+        source_status: 'UNKNOWN',
         observed_at: now,
         value: base.value,
       },
@@ -355,6 +380,28 @@ export function reconcile({
 
   // Age-based freshness when no provider observation to reconcile.
   if (!providerObservation) {
+    // Preserve CONFLICTED when prior conflict_status already fail-closed.
+    if (
+      base.freshness === 'CONFLICTED'
+      || base.conflict_status === 'PENDING_LOCAL_EFFECT'
+      || base.conflict_status === 'SOURCE_CONFLICT'
+    ) {
+      return {
+        action: 'HOLD_CONFLICTED',
+        value_overwritten: false,
+        reason: 'prior conflicted state retained without provider evidence',
+        next_state: {
+          ...base,
+          freshness: 'CONFLICTED',
+          conflict_status: base.conflict_status === 'NONE'
+            ? 'UNKNOWN'
+            : base.conflict_status,
+          observed_at: now,
+          value: base.value,
+        },
+      };
+    }
+
     const freshness = computeFreshness({
       observed_at: base.observed_at,
       max_age_seconds: base.max_age_seconds,
@@ -367,7 +414,12 @@ export function reconcile({
         action: 'MARK_STALE',
         value_overwritten: false,
         reason: 'observed_at exceeds max_age_seconds',
-        next_state: { ...base, freshness: 'STALE', conflict_status: 'NONE' },
+        next_state: {
+          ...base,
+          freshness: 'STALE',
+          conflict_status: 'NONE',
+          source_status: 'STALE',
+        },
       };
     }
     if (freshness === 'UNKNOWN') {
@@ -375,7 +427,12 @@ export function reconcile({
         action: 'MARK_UNKNOWN',
         value_overwritten: false,
         reason: 'insufficient observation metadata',
-        next_state: { ...base, freshness: 'UNKNOWN' },
+        next_state: {
+          ...base,
+          freshness: 'UNKNOWN',
+          source_status: 'UNKNOWN',
+          conflict_status: base.conflict_status === 'NONE' ? 'UNKNOWN' : base.conflict_status,
+        },
       };
     }
     return {
@@ -401,6 +458,7 @@ export function reconcile({
         ...base,
         freshness: 'UNKNOWN',
         conflict_status: 'UNKNOWN',
+        source_status: 'UNKNOWN',
         value: base.value,
       },
     };
@@ -425,6 +483,7 @@ export function reconcile({
         ...base,
         freshness: 'STALE',
         conflict_status: 'NONE',
+        source_status: 'STALE',
         observed_at: observedAt,
         value: base.value,
       },
@@ -440,6 +499,7 @@ export function reconcile({
         ...base,
         freshness: 'UNKNOWN',
         conflict_status: 'UNKNOWN',
+        source_status: 'UNKNOWN',
         observed_at: observedAt,
         value: base.value,
       },

@@ -29,6 +29,7 @@ import {
   createReconciliationRuntime,
   detectSourceConflict,
   hasReliableObservationFreshness,
+  inferFailClosedSourceStatus,
   isBlockingLocalEffect,
   reconcile,
 } from '../src/runtime/reconciliation.js';
@@ -527,6 +528,79 @@ describe('F-10 #38 stale source becomes STALE/UNKNOWN', () => {
       providerObservation: null,
     });
     assert.equal(decision.next_state.freshness, 'OFFLINE');
+    assert.equal(decision.next_state.source_status, 'OFFLINE');
+  });
+
+  test('OFFLINE then no-provider reconcile stays OFFLINE/UNKNOWN (never FRESH)', () => {
+    const t1 = '2026-08-10T12:00:00.000Z';
+    const t2 = '2026-08-10T12:00:30.000Z';
+    const first = reconcile({
+      localState: baseLocal({ source_status: 'OFFLINE', now: t1 }),
+      providerObservation: null,
+      now: t1,
+    });
+    assert.equal(first.next_state.freshness, 'OFFLINE');
+    assert.equal(first.next_state.source_status, 'OFFLINE');
+    assert.equal(first.next_state.observed_at, t1);
+
+    // In-memory carry: next_state includes source_status.
+    const second = reconcile({
+      localState: first.next_state,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['OFFLINE', 'UNKNOWN'].includes(second.next_state.freshness));
+    assert.notEqual(second.next_state.freshness, 'FRESH');
+    assert.notEqual(second.next_state.freshness, 'AGING');
+
+    // DB-shaped carry: only freshness persisted (no source_status column).
+    const { source_status: _drop, ...dbShaped } = first.next_state;
+    assert.equal(dbShaped.source_status, undefined);
+    assert.equal(inferFailClosedSourceStatus(dbShaped), 'OFFLINE');
+    const third = reconcile({
+      localState: dbShaped,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['OFFLINE', 'UNKNOWN'].includes(third.next_state.freshness));
+    assert.notEqual(third.next_state.freshness, 'FRESH');
+  });
+
+  test('UNKNOWN then no-provider reconcile stays UNKNOWN/CONFLICTED (never FRESH)', () => {
+    const t1 = '2026-08-10T12:00:00.000Z';
+    const t2 = '2026-08-10T12:00:30.000Z';
+    const first = reconcile({
+      localState: baseLocal({ now: t1 }),
+      providerObservation: {
+        value: { name: 'Ada', status: 'active' },
+        source_status: 'UNKNOWN',
+        observed_at: t1,
+      },
+      now: t1,
+    });
+    assert.equal(first.action, 'MARK_UNKNOWN');
+    assert.equal(first.next_state.freshness, 'UNKNOWN');
+    assert.equal(first.next_state.source_status, 'UNKNOWN');
+    assert.equal(first.next_state.observed_at, t1);
+
+    const second = reconcile({
+      localState: first.next_state,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['UNKNOWN', 'CONFLICTED'].includes(second.next_state.freshness));
+    assert.notEqual(second.next_state.freshness, 'FRESH');
+    assert.notEqual(second.next_state.freshness, 'AGING');
+
+    const { source_status: _drop, ...dbShaped } = first.next_state;
+    assert.equal(inferFailClosedSourceStatus(dbShaped), 'UNKNOWN');
+    const third = reconcile({
+      localState: dbShaped,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['UNKNOWN', 'CONFLICTED'].includes(third.next_state.freshness));
+    assert.notEqual(third.next_state.freshness, 'FRESH');
   });
 });
 
