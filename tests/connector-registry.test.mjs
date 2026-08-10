@@ -152,6 +152,71 @@ describe('F-11 connector contract + registry', () => {
     assert.deepEqual([...CONNECTOR_ACCESS_MODES], ['read_only']);
     assert.ok(CONNECTOR_STATUSES.includes('active'));
   });
+
+  test('nested secret keys/values in auth_scope/network_scope rejected by validateConnectorContract', () => {
+    assert.throws(
+      () => validateConnectorContract(baseConnector({
+        auth_scope: { nested: { api_key: 'nested-secret' } },
+      })),
+      /raw credential-bearing field forbidden: auth_scope\.nested\.api_key/i
+    );
+    assert.throws(
+      () => validateConnectorContract(baseConnector({
+        network_scope: { headers: { Authorization: 'Bearer leaked-token' } },
+      })),
+      /raw secret value forbidden at network_scope\.headers\.Authorization/i
+    );
+    assert.throws(
+      () => validateConnectorContract(baseConnector({
+        auth_scope: { providers: [{ token: 'x' }] },
+      })),
+      /auth_scope\.providers\[0\]\.token/i
+    );
+    // Permitted non-secret nested metadata still validates.
+    const ok = validateConnectorContract(baseConnector({
+      auth_scope: { scopes: ['read'], audience: 'fixture' },
+      network_scope: { allow: ['api.fixture.test'], deny: [] },
+    }));
+    assert.equal(ok.auth_scope.audience, 'fixture');
+  });
+
+  test('direct SQL nested secret metadata in auth_scope/network_scope rejected by DB', async () => {
+    await assert.rejects(
+      () => asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+        await tx.query(
+          `INSERT INTO connectors (
+             tenant_id, connector_id, contract_version, provider, control_surface,
+             adapter, access_mode, capability_ids, auth_scope, network_scope, status
+           ) VALUES (
+             $1, 'conn.nested.secret', 1, 'fixture', 'api',
+             'a', 'read_only', '[]'::jsonb,
+             '{"meta":{"api_key":"nested-db-secret"}}'::jsonb,
+             '{}'::jsonb, 'active'
+           );`,
+          [A]
+        );
+      }),
+      /check constraint|violates|forbidden_secret|connectors_auth_scope_no_secrets/i
+    );
+    await assert.rejects(
+      () => asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+        await tx.query(
+          `INSERT INTO connectors (
+             tenant_id, connector_id, contract_version, provider, control_surface,
+             adapter, access_mode, capability_ids, auth_scope, network_scope, status
+           ) VALUES (
+             $1, 'conn.nested.sk', 1, 'fixture', 'api',
+             'a', 'read_only', '[]'::jsonb,
+             '{}'::jsonb,
+             '{"upstream":{"value":"sk-live-nested-db"}}'::jsonb,
+             'active'
+           );`,
+          [A]
+        );
+      }),
+      /check constraint|violates|forbidden_secret|connectors_network_scope_no_secrets/i
+    );
+  });
 });
 
 describe('F-11 connector RLS / tenant isolation', () => {
@@ -449,6 +514,91 @@ describe('Master #44 third-party tenant data never becomes global raw durable me
     );
   });
 
+  test('#44 direct SQL INSERT as app_runtime cannot bypass policy with raw payload omitting raw_tenant_data', async () => {
+    // Privilege gate: app_runtime has no direct INSERT.
+    await assert.rejects(
+      () => asRole(db, 'app_runtime', async (b) => {
+        await b.query(
+          `INSERT INTO global_durable_memory (
+             memory_id, memory_class, source_confidentiality_class, payload
+           ) VALUES (
+             '44444444-4444-4444-4444-444444444444',
+             'OPERATIONAL_METADATA', 'THIRD_PARTY_ISOLATED',
+             '{"customer_email":"bypass@client.test","full_name":"Bypass Client"}'::jsonb
+           );`
+        );
+      }),
+      /permission denied|violates|check constraint/i
+    );
+
+    // Even via controlled function: PII-shaped third-party payload without
+    // raw_tenant_data flag is rejected (fail closed).
+    await assert.rejects(
+      () => asRole(db, 'app_runtime', async (b) => {
+        await b.query(
+          `SELECT ingest_global_durable_memory(
+             '55555555-5555-5555-5555-555555555555'::uuid,
+             'OPERATIONAL_METADATA',
+             'THIRD_PARTY_ISOLATED',
+             $1::uuid,
+             '{"customer_email":"bypass@client.test","full_name":"Bypass Client"}'::jsonb
+           );`,
+          [B]
+        );
+      }),
+      /RAW_TENANT_DATA_FORBIDDEN|check constraint|violates/i
+    );
+
+    // Third-party payload that only omits permitted/deidentified also fails.
+    await assert.rejects(
+      () => asRole(db, 'app_runtime', async (b) => {
+        await b.query(
+          `SELECT ingest_global_durable_memory(
+             '66666666-6666-6666-6666-666666666666'::uuid,
+             'OPERATIONAL_METADATA',
+             'THIRD_PARTY_ISOLATED',
+             $1::uuid,
+             '{"metric":"reads","value":9}'::jsonb
+           );`,
+          [B]
+        );
+      }),
+      /THIRD_PARTY_NOT_PERMITTED|check constraint|violates/i
+    );
+
+    const leaked = (await db.query(
+      `SELECT count(*)::int AS n FROM global_durable_memory
+       WHERE payload::text ILIKE '%bypass@client.test%';`
+    )).rows[0].n;
+    assert.equal(leaked, 0);
+  });
+
+  test('#44 permitted de-identified third-party aggregate still works through controlled path', async () => {
+    const memoryId = await asRole(db, 'app_runtime', async (b) => {
+      const r = await b.query(
+        `SELECT ingest_global_durable_memory(
+           '77777777-7777-7777-7777-777777777777'::uuid,
+           'DEIDENTIFIED_AGGREGATE',
+           'THIRD_PARTY_ISOLATED',
+           $1::uuid,
+           '{"permitted":true,"deidentified":true,"metric":"connector_read_count","value":7}'::jsonb
+         ) AS memory_id;`,
+        [B]
+      );
+      return r.rows[0].memory_id;
+    });
+    assert.equal(memoryId, '77777777-7777-7777-7777-777777777777');
+    const row = (await db.query(
+      `SELECT source_confidentiality_class, payload
+       FROM global_durable_memory WHERE memory_id = $1;`,
+      [memoryId]
+    )).rows[0];
+    assert.equal(row.source_confidentiality_class, 'THIRD_PARTY_ISOLATED');
+    assert.equal(row.payload.permitted, true);
+    assert.equal(row.payload.deidentified, true);
+    assert.equal(row.payload.raw_tenant_data, undefined);
+  });
+
   test('#44 end-to-end: third-party read stays out of global raw memory', async () => {
     const broker = createCredentialBroker();
     const { credential_broker_ref } = broker.register({
@@ -540,6 +690,7 @@ describe('F-11 autonomy + stop conditions', () => {
       'src/runtime/durable-memory.js',
       'src/runtime/autonomy.js',
       'migrations/0015_connector_registry.sql',
+      'migrations/0016_f11_memory_secret_gates.sql',
     ];
     for (const rel of files) {
       const text = readFileSync(join(root, rel), 'utf8');
@@ -550,10 +701,21 @@ describe('F-11 autonomy + stop conditions', () => {
     }
   });
 
-  test('migration 0015 applied', async () => {
+  test('migration 0015 and 0016 applied; app_runtime has no direct INSERT on global memory', async () => {
     const mig = (await db.query(
-      `SELECT id FROM schema_migrations WHERE id='0015_connector_registry';`
-    )).rows;
-    assert.equal(mig.length, 1);
+      `SELECT id FROM schema_migrations
+       WHERE id IN ('0015_connector_registry','0016_f11_memory_secret_gates')
+       ORDER BY id;`
+    )).rows.map((r) => r.id);
+    assert.deepEqual(mig, [
+      '0015_connector_registry',
+      '0016_f11_memory_secret_gates',
+    ]);
+    const insertPriv = (await db.query(`
+      SELECT has_table_privilege('app_runtime', 'global_durable_memory', 'INSERT') AS can_insert,
+             has_table_privilege('app_runtime', 'global_durable_memory', 'SELECT') AS can_select;
+    `)).rows[0];
+    assert.equal(insertPriv.can_insert, false);
+    assert.equal(insertPriv.can_select, true);
   });
 });

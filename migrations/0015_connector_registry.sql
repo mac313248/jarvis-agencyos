@@ -73,11 +73,10 @@ CREATE TABLE global_durable_memory (
 );
 ALTER TABLE global_durable_memory OWNER TO app_migrator;
 
--- Runtime may SELECT for verification; INSERT only via controlled policy path
--- that still goes through application gate. Direct app_runtime INSERT is
--- granted so tests can prove CHECK constraints, but application code must
--- refuse third-party raw writes before reaching SQL.
-GRANT SELECT, INSERT ON global_durable_memory TO app_runtime;
+-- Runtime may SELECT for verification. Direct INSERT is NOT granted to
+-- app_runtime — ingestion must use the controlled DB function
+-- ingest_global_durable_memory() (see 0016) which enforces acceptance #44.
+GRANT SELECT ON global_durable_memory TO app_runtime;
 
 INSERT INTO contract_metadata (contract_name, contract_version, git_sha, schema_path)
 VALUES (

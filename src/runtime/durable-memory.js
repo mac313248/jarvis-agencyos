@@ -103,7 +103,9 @@ export function classifyGlobalMemoryIngest({
 
 /**
  * Persist to global_durable_memory only after the #44 policy gate passes.
- * Caller may be inside any role that has INSERT; the gate is the authority.
+ * Application classification fails closed first; persistence goes exclusively
+ * through ingest_global_durable_memory() so app_runtime cannot direct-INSERT
+ * raw third-party payloads that omit raw_tenant_data.
  */
 export async function ingestGlobalDurableMemory(backend, {
   source_confidentiality_class,
@@ -121,19 +123,29 @@ export async function ingestGlobalDurableMemory(backend, {
   }
 
   const memory_id = randomUUID();
-  await backend.query(
-    `INSERT INTO global_durable_memory (
-       memory_id, memory_class, source_confidentiality_class,
-       source_tenant_id, payload
-     ) VALUES ($1, $2, $3, $4, $5::jsonb);`,
-    [
-      memory_id,
-      memory_class,
-      source_confidentiality_class,
-      source_tenant_id,
-      JSON.stringify(payload),
-    ]
-  );
+  try {
+    await backend.query(
+      `SELECT ingest_global_durable_memory(
+         $1::uuid, $2, $3, $4::uuid, $5::jsonb
+       ) AS memory_id;`,
+      [
+        memory_id,
+        memory_class,
+        source_confidentiality_class,
+        source_tenant_id,
+        JSON.stringify(payload),
+      ]
+    );
+  } catch (err) {
+    const msg = String(err?.message || err);
+    const codeMatch = msg.match(
+      /(RAW_TENANT_DATA_FORBIDDEN|THIRD_PARTY_NOT_PERMITTED|THIRD_PARTY_NOT_DEIDENTIFIED|INVALID_MEMORY_CLASS|UNKNOWN_CONFIDENTIALITY_CLASS|THIRD_PARTY_RAW_FORBIDDEN)/
+    );
+    if (codeMatch) {
+      throw new DurableMemoryError(codeMatch[1], msg);
+    }
+    throw err;
+  }
   return { memory_id, memory_class, source_confidentiality_class, ingested: true };
 }
 

@@ -71,6 +71,39 @@ function assertNoRawSecretFields(obj) {
   }
 }
 
+/**
+ * Recursively reject secret-bearing keys and inline secret-shaped string values
+ * at any depth (auth_scope / network_scope metadata must stay non-secret).
+ */
+export function assertNoRawSecretsDeep(value, path = '') {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => assertNoRawSecretsDeep(v, `${path}[${i}]`));
+    return true;
+  }
+  if (typeof value === 'object') {
+    for (const [k, v] of Object.entries(value)) {
+      const key = k.toLowerCase();
+      const childPath = path ? `${path}.${k}` : k;
+      if (FORBIDDEN_SECRET_FIELDS.includes(key)) {
+        throw new ConnectorValidationError(
+          `raw credential-bearing field forbidden: ${childPath}`
+        );
+      }
+      assertNoRawSecretsDeep(v, childPath);
+    }
+    return true;
+  }
+  if (typeof value === 'string') {
+    if (/^(sk-|Bearer |-----BEGIN )/i.test(value)) {
+      throw new ConnectorValidationError(
+        `raw secret value forbidden at ${path || '<root>'}`
+      );
+    }
+  }
+  return true;
+}
+
 function assertOpaqueRef(value, field) {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'string' || value.length === 0) {
@@ -108,6 +141,8 @@ export function validateConnectorContract(input) {
   const capability_ids = requireStringArray(input, 'capability_ids');
   const auth_scope = requireObject(input, 'auth_scope');
   const network_scope = requireObject(input, 'network_scope');
+  assertNoRawSecretsDeep(auth_scope, 'auth_scope');
+  assertNoRawSecretsDeep(network_scope, 'network_scope');
   const status = requireEnum(input, 'status', CONNECTOR_STATUSES);
 
   const credential_broker_ref = assertOpaqueRef(
