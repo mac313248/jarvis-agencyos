@@ -31,6 +31,16 @@ write('sot-verification.txt', sotTxt);
 // ---- Git state ----
 const startSha = '5b861f2afefe41090de57ddcdbafd22435160056';
 const headSha = run('git rev-parse HEAD').out.trim();
+// The IMPLEMENTATION SHA is the code+migrations+tests commit whose suite
+// was run/reviewed. It is supplied explicitly so that later evidence/review-only
+// commits do NOT silently change what implementation is being certified. This
+// avoids a self-referential Git-SHA loop (an artifact cannot cryptographically
+// contain its own final commit SHA).
+const implSha = process.env.PHASE1_IMPL_SHA || headSha;
+// The evidence/review-only commit is created AFTER this binding (by committing
+// these artifacts). It cannot be embedded in its own artifact (self-referential
+// SHA loop), so we record it as a pending note rather than a SHA.
+const evidenceShaNote = 'pending — evidence/review-only commit created after this binding; not embedded (avoids self-referential Git-SHA loop)';
 const branch = run('git branch --show-current').out.trim();
 const origin = run('git remote get-url origin').out.trim();
 
@@ -94,20 +104,25 @@ write('rls-negative-tests.txt', rlsTxt);
 // ---- Build binding record ----
 await recordBuildBinding(db, {
   sotManifestSha256: sot.manifestHash,
-  gitCommitSha: headSha,
+  gitCommitSha: implSha,
   builderRuntime: 'Cursor (GLM-5.2)',
-  reviewerRuntime: null,
+  reviewerRuntime: 'Codex (first review: PASS WITH FIXES)',
 });
+const codexVerdict = process.env.CODEX_VERDICT || 'PASS WITH FIXES (first review; 2 findings addressed)';
 const binding = {
   sot_manifest_sha256: sot.manifestHash,
-  git_commit_sha: headSha,
+  reviewed_implementation_sha: implSha,
+  git_commit_sha: implSha,
+  evidence_or_review_only_sha: evidenceShaNote,
   starting_git_sha: startSha,
   branch,
   origin,
   builder_runtime: 'Cursor (GLM-5.2)',
-  reviewer_runtime: null,
+  reviewer_runtime: 'Codex (first review: PASS WITH FIXES)',
+  codex_first_verdict: codexVerdict,
   postgres_engine: 'PGlite (real PostgreSQL WASM)',
   postgres_server_version: await serverVersion(db),
+  note: 'git_commit_sha binds to the exact code+migrations+tests implementation commit whose suite was run. Any later commit is evidence/review-only and does not modify implementation. The evidence artifact cannot cryptographically contain its own final commit SHA.',
   created_at: new Date().toISOString(),
 };
 write('build-binding.json', JSON.stringify(binding, null, 2));
@@ -121,11 +136,17 @@ write('test-results.txt', `Phase 1 test suite (node --test)\nexit_code=${testRes
 const changed = run('git diff --stat main..HEAD 2>/dev/null || git status --short').out;
 const summary = `# Phase 1 — Secure Core Spine — Implementation Summary
 
-## Starting / ending state
+## SHAs (implementation vs evidence)
 - Starting main SHA: ${startSha}
-- Phase 1 branch: ${branch}
-- Final branch SHA: ${headSha}
+- Reviewed implementation SHA (code+migrations+tests whose suite was run): ${implSha}
+- Evidence/review-only SHA: ${evidenceShaNote}
+- Branch: ${branch}
 - Origin: ${origin}
+
+NOTE: git_commit_sha in build-binding.json binds to the reviewed implementation
+SHA (${implSha}), NOT to the evidence artifact commit. The evidence artifact
+cannot cryptographically contain its own final commit SHA; any later commit is
+evidence/review-only and does not modify implementation.
 
 ## SOT
 - manifest_sha256: ${sot.manifestHash}
@@ -151,13 +172,24 @@ const summary = `# Phase 1 — Secure Core Spine — Implementation Summary
   missing/invalid; cannot leak across pooled-connection reuse.
 - Contract primitives: deterministic canonical IDs + request_hash; deterministic
   idempotency key SHA256(tenant||workflow||step||cap||request_hash); SOT mismatch
-  guard; approval binding (proposal_id + request_hash + state version) with
-  step-up MFA enforcement; inbound authenticity boundary (FAILED/UNKNOWN cannot
-  materialize canonical state); authority/kill fail-closed epoch revalidation.
+  guard; approval binding (proposal_id + request_hash + state version + EXACT
+  owner session/principal) with step-up MFA enforcement; inbound authenticity
+  boundary (FAILED/UNKNOWN cannot materialize canonical state); authority/kill
+  fail-closed epoch revalidation.
 - No business-write autonomy. No live providers. No DBOS. No Agent 0.
 
+## Codex first review
+- Verdict: ${codexVerdict}
+- Findings addressed:
+  1. Approval now binds to the exact owner session (session_id) and principal
+     (owner_principal_id) recorded on ApprovalDecision. Added 3 negative tests.
+  2. Stale evidence binding repaired: evidence now binds to the reviewed
+     implementation SHA; wording corrected; self-referential SHA loop avoided;
+     first Codex verdict + findings recorded.
+
 ## Required negative security tests (all green)
-See acceptance-map.md and test-results.txt. 26 tests across 7 suites.
+See acceptance-map.md and test-results.txt. 29 tests across 7 suites
+(26 original + 3 new approval session/principal binding tests).
 Direct RLS attacks against the real runtime role: see rls-negative-tests.txt.
 
 ## Known deferrals

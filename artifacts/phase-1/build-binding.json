@@ -1,12 +1,16 @@
 {
   "sot_manifest_sha256": "8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87",
-  "git_commit_sha": "6b0144920632b939de928c776b4d1de2b32aee74",
+  "reviewed_implementation_sha": "20c64b759c3f6aced3879e2872cca76326e58914",
+  "git_commit_sha": "20c64b759c3f6aced3879e2872cca76326e58914",
+  "evidence_or_review_only_sha": "pending — evidence/review-only commit created after this binding; not embedded (avoids self-referential Git-SHA loop)",
   "starting_git_sha": "5b861f2afefe41090de57ddcdbafd22435160056",
   "branch": "phase-1/secure-core-spine",
   "origin": "https://github.com/mac313248/jarvis-agencyos.git",
   "builder_runtime": "Cursor (GLM-5.2)",
-  "reviewer_runtime": null,
+  "reviewer_runtime": "Codex (first review: PASS WITH FIXES)",
+  "codex_first_verdict": "PASS WITH FIXES (first review; 2 findings addressed)",
   "postgres_engine": "PGlite (real PostgreSQL WASM)",
   "postgres_server_version": "16.4",
-  "created_at": "2026-08-10T08:26:57.658Z"
+  "note": "git_commit_sha binds to the exact code+migrations+tests implementation commit whose suite was run. Any later commit is evidence/review-only and does not modify implementation. The evidence artifact cannot cryptographically contain its own final commit SHA.",
+  "created_at": "2026-08-10T08:38:04.294Z"
 }

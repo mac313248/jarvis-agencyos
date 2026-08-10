@@ -37,7 +37,7 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 | # | Test | Disposition | Evidence |
 |---|---|---|---|
 | 9 | Owner session requires authentication | REQUIRED_NOW (primitive) | `owner_sessions` schema + `validateApproval` session checks; live auth provider (OAuth/MFA provider) DEFERRED |
-| 10 | High-risk approval requires recent step-up MFA | REQUIRED_NOW | contracts-auth test 13 |
+| 10 | High-risk approval requires recent step-up MFA | REQUIRED_NOW | contracts-auth test 13 (+ exact session/principal binding tests 14a/14b/14c) |
 | 11 | APPROVE works only for exact proposal_id + request_hash | REQUIRED_NOW | contracts-auth test 14 |
 | 12 | Payload/state mutation invalidates prior approval | REQUIRED_NOW | contracts-auth test 15 |
 | 13 | Raw text "owner approved" has zero value | REQUIRED_NOW | contracts-auth test 16 |
@@ -119,7 +119,7 @@ technique). See `test-results.txt` and `rls-negative-tests.txt`.
 | 53 | Backup restore actually rehearsed | DEFERRED_TO_LATER_FOUNDATION_PHASE | Recovery (later Foundation) |
 
 ## Summary
-- REQUIRED_NOW: 18 tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,45,46,48,49) — all green.
+- REQUIRED_NOW: 18 acceptance tests (1,2,3,4,5,6,9,10,11,12,13,15,17,21,32,33,34,35,42,43,45,46,48,49) — all green, proven by 29 unit tests (26 original + 3 new approval session/principal binding tests 14a/14b/14c).
 - STRUCTURAL_PREREQUISITE: 4 (14,16,44,47) — schema/primitive present; full enforcement DEFERRED.
 - DEFERRED_TO_LATER_FOUNDATION_PHASE: 26 — explicitly identified, not faked.
 - NOT_APPLICABLE: 0.

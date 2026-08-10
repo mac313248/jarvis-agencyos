@@ -10,213 +10,231 @@ TAP version 13
     # Subtest: 32. Revocation arriving between policy decision and commit blocks commit
     ok 1 - 32. Revocation arriving between policy decision and commit blocks commit
       ---
-      duration_ms: 7.386334
+      duration_ms: 9.26325
       type: 'test'
       ...
     # Subtest: 33. Receipt records commit-time revocation/kill epochs
     ok 2 - 33. Receipt records commit-time revocation/kill epochs
       ---
-      duration_ms: 11.9445
+      duration_ms: 15.192167
       type: 'test'
       ...
     # Subtest: 34. Authority/kill-store outage blocks material writes (fail-closed)
     ok 3 - 34. Authority/kill-store outage blocks material writes (fail-closed)
       ---
-      duration_ms: 1.961208
+      duration_ms: 1.59875
       type: 'test'
       ...
     # Subtest: 35. Zombie worker with stale epoch cannot commit
     ok 4 - 35. Zombie worker with stale epoch cannot commit
       ---
-      duration_ms: 5.897958
+      duration_ms: 7.024208
       type: 'test'
       ...
     # Subtest: 34b. Inactive authority blocks commit
     ok 5 - 34b. Inactive authority blocks commit
       ---
-      duration_ms: 10.44275
+      duration_ms: 13.27825
       type: 'test'
       ...
     1..5
 ok 1 - authority / kill fail-closed
   ---
-  duration_ms: 1573.159292
+  duration_ms: 1492.211333
   type: 'suite'
   ...
 # Subtest: approval / auth binding
     # Subtest: 13. High-risk approval rejects absent/stale step-up MFA
     ok 1 - 13. High-risk approval rejects absent/stale step-up MFA
       ---
-      duration_ms: 2.017084
+      duration_ms: 1.734833
       type: 'test'
       ...
     # Subtest: 14. Approval rejects mismatched proposal_id or request_hash
     ok 2 - 14. Approval rejects mismatched proposal_id or request_hash
       ---
-      duration_ms: 0.183709
+      duration_ms: 0.193084
+      type: 'test'
+      ...
+    # Subtest: 14a. A different valid step-up session_id cannot validate the approval
+    ok 3 - 14a. A different valid step-up session_id cannot validate the approval
+      ---
+      duration_ms: 0.115709
+      type: 'test'
+      ...
+    # Subtest: 14b. A different owner_principal_id cannot validate the approval
+    ok 4 - 14b. A different owner_principal_id cannot validate the approval
+      ---
+      duration_ms: 0.070333
+      type: 'test'
+      ...
+    # Subtest: 14c. The correctly bound session still validates
+    ok 5 - 14c. The correctly bound session still validates
+      ---
+      duration_ms: 0.055333
       type: 'test'
       ...
     # Subtest: 15. Mutation of binding/state invalidates an old approval
-    ok 3 - 15. Mutation of binding/state invalidates an old approval
+    ok 6 - 15. Mutation of binding/state invalidates an old approval
       ---
-      duration_ms: 0.158167
+      duration_ms: 0.067792
       type: 'test'
       ...
     # Subtest: 16. Raw text claiming approval grants nothing
-    ok 4 - 16. Raw text claiming approval grants nothing
+    ok 7 - 16. Raw text claiming approval grants nothing
       ---
-      duration_ms: 0.050708
+      duration_ms: 0.124958
       type: 'test'
       ...
-    1..4
+    1..7
 ok 2 - approval / auth binding
   ---
-  duration_ms: 1515.963041
+  duration_ms: 1463.039916
   type: 'suite'
   ...
 # Subtest: inbound authenticity boundary
     # Subtest: 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
     ok 1 - 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
       ---
-      duration_ms: 0.145667
+      duration_ms: 0.129375
       type: 'test'
       ...
     # Subtest: 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
     ok 2 - 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
       ---
-      duration_ms: 12.242792
+      duration_ms: 13.571791
       type: 'test'
       ...
     1..2
 ok 3 - inbound authenticity boundary
   ---
-  duration_ms: 12.562125
+  duration_ms: 13.884292
   type: 'suite'
   ...
 # Subtest: receipts / PII
     # Subtest: 18. Immutable receipt storage does not require raw customer PII
     ok 1 - 18. Immutable receipt storage does not require raw customer PII
       ---
-      duration_ms: 27.53125
+      duration_ms: 24.288541
       type: 'test'
       ...
     1..1
 ok 4 - receipts / PII
   ---
-  duration_ms: 27.687916
+  duration_ms: 24.531208
   type: 'suite'
   ...
 # Subtest: deterministic idempotency
     # Subtest: 19. Idempotency key stable across restart/re-instantiation
     ok 1 - 19. Idempotency key stable across restart/re-instantiation
       ---
-      duration_ms: 0.4595
+      duration_ms: 1.667333
       type: 'test'
       ...
     1..1
 ok 5 - deterministic idempotency
   ---
-  duration_ms: 0.625666
+  duration_ms: 1.835834
   type: 'suite'
   ...
 # Subtest: SOT mismatch guard
     # Subtest: 20. SOT mismatch guard refuses continuation on mismatch
     ok 1 - 20. SOT mismatch guard refuses continuation on mismatch
       ---
-      duration_ms: 12.721959
+      duration_ms: 16.639709
       type: 'test'
       ...
     1..1
 ok 6 - SOT mismatch guard
   ---
-  duration_ms: 12.792625
+  duration_ms: 16.805708
   type: 'suite'
   ...
 # Subtest: RLS negative security tests
     # Subtest: 1. Tenant A direct query cannot read Tenant B rows
     ok 1 - 1. Tenant A direct query cannot read Tenant B rows
       ---
-      duration_ms: 17.676916
+      duration_ms: 25.106791
       type: 'test'
       ...
     # Subtest: 2. Tenant A cannot INSERT a row owned by Tenant B
     ok 2 - 2. Tenant A cannot INSERT a row owned by Tenant B
       ---
-      duration_ms: 5.974834
+      duration_ms: 7.916042
       type: 'test'
       ...
     # Subtest: 3. Tenant A cannot UPDATE Tenant B rows
     ok 3 - 3. Tenant A cannot UPDATE Tenant B rows
       ---
-      duration_ms: 11.090375
+      duration_ms: 10.399583
       type: 'test'
       ...
     # Subtest: 4. Tenant A cannot DELETE Tenant B rows
     ok 4 - 4. Tenant A cannot DELETE Tenant B rows
       ---
-      duration_ms: 5.194458
+      duration_ms: 5.9845
       type: 'test'
       ...
     # Subtest: 5. Missing tenant context fails closed (no rows visible, no writes)
     ok 5 - 5. Missing tenant context fails closed (no rows visible, no writes)
       ---
-      duration_ms: 5.5765
+      duration_ms: 3.977458
       type: 'test'
       ...
     # Subtest: 6. Runtime role cannot bypass RLS (cannot escalate privileges)
     ok 6 - 6. Runtime role cannot bypass RLS (cannot escalate privileges)
       ---
-      duration_ms: 5.810334
+      duration_ms: 6.583167
       type: 'test'
       ...
     # Subtest: 7. Runtime role is not a protected-table owner
     ok 7 - 7. Runtime role is not a protected-table owner
       ---
-      duration_ms: 2.99475
+      duration_ms: 2.287917
       type: 'test'
       ...
     # Subtest: 8. Runtime role is not a superuser
     ok 8 - 8. Runtime role is not a superuser
       ---
-      duration_ms: 1.13675
+      duration_ms: 2.930833
       type: 'test'
       ...
     # Subtest: 9. Runtime role lacks BYPASSRLS
     ok 9 - 9. Runtime role lacks BYPASSRLS
       ---
-      duration_ms: 1.224375
+      duration_ms: 2.689708
       type: 'test'
       ...
     # Subtest: 10. Pooled connection A->B cannot leak tenant context
     ok 10 - 10. Pooled connection A->B cannot leak tenant context
       ---
-      duration_ms: 19.645167
+      duration_ms: 14.876542
       type: 'test'
       ...
     # Subtest: 11. Cross-tenant FK/reference is rejected
     ok 11 - 11. Cross-tenant FK/reference is rejected
       ---
-      duration_ms: 5.509666
+      duration_ms: 5.998666
       type: 'test'
       ...
     # Subtest: 12. Model/client-supplied tenant ID cannot override trusted context
     ok 12 - 12. Model/client-supplied tenant ID cannot override trusted context
       ---
-      duration_ms: 5.864084
+      duration_ms: 5.195459
       type: 'test'
       ...
     1..12
 ok 7 - RLS negative security tests
   ---
-  duration_ms: 1550.839666
+  duration_ms: 1534.090542
   type: 'suite'
   ...
 1..7
-# tests 26
+# tests 29
 # suites 7
-# pass 26
+# pass 29
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1646.843875
+# duration_ms 1601.673792
