@@ -31,7 +31,7 @@ export async function loadOwnerSession(backend, sessionId) {
 export async function loadProposal(backend, proposalId) {
   const r = await backend.query(
     `SELECT proposal_id, tenant_id, workflow_id, step_id, capability_id,
-            request_hash, risk_class, reversibility, expires_at
+            request_hash, precondition_snapshot_ref, risk_class, reversibility, expires_at
      FROM action_proposals WHERE proposal_id = $1;`,
     [proposalId]
   );

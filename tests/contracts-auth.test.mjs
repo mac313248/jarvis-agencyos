@@ -169,6 +169,23 @@ describe('approval / auth binding', () => {
     assert.equal(v.valid, true, `expected valid, got ${JSON.stringify(v.reasons)}`);
   });
 
+  test('14d. Exact session binding succeeds with a NON-UUID canonical string session id', () => {
+    // 06_SYSTEM_CONTRACTS.md defines session_id / owner_auth_session_id as `string`.
+    // Use a deliberately non-UUID string to prove the binding honors the string
+    // contract, not UUID-shaped strings.
+    const sid = 'owner-session-test-001';
+    const proposal = mkProposal();
+    const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash, owner_auth_session_id: sid, owner_principal_id: 'owner-1' });
+    const boundSession = mkSession({ session_id: sid, owner_principal_id: 'owner-1' });
+    let v = validateApproval({ approval, proposal, session: boundSession, now: NOW });
+    assert.equal(v.valid, true, `expected valid, got ${JSON.stringify(v.reasons)}`);
+    // A different non-UUID session string is still rejected.
+    const otherSession = mkSession({ session_id: 'owner-session-test-002', owner_principal_id: 'owner-1' });
+    v = validateApproval({ approval, proposal, session: otherSession, now: NOW });
+    assert.equal(v.valid, false);
+    assert.ok(v.reasons.some(r => /session_id does not match approval binding/.test(r)));
+  });
+
   test('15. Mutation of binding/state invalidates an old approval', () => {
     const proposal = mkProposal({ precondition_snapshot_ref: 'state-v1' });
     const session = mkSession({ session_id: 's1', owner_principal_id: 'owner-1' });
@@ -333,5 +350,162 @@ describe('SOT mismatch guard', () => {
     const v2 = await verifySotManifest(tmp);
     assert.equal(v2.ok, false, 'tampered manifest must fail');
     assert.throws(() => { throw new SotMismatchError(v2.results, v2.manifestHash); });
+  });
+});
+
+// ---- Second Codex repair: DB-backed approval state binding + canonical
+// session-id types (Findings 1 & 3) ----
+describe('DB-backed approval state binding + canonical string session id', () => {
+  const NOW = Date.UTC(2026, 7, 10, 8, 0, 0);
+  const FUTURE = new Date(NOW + 3600_000).toISOString();
+  const PAST = new Date(NOW - 3600_000).toISOString();
+  // Canonical contract (06) defines session_id / owner_auth_session_id as
+  // `string`. Use a deliberately NON-UUID string to prove the implementation
+  // honors the string contract, not merely UUID-shaped strings.
+  const SESSION_ID = 'owner-session-test-001';
+
+  test('1DB. Persisted proposal+approval+session validate via real loaders, then state mutation invalidates', async () => {
+    // Owner path (not tenant-scoped): persist principal + a NON-UUID session.
+    await db.query(`INSERT INTO owner_principals (owner_principal_id) VALUES ('owner-1')
+                     ON CONFLICT DO NOTHING;`);
+    await db.query(
+      `INSERT INTO owner_sessions
+         (session_id, owner_principal_id, auth_strength, authenticated_at,
+          step_up_verified_at, step_up_expires_at, session_expires_at)
+       VALUES ($1,'owner-1','step_up_mfa',$2,$2,$3,$3);`,
+      [SESSION_ID, new Date(NOW).toISOString(), FUTURE]
+    );
+
+    const proposalId = randomUUID();
+    const workflowId = randomUUID();
+    const rh = sha256Hex('canonical-req-v1');
+
+    // Tenant path: persist ActionProposal with precondition_snapshot_ref='state-v1'.
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO action_proposals
+           (proposal_id, tenant_id, workflow_id, step_id, actor, capability_id,
+            target_ref, canonical_request, request_hash, precondition_snapshot_ref,
+            risk_class, reversibility)
+         VALUES ($1,$2,$3,'step-1','agent0','cap.refund','acct-1','{}'::jsonb,$4,$5,'high','compensatable');`,
+        [proposalId, A, workflowId, rh, 'state-v1']
+      );
+      // ApprovalDecision bound to exact proposal + request_hash + state version
+      // + exact owner session (NON-UUID string) + principal.
+      await tx.query(
+        `INSERT INTO approval_decisions
+           (approval_id, proposal_id, request_hash, tenant_id, owner_principal_id,
+            owner_auth_session_id, step_up_mfa_required, decision,
+            relevant_state_version, policy_version, decided_at, expires_at)
+         VALUES ($1,$2,$3,$4,'owner-1',$5,true,'APPROVE','state-v1','pol-1',$6,$7);`,
+        [randomUUID(), proposalId, rh, A, SESSION_ID, new Date(NOW).toISOString(), FUTURE]
+      );
+    });
+
+    // Load through the REAL persisted loaders (not hand-built JS objects).
+    const session = await loadOwnerSession(db, SESSION_ID);
+    assert.ok(session, 'session loaded');
+    assert.equal(session.session_id, SESSION_ID, 'non-UUID string session id honored');
+
+    let proposal = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>
+      await loadProposal(tx, proposalId));
+    let approval = await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const approvalId = (await tx.query(
+        'SELECT approval_id FROM approval_decisions WHERE proposal_id=$1;', [proposalId]
+      )).rows[0].approval_id;
+      return await loadApproval(tx, approvalId);
+    });
+
+    // Initially valid: exact session + principal + state binding all match.
+    let v = validateApproval({ approval, proposal, session, now: NOW });
+    assert.equal(v.valid, true, `expected valid initially, got ${JSON.stringify(v.reasons)}`);
+
+    // Mutate the persisted proposal's precondition_snapshot_ref (state advances).
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query('UPDATE action_proposals SET precondition_snapshot_ref=$1 WHERE proposal_id=$2;', ['state-v2', proposalId]);
+    });
+
+    // Reload the proposal through the real loader; precondition_snapshot_ref now 'state-v2'.
+    proposal = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>
+      await loadProposal(tx, proposalId));
+    assert.equal(proposal.precondition_snapshot_ref, 'state-v2');
+
+    // The prior approval is now invalid: its relevant_state_version ('state-v1')
+    // no longer matches the proposal's current state ('state-v2').
+    v = validateApproval({ approval, proposal, session, now: NOW });
+    assert.equal(v.valid, false);
+    assert.ok(v.reasons.some(r => /relevant_state_version/.test(r)));
+  });
+});
+
+// ---- Second Codex repair: DB-enforced inbound authenticity (Finding 2) ----
+describe('inbound authenticity DB enforcement', () => {
+  test('2DBa. FAILED + materialized_state=true is rejected by the DB', async () => {
+    await assert.rejects(
+      () => asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+        await tx.query(
+          `INSERT INTO canonical_events
+             (event_id, tenant_id, event_type, source_system, dedupe_key,
+              authenticity_status, content_trust, materialized_state)
+           VALUES ($1,$2,'provider.payment.received','fake-provider',$3,
+                   'FAILED','UNTRUSTED_PAYLOAD', true);`,
+          [randomUUID(), A, 'dedupe-failed-' + randomUUID()]
+        );
+      }),
+      /check.*canonical_events_no_materialize_on_failed_auth|violates check constraint/i
+    );
+  });
+
+  test('2DBb. UNKNOWN + materialized_state=true is rejected by the DB', async () => {
+    await assert.rejects(
+      () => asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+        await tx.query(
+          `INSERT INTO canonical_events
+             (event_id, tenant_id, event_type, source_system, dedupe_key,
+              authenticity_status, content_trust, materialized_state)
+           VALUES ($1,$2,'provider.payment.received','fake-provider',$3,
+                   'UNKNOWN','UNTRUSTED_PAYLOAD', true);`,
+          [randomUUID(), A, 'dedupe-unknown-' + randomUUID()]
+        );
+      }),
+      /check.*canonical_events_no_materialize_on_failed_auth|violates check constraint/i
+    );
+  });
+
+  test('2DBc. VERIFIED + materialized_state=true is allowed; NOT_APPLICABLE + materialized_state=true is allowed', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO canonical_events
+           (event_id, tenant_id, event_type, source_system, dedupe_key,
+            authenticity_status, content_trust, materialized_state)
+         VALUES ($1,$2,'provider.payment.received','fake-provider',$3,
+                 'VERIFIED','TRUSTED_STRUCTURED', true);`,
+        [randomUUID(), A, 'dedupe-verified-' + randomUUID()]
+      );
+      await tx.query(
+        `INSERT INTO canonical_events
+           (event_id, tenant_id, event_type, source_system, dedupe_key,
+            authenticity_status, content_trust, materialized_state)
+         VALUES ($1,$2,'internal.tick','agencyos',$3,
+                 'NOT_APPLICABLE','TRUSTED_STRUCTURED', true);`,
+        [randomUUID(), A, 'dedupe-na-' + randomUUID()]
+      );
+    });
+    // Both inserts succeeded (no throw) -> allowed.
+    assert.ok(true);
+  });
+
+  test('2DBd. FAILED/UNKNOWN with materialized_state=false is allowed (security/source-health record only)', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO canonical_events
+           (event_id, tenant_id, event_type, source_system, dedupe_key,
+            authenticity_status, content_trust, materialized_state)
+         VALUES ($1,$2,'provider.payment.received','fake-provider',$3,
+                 'FAILED','UNTRUSTED_PAYLOAD', false);`,
+        [randomUUID(), A, 'dedupe-failed-nomaterialize-' + randomUUID()]
+      );
+    });
+    assert.ok(true);
   });
 });
