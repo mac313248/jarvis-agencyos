@@ -456,6 +456,7 @@ test('structured review protocol parses PASS, PASS_WITH_FIXES, and FAIL', () => 
   assert.deepEqual(parseReviewResult(review('PASS')), { ok: true, verdict: 'PASS', blockers: [] });
   assert.deepEqual(parseReviewResult(review('PASS_WITH_FIXES', ['one'])), { ok: true, verdict: 'PASS_WITH_FIXES', blockers: ['one'] });
   assert.deepEqual(parseReviewResult(review('FAIL', ['blocked'])), { ok: true, verdict: 'FAIL', blockers: ['blocked'] });
+  assert.equal(parseReviewResult(review('FAIL', ['Review not yet completed.'])).code, 'REVIEW_PROTOCOL_ERROR');
 });
 
 test('malformed review is REVIEW_PROTOCOL_ERROR and resumes without Cursor/build replay', async () => {

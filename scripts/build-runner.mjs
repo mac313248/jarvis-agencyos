@@ -532,6 +532,7 @@ export function parseReviewResult(output) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
     if (Object.keys(value).sort().join(',') !== 'blockers,verdict') continue;
     if (!VERDICTS.includes(value.verdict) || !Array.isArray(value.blockers) || value.blockers.some((b) => typeof b !== 'string')) continue;
+    if (value.blockers.some((b) => /review not yet completed/i.test(b))) continue;
     return { ok: true, verdict: value.verdict, blockers: value.blockers };
   }
   return { ok: false, code: REVIEW_PROTOCOL_ERROR };
