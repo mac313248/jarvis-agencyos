@@ -9,6 +9,7 @@
 // adapters. Writer connectors remain DISABLED (stop condition).
 // F-12 introduces observability (receipts/trace, attention, materiality).
 // F-13 introduces backup/restore rehearsal (restore must be actually tested).
+// F-14 introduces security/privacy acceptance (deletion / PII erasure / tombstone).
 // PHASE2_FORBIDDEN_EXECUTION_SURFACES is preserved for Phase 2 regression:
 // trusted_executor_material_commit still means live material provider commits.
 // 'dbos' / 'connector_registry_persistence' remain on that Phase-2 inventory
@@ -37,6 +38,9 @@ export const OBSERVABILITY = true;
 
 /** F-13: backup/restore rehearsal is in scope; unrehearsed restore is a stop. */
 export const BACKUP_RESTORE_REHEARSAL = true;
+
+/** F-14: security/privacy acceptance (deletion / PII erasure) is in scope. */
+export const SECURITY_PRIVACY_ACCEPTANCE = true;
 
 export function assertBusinessWriteAutonomyDisabled() {
   if (BUSINESS_WRITE_AUTONOMY !== false) {

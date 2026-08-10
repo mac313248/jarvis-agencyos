@@ -1,9 +1,9 @@
 {
   "name": "jarvis-agencyos",
-  "version": "0.13.0-f13",
+  "version": "0.14.0-f14",
   "private": true,
   "type": "module",
-  "description": "JARVIS / AgencyOS — F-13 backup/restore rehearsal",
+  "description": "JARVIS / AgencyOS — F-14 security/privacy acceptance suite",
   "scripts": {
     "verify:sot": "node scripts/verify-sot.mjs",
     "migrate": "node scripts/migrate.mjs",
@@ -15,6 +15,7 @@
     "test:f11": "node --test tests/connector-registry.test.mjs",
     "test:f12": "node --test tests/observability.test.mjs",
     "test:f13": "node --test tests/backup-restore.test.mjs",
+    "test:f14": "node --test tests/security-privacy-acceptance.test.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
   },
