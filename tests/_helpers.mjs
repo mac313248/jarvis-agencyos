@@ -13,11 +13,18 @@
 
 import { createDb, asRole } from '../src/db/index.js';
 import { applyMigrations } from '../src/db/migrator.js';
+import { rm } from 'node:fs/promises';
 
 const dataDir = process.env.TEST_PGDATA || new URL('../.pgdata/test', import.meta.url).pathname;
 
 export async function freshCluster({ dataDir: dir } = {}) {
-  const db = await createDb({ dataDir: dir || dataDir });
+  const target = dir || dataDir;
+  // Guarantee a TRULY fresh cluster on every call (including re-runs): remove
+  // any persisted PGlite data from a previous run so fixed-UUID seeding does
+  // not hit duplicate-key errors. Each test file uses its own data dir and
+  // closes its db in `after`, so the dir is never locked when we remove it.
+  try { await rm(target, { recursive: true, force: true }); } catch {}
+  const db = await createDb({ dataDir: target });
   await applyMigrations(db, new URL('../migrations/', import.meta.url).pathname);
   return db;
 }
