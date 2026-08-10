@@ -30,8 +30,9 @@ export async function loadOwnerSession(backend, sessionId) {
 // Load an action proposal row.
 export async function loadProposal(backend, proposalId) {
   const r = await backend.query(
-    `SELECT proposal_id, tenant_id, workflow_id, step_id, capability_id,
-            request_hash, precondition_snapshot_ref, risk_class, reversibility, expires_at
+    `SELECT proposal_id, tenant_id, workflow_id, step_id, actor, capability_id,
+            target_ref, canonical_request, request_hash, precondition_snapshot_ref,
+            risk_class, reversibility, financial_amount, commitment_class, expires_at
      FROM action_proposals WHERE proposal_id = $1;`,
     [proposalId]
   );

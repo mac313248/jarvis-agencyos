@@ -2,13 +2,22 @@
 // Business-write autonomy remains DISABLED until write-path acceptance gates
 // pass (docs/master-sot/12_ACCEPTANCE_AND_IMPLEMENTATION.md).
 //
-// Phase 2 introduces NO external execution surface and must not flip this flag.
+// F-08 introduces a trusted executor against a local_fake effect boundary only.
+// Live external side effects and business-write autonomy remain DISABLED.
+// PHASE2_FORBIDDEN_EXECUTION_SURFACES is preserved for Phase 2 regression:
+// trusted_executor_material_commit still means live material provider commits.
 
 export const BUSINESS_WRITE_AUTONOMY = false;
 
+/** F-08: live external provider commits remain forbidden. */
+export const LIVE_EXTERNAL_SIDE_EFFECTS = false;
+
 export function assertBusinessWriteAutonomyDisabled() {
   if (BUSINESS_WRITE_AUTONOMY !== false) {
-    throw new Error('BUSINESS_WRITE_AUTONOMY must remain DISABLED in Phase 2');
+    throw new Error('BUSINESS_WRITE_AUTONOMY must remain DISABLED');
+  }
+  if (LIVE_EXTERNAL_SIDE_EFFECTS !== false) {
+    throw new Error('LIVE_EXTERNAL_SIDE_EFFECTS must remain DISABLED');
   }
   return true;
 }
