@@ -7,6 +7,7 @@
 // live external side effects and business-write autonomy DISABLED.
 // F-11 introduces connector registry + opaque credential broker + read-only
 // adapters. Writer connectors remain DISABLED (stop condition).
+// F-12 introduces observability (receipts/trace, attention, materiality).
 // PHASE2_FORBIDDEN_EXECUTION_SURFACES is preserved for Phase 2 regression:
 // trusted_executor_material_commit still means live material provider commits.
 // 'dbos' / 'connector_registry_persistence' remain on that Phase-2 inventory
@@ -29,6 +30,9 @@ export const CREDENTIAL_BROKER_OPAQUE_REFS = true;
 
 /** F-11 stop condition: writer connectors must remain DISABLED. */
 export const WRITER_CONNECTORS_ENABLED = false;
+
+/** F-12: observability (materiality, attention, receipt/trace linkage) is in scope. */
+export const OBSERVABILITY = true;
 
 export function assertBusinessWriteAutonomyDisabled() {
   if (BUSINESS_WRITE_AUTONOMY !== false) {

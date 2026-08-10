@@ -1,9 +1,9 @@
 {
   "name": "jarvis-agencyos",
-  "version": "0.11.0-f11",
+  "version": "0.12.0-f12",
   "private": true,
   "type": "module",
-  "description": "JARVIS / AgencyOS — F-11 connector registry + read-only adapters",
+  "description": "JARVIS / AgencyOS — F-12 observability (materiality, attention, traces)",
   "scripts": {
     "verify:sot": "node scripts/verify-sot.mjs",
     "migrate": "node scripts/migrate.mjs",
@@ -13,6 +13,7 @@
     "test:f09": "node --test tests/dbos-durable.test.mjs",
     "test:f10": "node --test tests/reconciliation.test.mjs",
     "test:f11": "node --test tests/connector-registry.test.mjs",
+    "test:f12": "node --test tests/observability.test.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
   },
