@@ -148,7 +148,7 @@ test('dry-run then normal run resumes with injected mocks (no app phase files)',
       codexInvoker: () => { codexCalls++; return review('PASS'); },
       testRunner: passingTests(),
     });
-    assert.equal(state.status, 'ACCEPTED');
+    assert.equal(state.status, 'READY_FOR_NEXT_V1_0_SLICE');
     assert.equal(state.dry_run_checkpoint, false);
     assert.equal(c.calls.length, 1);
     assert.equal(codexCalls, 1);
@@ -205,7 +205,7 @@ test('legacy dry-run WAITING_ON_OWNER without dry_run_checkpoint field resumes',
       codexInvoker: () => review('PASS'),
       testRunner: passingTests(),
     });
-    assert.equal(state.status, 'ACCEPTED');
+    assert.equal(state.status, 'READY_FOR_NEXT_V1_0_SLICE');
     assert.equal(c.calls.length, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -231,7 +231,7 @@ test('PASS_WITH_FIXES then PASS accepts the phase', async () => {
     let n = 0;
     const codex = () => { n++; return n === 1 ? review('PASS_WITH_FIXES', ['fix']) : review('PASS'); };
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
-    assert.equal(state.status, 'ACCEPTED');
+    assert.equal(state.status, 'READY_FOR_NEXT_V1_0_SLICE');
     assert.deepEqual(state.codex_verdicts, ['PASS_WITH_FIXES', 'PASS']);
     assert.equal(c.calls.length, 2, 'exactly one repair Cursor cycle');
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -455,7 +455,7 @@ test('runner never merges to main', async () => {
     const c = mockCursor();
     const codex = () => review('PASS');
     const state = await run(root, { cursorInvoker: c.invoker, codexInvoker: codex, testRunner: passingTests() });
-    assert.equal(state.status, 'ACCEPTED');
+    assert.equal(state.status, 'READY_FOR_NEXT_V1_0_SLICE');
     let mainExists = false;
     try { git(root, ['rev-parse', '--verify', 'main']); mainExists = true; } catch (e) { mainExists = false; }
     assert.equal(mainExists, false, 'main branch must not be created or merged into');
@@ -552,10 +552,61 @@ test('malformed review is REVIEW_PROTOCOL_ERROR and resumes without Cursor/build
       codexInvoker: () => review('PASS'),
       testRunner: () => { throw new Error('tests must not rerun'); },
     });
-    assert.equal(resumed.status, 'ACCEPTED');
+    assert.equal(resumed.status, 'READY_FOR_NEXT_V1_0_SLICE');
     assert.equal(resumed.last_verdict, 'PASS');
     assert.equal(resumed.cursor_runs, 1);
     assert.deepEqual(resumed.codex_verdicts, ['PASS']);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('successful review reconciliation clears stale failed acceptance state and stops ready', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    let cursorCalls = 0;
+    let testCalls = 0;
+    const first = await run(root, {
+      cursorInvoker: () => { cursorCalls++; },
+      codexInvoker: () => 'malformed conversational response',
+      testRunner: () => { testCalls++; return passingTests()(); },
+    });
+    assert.equal(first.status, 'REVIEW_PROTOCOL_ERROR');
+    assert.equal(cursorCalls, 1);
+    assert.equal(testCalls, 1);
+
+    // Legacy durable shape from before malformed review was split from
+    // substantive acceptance failure: it must be reconcilable without replay.
+    const staleBlockers = ['stale malformed review failure'];
+    saveState(root, {
+      ...loadState(root),
+      status: 'FAILED_ACCEPTANCE_GATE',
+      last_verdict: 'MALFORMED_VERDICT',
+      codex_verdicts: ['MALFORMED_VERDICT'],
+      blockers: staleBlockers,
+      cursor_runs: 1,
+    });
+
+    const resumed = await run(root, {
+      cursorInvoker: () => { throw new Error('Cursor must not rerun after completed build/test state'); },
+      codexInvoker: () => review('PASS'),
+      testRunner: () => { throw new Error('tests must not rerun after completed build/test state'); },
+    });
+    assert.equal(resumed.status, 'READY_FOR_NEXT_V1_0_SLICE');
+    assert.equal(resumed.last_verdict, 'PASS');
+    assert.deepEqual(resumed.codex_verdicts, ['PASS']);
+    assert.deepEqual(resumed.blockers, []);
+
+    const durable = loadState(root);
+    assert.equal(durable.status, 'READY_FOR_NEXT_V1_0_SLICE');
+    assert.equal(durable.last_verdict, 'PASS');
+    assert.deepEqual(durable.blockers, []);
+    assert.notDeepEqual(durable.blockers, staleBlockers);
+
+    const stopped = await run(root, {
+      cursorInvoker: () => { throw new Error('ready state must not launch Cursor'); },
+      codexInvoker: () => { throw new Error('ready state must not launch Codex'); },
+      testRunner: () => { throw new Error('ready state must not run tests'); },
+    });
+    assert.equal(stopped.status, 'READY_FOR_NEXT_V1_0_SLICE');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -19,7 +19,7 @@
 //   - never prints credentials;
 //   - is resumable via artifacts/build-runner/state.json;
 //   - stops only at WAITING_ON_OWNER | WAITING_ON_ARCHITECTURE |
-//     FAILED_ACCEPTANCE_GATE | V1_0_COMPLETE.
+//     FAILED_ACCEPTANCE_GATE | READY_FOR_NEXT_V1_0_SLICE | V1_0_COMPLETE.
 //
 // Cursor is the ONLY writer. Codex is REVIEW-ONLY. The runner never auto-merges
 // and never modifies docs/master-sot. Business-write autonomy stays DISABLED
@@ -45,6 +45,9 @@ export const TERMINAL_STOP_STATES = Object.freeze([
   'WAITING_ON_OWNER',
   'WAITING_ON_ARCHITECTURE',
   'FAILED_ACCEPTANCE_GATE',
+  'READY_FOR_NEXT_V1_0_SLICE',
+  // Backward-compatible terminal value from older accepted phases.
+  'ACCEPTED',
   'V1_0_COMPLETE',
 ]);
 
@@ -967,10 +970,14 @@ function reviewOnce(codexInvoker, root, contract, baseSha) {
 function acceptPhase(root, state, _slice) {
   // Acceptance records the HEAD after the Cursor writer finished. The runner
   // never writes application evidence markers itself (Cursor is sole writer).
+  // Successful acceptance is a terminal "ready" state; the owner must invoke
+  // the next phase deliberately instead of a stale failure or implicit replay.
   const next = {
     ...state,
-    status: 'ACCEPTED',
+    status: 'READY_FOR_NEXT_V1_0_SLICE',
     last_accepted_sha: currentHead(root),
+    last_verdict: 'PASS',
+    blockers: [],
   };
   return saveState(root, next);
 }
