@@ -1,0 +1,222 @@
+Phase 1 test suite (node --test)
+exit_code=0
+
+
+> jarvis-agencyos@0.1.0-phase1 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: authority / kill fail-closed
+    # Subtest: 32. Revocation arriving between policy decision and commit blocks commit
+    ok 1 - 32. Revocation arriving between policy decision and commit blocks commit
+      ---
+      duration_ms: 8.34
+      type: 'test'
+      ...
+    # Subtest: 33. Receipt records commit-time revocation/kill epochs
+    ok 2 - 33. Receipt records commit-time revocation/kill epochs
+      ---
+      duration_ms: 22.646084
+      type: 'test'
+      ...
+    # Subtest: 34. Authority/kill-store outage blocks material writes (fail-closed)
+    ok 3 - 34. Authority/kill-store outage blocks material writes (fail-closed)
+      ---
+      duration_ms: 4.178083
+      type: 'test'
+      ...
+    # Subtest: 35. Zombie worker with stale epoch cannot commit
+    ok 4 - 35. Zombie worker with stale epoch cannot commit
+      ---
+      duration_ms: 7.733041
+      type: 'test'
+      ...
+    # Subtest: 34b. Inactive authority blocks commit
+    ok 5 - 34b. Inactive authority blocks commit
+      ---
+      duration_ms: 11.365542
+      type: 'test'
+      ...
+    1..5
+ok 1 - authority / kill fail-closed
+  ---
+  duration_ms: 1538.01825
+  type: 'suite'
+  ...
+# Subtest: approval / auth binding
+    # Subtest: 13. High-risk approval rejects absent/stale step-up MFA
+    ok 1 - 13. High-risk approval rejects absent/stale step-up MFA
+      ---
+      duration_ms: 1.469166
+      type: 'test'
+      ...
+    # Subtest: 14. Approval rejects mismatched proposal_id or request_hash
+    ok 2 - 14. Approval rejects mismatched proposal_id or request_hash
+      ---
+      duration_ms: 0.173583
+      type: 'test'
+      ...
+    # Subtest: 15. Mutation of binding/state invalidates an old approval
+    ok 3 - 15. Mutation of binding/state invalidates an old approval
+      ---
+      duration_ms: 0.148042
+      type: 'test'
+      ...
+    # Subtest: 16. Raw text claiming approval grants nothing
+    ok 4 - 16. Raw text claiming approval grants nothing
+      ---
+      duration_ms: 0.047792
+      type: 'test'
+      ...
+    1..4
+ok 2 - approval / auth binding
+  ---
+  duration_ms: 1490.489292
+  type: 'suite'
+  ...
+# Subtest: inbound authenticity boundary
+    # Subtest: 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
+    ok 1 - 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
+      ---
+      duration_ms: 0.147375
+      type: 'test'
+      ...
+    # Subtest: 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
+    ok 2 - 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
+      ---
+      duration_ms: 18.55275
+      type: 'test'
+      ...
+    1..2
+ok 3 - inbound authenticity boundary
+  ---
+  duration_ms: 18.906708
+  type: 'suite'
+  ...
+# Subtest: receipts / PII
+    # Subtest: 18. Immutable receipt storage does not require raw customer PII
+    ok 1 - 18. Immutable receipt storage does not require raw customer PII
+      ---
+      duration_ms: 30.449584
+      type: 'test'
+      ...
+    1..1
+ok 4 - receipts / PII
+  ---
+  duration_ms: 30.616625
+  type: 'suite'
+  ...
+# Subtest: deterministic idempotency
+    # Subtest: 19. Idempotency key stable across restart/re-instantiation
+    ok 1 - 19. Idempotency key stable across restart/re-instantiation
+      ---
+      duration_ms: 0.481542
+      type: 'test'
+      ...
+    1..1
+ok 5 - deterministic idempotency
+  ---
+  duration_ms: 0.68125
+  type: 'suite'
+  ...
+# Subtest: SOT mismatch guard
+    # Subtest: 20. SOT mismatch guard refuses continuation on mismatch
+    ok 1 - 20. SOT mismatch guard refuses continuation on mismatch
+      ---
+      duration_ms: 16.309667
+      type: 'test'
+      ...
+    1..1
+ok 6 - SOT mismatch guard
+  ---
+  duration_ms: 16.391875
+  type: 'suite'
+  ...
+# Subtest: RLS negative security tests
+    # Subtest: 1. Tenant A direct query cannot read Tenant B rows
+    ok 1 - 1. Tenant A direct query cannot read Tenant B rows
+      ---
+      duration_ms: 25.368292
+      type: 'test'
+      ...
+    # Subtest: 2. Tenant A cannot INSERT a row owned by Tenant B
+    ok 2 - 2. Tenant A cannot INSERT a row owned by Tenant B
+      ---
+      duration_ms: 5.927666
+      type: 'test'
+      ...
+    # Subtest: 3. Tenant A cannot UPDATE Tenant B rows
+    ok 3 - 3. Tenant A cannot UPDATE Tenant B rows
+      ---
+      duration_ms: 10.046958
+      type: 'test'
+      ...
+    # Subtest: 4. Tenant A cannot DELETE Tenant B rows
+    ok 4 - 4. Tenant A cannot DELETE Tenant B rows
+      ---
+      duration_ms: 5.173792
+      type: 'test'
+      ...
+    # Subtest: 5. Missing tenant context fails closed (no rows visible, no writes)
+    ok 5 - 5. Missing tenant context fails closed (no rows visible, no writes)
+      ---
+      duration_ms: 3.91875
+      type: 'test'
+      ...
+    # Subtest: 6. Runtime role cannot bypass RLS (cannot escalate privileges)
+    ok 6 - 6. Runtime role cannot bypass RLS (cannot escalate privileges)
+      ---
+      duration_ms: 7.583167
+      type: 'test'
+      ...
+    # Subtest: 7. Runtime role is not a protected-table owner
+    ok 7 - 7. Runtime role is not a protected-table owner
+      ---
+      duration_ms: 3.369708
+      type: 'test'
+      ...
+    # Subtest: 8. Runtime role is not a superuser
+    ok 8 - 8. Runtime role is not a superuser
+      ---
+      duration_ms: 1.677208
+      type: 'test'
+      ...
+    # Subtest: 9. Runtime role lacks BYPASSRLS
+    ok 9 - 9. Runtime role lacks BYPASSRLS
+      ---
+      duration_ms: 1.221208
+      type: 'test'
+      ...
+    # Subtest: 10. Pooled connection A->B cannot leak tenant context
+    ok 10 - 10. Pooled connection A->B cannot leak tenant context
+      ---
+      duration_ms: 9.600792
+      type: 'test'
+      ...
+    # Subtest: 11. Cross-tenant FK/reference is rejected
+    ok 11 - 11. Cross-tenant FK/reference is rejected
+      ---
+      duration_ms: 5.326458
+      type: 'test'
+      ...
+    # Subtest: 12. Model/client-supplied tenant ID cannot override trusted context
+    ok 12 - 12. Model/client-supplied tenant ID cannot override trusted context
+      ---
+      duration_ms: 4.075708
+      type: 'test'
+      ...
+    1..12
+ok 7 - RLS negative security tests
+  ---
+  duration_ms: 1579.613625
+  type: 'suite'
+  ...
+1..7
+# tests 26
+# suites 7
+# pass 26
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1647.491875
