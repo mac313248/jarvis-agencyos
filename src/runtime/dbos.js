@@ -152,6 +152,60 @@ export async function assertWritersAllowed(backend) {
 }
 
 /**
+ * Session advisory lock shared by next_function_id allocation and beginRestore.
+ * Released before return so it is not held across the long workflow transaction
+ * (FOR UPDATE on recovery_control would block mid-flight restore on another session).
+ * Key is stable across processes; F-09 #52 freeze/allocate mutual exclusion.
+ */
+export const RECOVERY_FREEZE_ADVISORY_LOCK_KEY = 872014052;
+
+/**
+ * Run fn while holding the recovery freeze advisory lock (session-level, unlocked in finally).
+ */
+export async function withRecoveryFreezeLock(backend, fn) {
+  await backend.query('SELECT pg_advisory_lock($1);', [RECOVERY_FREEZE_ADVISORY_LOCK_KEY]);
+  try {
+    return await fn();
+  } finally {
+    await backend.query('SELECT pg_advisory_unlock($1);', [RECOVERY_FREEZE_ADVISORY_LOCK_KEY]);
+  }
+}
+
+/**
+ * Atomically advance workflows.next_function_id only if writers_frozen=false at
+ * mutation time. Shared lock with beginRestore makes freeze and allocation
+ * mutually exclusive — do not rely solely on a prior assertWritersAllowed().
+ *
+ * @returns {Promise<number>} the new next_function_id
+ */
+export async function allocateNextFunctionIdOrThrow(backend, workflowId, nextId) {
+  return withRecoveryFreezeLock(backend, async () => {
+    const r = await backend.query(
+      `UPDATE dbos.workflows w
+          SET next_function_id = $2, updated_at = now()
+         FROM recovery_control rc
+        WHERE w.workflow_id = $1
+          AND rc.control_id = 1
+          AND rc.writers_frozen = false
+      RETURNING w.next_function_id;`,
+      [workflowId, nextId]
+    );
+    // PGlite exposes affectedRows; node-pg exposes rowCount. RETURNING rows is portable.
+    if (r.rows && r.rows.length > 0) {
+      return Number(r.rows[0].next_function_id);
+    }
+    const state = await readRecovery(backend);
+    if (state.writers_frozen) {
+      throw new WritersFrozenError();
+    }
+    throw new DbosError(
+      'WORKFLOW_NOT_FOUND',
+      `workflow not found or not visible for next_function_id allocate: ${workflowId}`
+    );
+  });
+}
+
+/**
  * Create a DBOS Transact-style durable runtime bound to this Postgres backend.
  * Process restart = new runtime instance against the same durable tables.
  *
@@ -241,16 +295,12 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
     async function allocateFunctionId(stepId) {
       const existing = await loadStep(backend, workflow.workflow_id, stepId);
       if (existing) return { existing, functionId: existing.function_id };
-      // Writer-freeze gate before every DBOS mutation (including next_function_id).
-      await assertWritersAllowed(backend);
+      // Atomic with recovery freeze: conditional UPDATE + shared lock (not a
+      // prior assertWritersAllowed-only check). Cursor advances only on success.
       const functionId = functionIdCursor;
-      functionIdCursor += 1;
-      await backend.query(
-        `UPDATE dbos.workflows
-            SET next_function_id = $2, updated_at = now()
-          WHERE workflow_id = $1;`,
-        [workflow.workflow_id, functionIdCursor]
-      );
+      const nextId = functionId + 1;
+      await allocateNextFunctionIdOrThrow(backend, workflow.workflow_id, nextId);
+      functionIdCursor = nextId;
       return { existing: null, functionId };
     }
 
@@ -871,22 +921,24 @@ export function createDbosRuntime(db, { trustedTenantId } = {}) {
 
   async function beginRestore() {
     return withRecoveryTx(async (backend) => {
-      // Recovery control-plane transition: refuse if writers already mid-flight
-      // without an explicit freeze epoch bump from open state is allowed.
-      const prior = await readRecovery(backend);
-      const nextEpoch = Number(prior.recovery_epoch) + 1;
-      await backend.query(
-        `UPDATE recovery_control SET
-           writers_frozen = true,
-           recovery_epoch = $1,
-           postgres_reconciled = false,
-           dbos_reconciled = false,
-           providers_reconciled = false,
-           updated_at = now()
-         WHERE control_id = 1;`,
-        [nextEpoch]
-      );
-      return readRecovery(backend);
+      // Same advisory lock as allocateNextFunctionIdOrThrow so freeze commit and
+      // next_function_id mutation cannot interleave (F-09 #52).
+      return withRecoveryFreezeLock(backend, async () => {
+        const prior = await readRecovery(backend);
+        const nextEpoch = Number(prior.recovery_epoch) + 1;
+        await backend.query(
+          `UPDATE recovery_control SET
+             writers_frozen = true,
+             recovery_epoch = $1,
+             postgres_reconciled = false,
+             dbos_reconciled = false,
+             providers_reconciled = false,
+             updated_at = now()
+           WHERE control_id = 1;`,
+          [nextEpoch]
+        );
+        return readRecovery(backend);
+      });
     });
   }
 

@@ -24,6 +24,8 @@ import {
   WritersFrozenError,
   DBOS_ROLE,
   assertWritersAllowed,
+  allocateNextFunctionIdOrThrow,
+  RECOVERY_FREEZE_ADVISORY_LOCK_KEY,
 } from '../src/runtime/dbos.js';
 import { createLocalEffectAdapter, LOCAL_FAKE_SURFACE } from '../src/runtime/local-effect-adapter.js';
 import { idempotencyKey, requestHash } from '../src/contracts/ids.js';
@@ -695,6 +697,107 @@ describe('F-09 repair: allocateFunctionId writer-freeze before mutation', () => 
     const steps = await runtime.listCompletedSteps(workflowId);
     assert.equal(steps.length, 1);
     assert.equal(steps[0].step_id, 'one');
+
+    await runtime.markReconciled('postgres');
+    await runtime.markReconciled('dbos');
+    await runtime.markReconciled('providers');
+    await runtime.completeRestore();
+  });
+});
+
+describe('F-09 repair: next_function_id allocation atomic with recovery freeze', () => {
+  test('Scenario A: allocation completes before freeze; next_function_id does not change after writers_frozen commits', async () => {
+    const runtime = runtimeFor(A);
+    const workflowId = randomUUID();
+    runtime.registerWorkflow('demo.alloc_atomic_a', async (ctx) => {
+      await ctx.runStep('one', async () => ({ n: 1 }));
+      return { ok: true };
+    });
+
+    const done = await runtime.startWorkflow('demo.alloc_atomic_a', {}, { workflowId });
+    assert.equal(done.status, 'SUCCESS');
+    const afterAlloc = await runtime.getWorkflow(workflowId);
+    assert.equal(afterAlloc.next_function_id, 1);
+
+    const frozen = await runtime.beginRestore();
+    assert.equal(frozen.writers_frozen, true);
+    assert.equal(
+      (await runtime.getWorkflow(workflowId)).next_function_id,
+      1,
+      'freeze must not be followed by a next_function_id change'
+    );
+
+    // Direct allocate path (no prior assertWritersAllowed) must fail closed.
+    await asRole(db, DBOS_ROLE, async (backend) => {
+      await backend.tx(async (tx) => {
+        await tx.query('SELECT set_tenant($1);', [A]);
+        await assert.rejects(
+          () => allocateNextFunctionIdOrThrow(tx, workflowId, 2),
+          (err) => err instanceof WritersFrozenError || (err instanceof DbosError && err.code === 'WRITERS_FROZEN')
+        );
+      });
+    });
+    assert.equal((await runtime.getWorkflow(workflowId)).next_function_id, 1);
+
+    await runtime.markReconciled('postgres');
+    await runtime.markReconciled('dbos');
+    await runtime.markReconciled('providers');
+    await runtime.completeRestore();
+  });
+
+  test('Scenario B: freeze wins first; allocation fails closed without changing next_function_id', async () => {
+    const runtime = runtimeFor(A);
+    const workflowId = randomUUID();
+    runtime.registerWorkflow('demo.alloc_atomic_b', async () => ({ seeded: true }));
+    const seeded = await runtime.startWorkflow('demo.alloc_atomic_b', {}, { workflowId });
+    assert.equal(seeded.status, 'SUCCESS');
+    assert.equal((await runtime.getWorkflow(workflowId)).next_function_id, 0);
+
+    // App-level gate would still pass here — then freeze commits first.
+    await assertWritersAllowed(db);
+    const frozen = await runtime.beginRestore();
+    assert.equal(frozen.writers_frozen, true);
+
+    const before = (await runtime.getWorkflow(workflowId)).next_function_id;
+    assert.equal(before, 0);
+
+    // Mutation-time DB gate (shared lock + conditional UPDATE), not a prior assertWritersAllowed.
+    await asRole(db, DBOS_ROLE, async (backend) => {
+      await backend.tx(async (tx) => {
+        await tx.query('SELECT set_tenant($1);', [A]);
+        await assert.rejects(
+          () => allocateNextFunctionIdOrThrow(tx, workflowId, 1),
+          (err) => err instanceof WritersFrozenError || (err instanceof DbosError && err.code === 'WRITERS_FROZEN')
+        );
+      });
+    });
+
+    const after = await runtime.getWorkflow(workflowId);
+    assert.equal(after.next_function_id, before, 'writers_frozen=true must never be followed by next_function_id change');
+
+    // Conditional UPDATE itself matches zero rows while frozen (DB enforcement).
+    await asRole(db, DBOS_ROLE, async (backend) => {
+      await backend.tx(async (tx) => {
+        await tx.query('SELECT set_tenant($1);', [A]);
+        await tx.query('SELECT pg_advisory_lock($1);', [RECOVERY_FREEZE_ADVISORY_LOCK_KEY]);
+        try {
+          const r = await tx.query(
+            `UPDATE dbos.workflows w
+                SET next_function_id = 99, updated_at = now()
+               FROM recovery_control rc
+              WHERE w.workflow_id = $1
+                AND rc.control_id = 1
+                AND rc.writers_frozen = false
+            RETURNING w.next_function_id;`,
+            [workflowId]
+          );
+          assert.equal(r.rows.length, 0);
+        } finally {
+          await tx.query('SELECT pg_advisory_unlock($1);', [RECOVERY_FREEZE_ADVISORY_LOCK_KEY]);
+        }
+      });
+    });
+    assert.equal((await runtime.getWorkflow(workflowId)).next_function_id, 0);
 
     await runtime.markReconciled('postgres');
     await runtime.markReconciled('dbos');
