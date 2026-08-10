@@ -304,7 +304,7 @@ function gitSync(root, args) {
   }
 }
 
-export function verifyGitState(root, { allowDirty = false } = {}) {
+export function verifyGitState(root) {
   const branch = gitSync(root, ['branch', '--show-current']);
   if (!branch) {
     throw new BuildRunnerError('detached HEAD: refusing ambiguous state', { code: 'DIRTY_GIT' });
@@ -316,7 +316,7 @@ export function verifyGitState(root, { allowDirty = false } = {}) {
     );
   }
   const status = gitSync(root, ['status', '--porcelain']);
-  if (status && !allowDirty) {
+  if (status) {
     throw new BuildRunnerError(
       'refusing dirty working tree (commit or stash before running): ' + status.replace(/\n/g, ' | '),
       { code: 'DIRTY_GIT' }
@@ -688,7 +688,10 @@ export async function run(root, opts = {}) {
 
   verifyRepoRoot(root);
   await verifySot(root);
-  verifyGitState(root, { allowDirty: dryRun });
+  // Clean-Git preflight is identical for dry-run and normal mode: dirty trees
+  // fail closed before phase determination, durable state/contract mutation,
+  // Cursor/Codex invocation, branch creation, or application-phase work.
+  verifyGitState(root);
 
   let state = loadState(root);
 

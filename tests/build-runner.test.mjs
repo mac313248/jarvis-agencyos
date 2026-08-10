@@ -271,11 +271,62 @@ test('tests failing before review fails closed (no Codex call)', async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-// 6. Dirty Git refusal
+// 6. Dirty Git refusal (identical for dry-run and normal mode)
 test('dirty Git state is refused', () => {
   const root = makeFixture({ dirty: true });
   try {
     assert.throws(() => verifyGitState(root), (e) => e instanceof BuildRunnerError && e.code === 'DIRTY_GIT');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('clean + dry-run succeeds', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    const state = await run(root, { dryRun: true });
+    assert.equal(state.status, 'WAITING_ON_OWNER');
+    assert.equal(state.dry_run_checkpoint, true);
+    assert.equal(state.current_phase_id, 'F-02');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('dirty + dry-run fails closed before phase work (no writers)', async () => {
+  const root = makeFixture({ dirty: true });
+  try {
+    let cursorCalls = 0;
+    let codexCalls = 0;
+    await assert.rejects(
+      () => run(root, {
+        dryRun: true,
+        cursorInvoker: () => { cursorCalls++; return 'writer'; },
+        codexInvoker: () => { codexCalls++; return 'PASS'; },
+        testRunner: passingTests(),
+      }),
+      (e) => e instanceof BuildRunnerError && e.code === 'DIRTY_GIT'
+    );
+    assert.equal(cursorCalls, 0, 'Cursor must not run after dirty rejection');
+    assert.equal(codexCalls, 0, 'Codex must not run after dirty rejection');
+    assert.equal(existsSync(join(root, 'artifacts/build-runner/current-phase.json')), false);
+    assert.equal(existsSync(join(root, 'artifacts/build-runner/state.json')), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('dirty + normal mode fails closed before phase work (no writers)', async () => {
+  const root = makeFixture({ dirty: true });
+  try {
+    let cursorCalls = 0;
+    let codexCalls = 0;
+    await assert.rejects(
+      () => run(root, {
+        cursorInvoker: () => { cursorCalls++; return 'writer'; },
+        codexInvoker: () => { codexCalls++; return 'PASS'; },
+        testRunner: passingTests(),
+      }),
+      (e) => e instanceof BuildRunnerError && e.code === 'DIRTY_GIT'
+    );
+    assert.equal(cursorCalls, 0, 'Cursor must not run after dirty rejection');
+    assert.equal(codexCalls, 0, 'Codex must not run after dirty rejection');
+    assert.equal(existsSync(join(root, 'artifacts/build-runner/current-phase.json')), false);
+    assert.equal(existsSync(join(root, 'artifacts/build-runner/state.json')), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

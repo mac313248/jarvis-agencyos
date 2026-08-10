@@ -7,7 +7,11 @@ Cursor (sole writer) + Codex (read-only reviewer).
 
 ## Branch / base
 - Branch: `phase-build/local-build-runner`
-- Repair cycle: Codex FAIL blockers (CLI arg order, dry-run resume, verdict ambiguity)
+- Base HEAD before this repair: `add792384fca7f81ae0c50c9d22f6b559cb80e3d`
+- Repair cycle: owner-authorized re-attempt after prior `FAILED_ACCEPTANCE_GATE`
+  (dirty Git incorrectly allowed under `--dry-run` via `allowDirty: dryRun`).
+  Prior failed acceptance result remains in history; this evidence covers the
+  clean-Git preflight repair only.
 - Approved SOT manifest: `8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87`
 
 ## SOT
@@ -24,7 +28,7 @@ Dry-run: `./scripts/run-next-phase --dry-run`
 ## Files
 - `scripts/build-runner.mjs` — runner (verify → contract → Cursor → tests → Codex)
 - `scripts/run-next-phase` — owner shell wrapper (`chmod +x`, cds to repo root)
-- `tests/build-runner.test.mjs` — focused harness tests (25)
+- `tests/build-runner.test.mjs` — focused harness tests (28)
 - `.gitignore` — ignore `.tmp-build-runner-tests/`, runtime `state.json`, `current-phase.json`
 - `artifacts/build-runner/implementation-summary.md` — this evidence
 
@@ -44,7 +48,7 @@ codex -a never exec -C /Users/sashairis/Projects/jarvis-agencyos -s read-only --
 2. Determine next incomplete V1.0 Foundation slice from SOT evidence markers (no fixed phase count)
 3. Materialize/validate `artifacts/build-runner/current-phase.json` with required fields + `business_write_autonomy: DISABLED`
 4. Resumable via minimal `artifacts/build-runner/state.json`
-5. Fail closed on dirty/ambiguous Git, zero/multiple verdict tokens, SOT mismatch, failed tests, unsafe auth
+5. Fail closed on dirty/ambiguous Git (dry-run and normal mode identical), zero/multiple verdict tokens, SOT mismatch, failed tests, unsafe auth
 6. Dry-run contracts next slice only → `WAITING_ON_OWNER` + `dry_run_checkpoint:true` (no application changes); a later normal run resumes that checkpoint; genuine `dry_run_checkpoint:false` owner gates stay permanent
 7. Deterministic tests before Codex; max 2 Codex verdicts; one bounded Cursor repair for `PASS_WITH_FIXES`; second verdict must be `PASS`
 8. Stop only at `WAITING_ON_OWNER` | `WAITING_ON_ARCHITECTURE` | `FAILED_ACCEPTANCE_GATE` | `V1_0_COMPLETE`
@@ -54,8 +58,8 @@ codex -a never exec -C /Users/sashairis/Projects/jarvis-agencyos -s read-only --
 `F-08` Trusted executor — contracted only; **not implemented** by this commit.
 
 ## Test results
-- Focused runner: **25/25 PASS** (`node --test tests/build-runner.test.mjs`)
-- Full regression: **90/90 PASS** (`npm test`)
+- Focused runner: **28/28 PASS** (`node --test tests/build-runner.test.mjs`)
+- Full regression: **93/93 PASS** (`npm test`)
 - SOT VERIFY: **PASS**
 - BUSINESS_WRITE_AUTONOMY: **DISABLED**
 - Application phase files (e.g. `src/runtime/trusted-executor.js`): **absent**
