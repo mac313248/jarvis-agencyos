@@ -12,10 +12,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   run, parseVerdict, verifySot, verifyGitState, determineNextSlice,
-  validatePhaseContract, loadState, loadCursorApiKey, defaultCursorInvoker,
+  validatePhaseContract, loadState, saveState, loadCursorApiKey, defaultCursorInvoker,
   defaultCodexInvoker, FOUNDATION_SLICES, APPROVED_MANIFEST_SHA256,
   TERMINAL_STOP_STATES, CURSOR_AGENT_BIN, CURSOR_KEYCHAIN_SERVICE,
-  BuildRunnerError,
+  isDryRunOwnerCheckpoint, BuildRunnerError,
 } from '../scripts/build-runner.mjs';
 
 const REAL_ROOT = new URL('../', import.meta.url).pathname;
@@ -50,6 +50,8 @@ function makeFixture({ dirty = false, tamperManifest = false, completedSlices = 
     name: 'jarvis-agencyos', version: '0.0.0-test', private: true,
     type: 'module', scripts: { test: 'node --test tests/*.test.mjs' },
   }) + '\n');
+  writeFileSync(join(root, '.gitignore'),
+    'artifacts/build-runner/state.json\nartifacts/build-runner/current-phase.json\n');
   mkdirSync(join(root, 'scripts'), { recursive: true });
   writeFileSync(join(root, 'scripts/verify-sot.mjs'), '// stub\n');
   mkdirSync(join(root, 'migrations'), { recursive: true });
@@ -96,6 +98,8 @@ test('dry-run contracts next slice and stops at WAITING_ON_OWNER', async () => {
   try {
     const state = await run(root, { dryRun: true });
     assert.equal(state.status, 'WAITING_ON_OWNER');
+    assert.equal(state.dry_run_checkpoint, true);
+    assert.equal(isDryRunOwnerCheckpoint(state), true);
     assert.equal(state.current_phase_id, 'F-08');
     const contract = JSON.parse(readFileSync(join(root, 'artifacts/build-runner/current-phase.json'), 'utf8'));
     assert.equal(contract.phase_id, 'F-08');
@@ -118,10 +122,90 @@ test('resume: state.json persists and is reloaded', async () => {
     assert.equal(s1.status, 'WAITING_ON_OWNER');
     const persisted = loadState(root);
     assert.equal(persisted.status, 'WAITING_ON_OWNER');
+    assert.equal(persisted.dry_run_checkpoint, true);
     assert.equal(persisted.current_phase_id, s1.current_phase_id);
     const s2 = await run(root, { dryRun: true });
     assert.equal(s2.status, 'WAITING_ON_OWNER');
     assert.equal(s2.current_phase_id, s1.current_phase_id);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// Dry-run checkpoint must not permanently block a later normal mocked run.
+test('dry-run then normal run resumes with injected mocks (no app phase files)', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    const dry = await run(root, { dryRun: true });
+    assert.equal(dry.status, 'WAITING_ON_OWNER');
+    assert.equal(dry.dry_run_checkpoint, true);
+    assert.equal(dry.current_phase_id, 'F-02');
+    assert.equal(existsSync(join(root, 'migrations/0003_owner_auth.sql')), false);
+
+    const c = mockCursor();
+    let codexCalls = 0;
+    const state = await run(root, {
+      cursorInvoker: c.invoker,
+      codexInvoker: () => { codexCalls++; return 'PASS'; },
+      testRunner: passingTests(),
+    });
+    assert.equal(state.status, 'ACCEPTED');
+    assert.equal(state.dry_run_checkpoint, false);
+    assert.equal(c.calls.length, 1);
+    assert.equal(codexCalls, 1);
+    assert.equal(state.codex_verdicts.join(','), 'PASS');
+    // Mocks must not materialize the real application-phase evidence marker.
+    assert.equal(existsSync(join(root, 'migrations/0003_owner_auth.sql')), false);
+    assert.equal(existsSync(join(root, 'src/runtime/trusted-executor.js')), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('genuine WAITING_ON_OWNER (dry_run_checkpoint:false) stays permanent', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    saveState(root, {
+      ...loadState(root),
+      status: 'WAITING_ON_OWNER',
+      dry_run_checkpoint: false,
+      current_phase_id: 'F-02',
+    });
+    const c = mockCursor();
+    let codexCalls = 0;
+    const state = await run(root, {
+      cursorInvoker: c.invoker,
+      codexInvoker: () => { codexCalls++; return 'PASS'; },
+      testRunner: passingTests(),
+    });
+    assert.equal(state.status, 'WAITING_ON_OWNER');
+    assert.equal(c.calls.length, 0);
+    assert.equal(codexCalls, 0);
+    assert.equal(isDryRunOwnerCheckpoint(state), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('legacy dry-run WAITING_ON_OWNER without dry_run_checkpoint field resumes', async () => {
+  const root = makeFixture({ completedSlices: ['F-01'] });
+  try {
+    mkdirSync(join(root, 'artifacts/build-runner'), { recursive: true });
+    // Pre-repair shape: no dry_run_checkpoint key (must not be defaulted to false).
+    writeFileSync(join(root, 'artifacts/build-runner/state.json'), JSON.stringify({
+      status: 'WAITING_ON_OWNER',
+      last_accepted_sha: null,
+      current_phase_id: 'F-02',
+      phase_branch: null,
+      cursor_runs: 0,
+      codex_verdicts: [],
+      last_verdict: null,
+    }) + '\n');
+    const loaded = loadState(root);
+    assert.equal('dry_run_checkpoint' in loaded, false);
+    assert.equal(isDryRunOwnerCheckpoint(loaded), true);
+    const c = mockCursor();
+    const state = await run(root, {
+      cursorInvoker: c.invoker,
+      codexInvoker: () => 'PASS',
+      testRunner: passingTests(),
+    });
+    assert.equal(state.status, 'ACCEPTED');
+    assert.equal(c.calls.length, 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -315,7 +399,7 @@ test('defaultCodexInvoker uses read-only never-approval ephemeral json form', ()
   });
   assert.equal(captured.bin, 'codex-mock');
   assert.deepEqual(captured.argv, [
-    'exec', '-C', '/repo', '-s', 'read-only', '-a', 'never', '--ephemeral', '--json', 'review please',
+    '-a', 'never', 'exec', '-C', '/repo', '-s', 'read-only', '--ephemeral', '--json', 'review please',
   ]);
 });
 
@@ -324,12 +408,27 @@ test('parseVerdict recognizes exact tokens', () => {
   assert.equal(parseVerdict('PASS'), 'PASS');
   assert.equal(parseVerdict('PASS WITH FIXES'), 'PASS_WITH_FIXES');
   assert.equal(parseVerdict('PASS_WITH_FIXES'), 'PASS_WITH_FIXES');
+  assert.equal(parseVerdict('PASS-WITH-FIXES'), 'PASS_WITH_FIXES');
   assert.equal(parseVerdict('FAIL'), 'FAIL');
   assert.equal(parseVerdict('some text\nPASS\nmore'), 'PASS');
   assert.equal(parseVerdict('no verdict here'), null);
   assert.equal(parseVerdict(null), null);
   assert.equal(parseVerdict(undefined), null);
   assert.equal(parseVerdict(123), null);
+});
+
+test('parseVerdict fails closed on zero or multiple authoritative tokens', () => {
+  assert.equal(parseVerdict(''), null);
+  assert.equal(parseVerdict('looks good overall'), null);
+  assert.equal(parseVerdict('FAIL\nPASS'), null);
+  assert.equal(parseVerdict('PASS\nFAIL'), null);
+  assert.equal(parseVerdict('PASS\nPASS WITH FIXES'), null);
+  assert.equal(parseVerdict('PASS_WITH_FIXES\nFAIL'), null);
+  assert.equal(parseVerdict('PASS\nPASS'), null);
+  assert.equal(parseVerdict('FAIL\nsome notes\nPASS WITH FIXES'), null);
+  // Must never infer PASS from ambiguous contradictory output.
+  assert.notEqual(parseVerdict('FAIL\nPASS'), 'PASS');
+  assert.notEqual(parseVerdict('PASS\nFAIL'), 'PASS');
 });
 
 // determineNextSlice: first incomplete slice from SOT, not a phase count

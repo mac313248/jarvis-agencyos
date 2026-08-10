@@ -54,8 +54,8 @@ export const PHASE_CONTRACT_FILE = 'artifacts/build-runner/current-phase.json';
 // Exact supported headless Cursor CLI form (keychain-backed; never log the key):
 //   CURSOR_API_KEY="$(security find-generic-password -a "$USER" -s "agencyos.cursor.api_key" -w)" \
 //     cursor-agent --trust -p --force --output-format json "<prompt>"
-// Codex review-only:
-//   codex exec -C <root> -s read-only -a never --ephemeral --json "<prompt>"
+// Codex review-only (global -a never must precede the exec subcommand):
+//   codex -a never exec -C <root> -s read-only --ephemeral --json "<prompt>"
 export const CURSOR_AGENT_BIN = 'cursor-agent';
 export const CURSOR_KEYCHAIN_ACCOUNT_ENV = 'USER';
 export const CURSOR_KEYCHAIN_SERVICE = 'agencyos.cursor.api_key';
@@ -405,8 +405,27 @@ export function defaultState() {
     cursor_runs: 0,
     codex_verdicts: [],
     last_verdict: null,
+    // dry_run_checkpoint omitted on purpose: absent/undefined means "unknown /
+    // legacy" so isDryRunOwnerCheckpoint can apply the contracted-only heuristic.
+    // Explicit false is a genuine permanent owner gate.
     updated_at: null,
   };
+}
+
+// Dry-run stops at WAITING_ON_OWNER without invoking writer/reviewer. A later
+// normal run must resume that checkpoint. Genuine owner gates set
+// dry_run_checkpoint:false and remain fail-closed / permanent.
+export function isDryRunOwnerCheckpoint(state) {
+  if (!state || state.status !== 'WAITING_ON_OWNER') return false;
+  if (state.dry_run_checkpoint === true) return true;
+  if (state.dry_run_checkpoint === false) return false;
+  // Legacy dry-run stops (pre-flag) look like contracted-only, never progressed.
+  return (
+    state.phase_branch == null &&
+    (state.cursor_runs || 0) === 0 &&
+    (!(state.codex_verdicts || []).length) &&
+    state.last_verdict == null
+  );
 }
 
 export function loadState(root) {
@@ -439,21 +458,23 @@ export const VERDICTS = Object.freeze(['PASS', 'PASS_WITH_FIXES', 'FAIL']);
 
 export function parseVerdict(output) {
   if (typeof output !== 'string') return null;
-  // Scan for the last authoritative verdict token. Codex review prompt asks
-  // for "PASS" | "PASS WITH FIXES" | "FAIL" on its own. We accept the exact
-  // forms and a few safe variants, but fail closed on ambiguity.
+  // Fail closed unless exactly one authoritative verdict token is present.
+  // Codex review prompt asks for "PASS" | "PASS WITH FIXES" | "FAIL" on its
+  // own. Accept those exact forms and a few safe spelling variants. Zero
+  // tokens or multiple tokens (including contradictory FAIL then PASS /
+  // PASS then FAIL) are ambiguous -> null (never infer PASS).
   const text = output.replace(/\r/g, '');
-  // Prefer fenced ```\nPASS\n``` or a line containing only the verdict.
   const lines = text.split('\n').map((l) => l.trim());
-  let found = null;
+  const found = [];
   for (const l of lines) {
     const up = l.toUpperCase();
-    if (up === 'PASS') found = 'PASS';
+    if (up === 'PASS') found.push('PASS');
     else if (up === 'PASS WITH FIXES' || up === 'PASS_WITH_FIXES' || up === 'PASS-WITH-FIXES')
-      found = 'PASS_WITH_FIXES';
-    else if (up === 'FAIL') found = 'FAIL';
+      found.push('PASS_WITH_FIXES');
+    else if (up === 'FAIL') found.push('FAIL');
   }
-  return found; // null if none found -> caller fails closed
+  if (found.length !== 1) return null;
+  return found[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -562,14 +583,14 @@ export function defaultCursorInvoker(root, prompt, deps = {}) {
 }
 
 export function defaultCodexInvoker(root, prompt, deps = {}) {
-  // Exact form:
-  //   codex exec -C <root> -s read-only -a never --ephemeral --json "<prompt>"
+  // Exact form (global approval flag before subcommand; read-only + ephemeral):
+  //   codex -a never exec -C <root> -s read-only --ephemeral --json "<prompt>"
   const bin = deps.codexBin || CODEX_BIN;
   const execFile = deps.execFileSync || execFileSync;
   try {
     return execFile(
       bin,
-      ['exec', '-C', root, '-s', 'read-only', '-a', 'never', '--ephemeral', '--json', prompt],
+      ['-a', 'never', 'exec', '-C', root, '-s', 'read-only', '--ephemeral', '--json', prompt],
       {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -671,9 +692,22 @@ export async function run(root, opts = {}) {
 
   let state = loadState(root);
 
-  // If already at a terminal stop state, report and stop.
+  // If already at a terminal stop state, report and stop — except a dry-run
+  // WAITING_ON_OWNER checkpoint, which a later normal run must resume.
   if (TERMINAL_STOP_STATES.includes(state.status)) {
-    return state;
+    if (dryRun && state.status === 'WAITING_ON_OWNER' && isDryRunOwnerCheckpoint(state)) {
+      // Repeated dry-run: refresh checkpoint marker and remain stopped.
+      return saveState(root, {
+        ...state,
+        status: 'WAITING_ON_OWNER',
+        dry_run_checkpoint: true,
+      });
+    }
+    if (!(state.status === 'WAITING_ON_OWNER' && !dryRun && isDryRunOwnerCheckpoint(state))) {
+      return state;
+    }
+    // Clear the dry-run checkpoint marker and continue the real flow.
+    state = { ...state, dry_run_checkpoint: false };
   }
 
   // Determine last accepted state: persisted, else current HEAD.
@@ -682,7 +716,7 @@ export async function run(root, opts = {}) {
   // Determine next slice from SOT + evidence markers (not a phase count).
   const slice = determineNextSlice(root);
   if (!slice) {
-    state = saveState(root, { ...state, status: 'V1_0_COMPLETE' });
+    state = saveState(root, { ...state, status: 'V1_0_COMPLETE', dry_run_checkpoint: false });
     return state;
   }
 
@@ -695,13 +729,20 @@ export async function run(root, opts = {}) {
     status: 'CONTRACTED',
     current_phase_id: slice.phase_id,
     base_sha: baseSha,
+    dry_run_checkpoint: false,
   });
 
   // Dry-run / mock: identify + contract the next slice only. Do NOT invoke a
   // real writer, do NOT mark acceptance, do NOT make application-phase changes.
-  // Stop at WAITING_ON_OWNER (a real run + owner launch approval is required).
+  // Stop at WAITING_ON_OWNER (owner launch of a normal run is required). The
+  // dry_run_checkpoint flag lets that later normal run resume; genuine owner
+  // gates must set dry_run_checkpoint:false and stay permanent.
   if (dryRun) {
-    state = saveState(root, { ...state, status: 'WAITING_ON_OWNER' });
+    state = saveState(root, {
+      ...state,
+      status: 'WAITING_ON_OWNER',
+      dry_run_checkpoint: true,
+    });
     return state;
   }
 
