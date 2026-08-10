@@ -80,6 +80,48 @@ function baseLocal(overrides = {}) {
   });
 }
 
+/** Seed a tenant-scoped blocking effect_ledger row (proposal FK required). */
+async function insertBlockingEffect(tx, {
+  status = 'PENDING',
+  postcondition_status = null,
+  outcome = null,
+} = {}) {
+  const proposalId = randomUUID();
+  const workflowId = randomUUID();
+  const effectId = randomUUID();
+  const idempotencyKey = `recon-test-${effectId}`;
+  await tx.query(
+    `INSERT INTO action_proposals (
+       proposal_id, tenant_id, workflow_id, step_id, actor, capability_id,
+       target_ref, canonical_request, request_hash, risk_class, reversibility
+     ) VALUES (
+       $1, cur_tenant(), $2, 'recon-step', 'agent0', 'cap.recon.test',
+       'local:target', '{}'::jsonb, $3, 'low', 'reversible'
+     );`,
+    [proposalId, workflowId, `rh-${effectId}`],
+  );
+  await tx.query(
+    `INSERT INTO effect_ledger (
+       effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
+       capability_id, request_hash, status, postcondition_status, outcome
+     ) VALUES (
+       $1, cur_tenant(), $2, $3, $4, 'recon-step',
+       'cap.recon.test', $5, $6, $7, $8
+     );`,
+    [
+      effectId,
+      idempotencyKey,
+      proposalId,
+      workflowId,
+      `rh-${effectId}`,
+      status,
+      postcondition_status,
+      outcome,
+    ],
+  );
+  return { effect_id: effectId, proposal_id: proposalId, idempotency_key: idempotencyKey };
+}
+
 describe('F-10 autonomy posture', () => {
   test('business-write autonomy remains DISABLED', () => {
     assert.equal(BUSINESS_WRITE_AUTONOMY, false);
@@ -472,6 +514,133 @@ describe('F-10 #37 pending/ambiguous local effect is never auto-overwritten as d
         [stateKey],
       )).rows[0];
       assert.deepEqual(row.value, { x: 1 });
+    });
+  });
+
+  test('REPAIR decided before pending effect appears is refused at apply; value preserved', async () => {
+    const stateKey = `crm.contact:race-pending-${randomUUID()}`;
+    const localValue = { name: 'LocalKeep', status: 'active' };
+    const providerValue = { name: 'ProviderClobber', status: 'paused' };
+
+    // Decision computed with no blocking local effect → REPAIR.
+    const decision = reconcile({
+      localState: baseLocal({ state_key: stateKey, value: localValue }),
+      providerObservation: {
+        value: providerValue,
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-race-1',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      // Concurrent pending effect appears after reconcile() decided REPAIR.
+      const pending = await insertBlockingEffect(tx, { status: 'PENDING' });
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            ...decision,
+            next_state: { ...decision.next_state, state_key: stateKey },
+          },
+        }),
+        (err) => err instanceof ReconciliationError
+          && err.code === 'STOP_CONDITION'
+          && /blocking local effect present at mutation time/i.test(err.message),
+      );
+
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+      assert.equal(row.freshness, 'FRESH');
+      assert.equal(row.conflict_status, 'NONE');
+
+      // Clear fixture so concurrent/later REPAIR applies are not poisoned.
+      await tx.query(
+        `UPDATE effect_ledger
+            SET status = 'COMPLETED', postcondition_status = 'VERIFIED', outcome = 'SUCCEEDED'
+          WHERE effect_id = $1;`,
+        [pending.effect_id],
+      );
+    });
+  });
+
+  test('REPAIR decided before ambiguous effect appears is refused at apply; value preserved', async () => {
+    const stateKey = `crm.contact:race-ambig-${randomUUID()}`;
+    const localValue = { balance: 42 };
+    const decision = reconcile({
+      localState: baseLocal({ state_key: stateKey, value: localValue }),
+      providerObservation: {
+        value: { balance: 0 },
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-race-ambig',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      const ambig = await insertBlockingEffect(tx, {
+        status: 'COMMITTED',
+        postcondition_status: 'AMBIGUOUS',
+        outcome: 'AMBIGUOUS',
+      });
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            ...decision,
+            next_state: { ...decision.next_state, state_key: stateKey },
+          },
+        }),
+        (err) => err instanceof ReconciliationError && err.code === 'STOP_CONDITION',
+      );
+
+      const row = (await tx.query(
+        `SELECT value FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+
+      await tx.query(
+        `UPDATE effect_ledger
+            SET status = 'COMPLETED', postcondition_status = 'VERIFIED', outcome = 'SUCCEEDED'
+          WHERE effect_id = $1;`,
+        [ambig.effect_id],
+      );
     });
   });
 });

@@ -583,8 +583,16 @@ async function requireTenant(backend) {
 /**
  * Persist a reconcile decision onto current_state_records.
  * Never inserts provider value when value_overwritten is false and action is HOLD_*.
+ *
+ * REPAIR / value-overwrite mutations re-check effect_ledger at mutation time
+ * (do not trust an earlier reconcile(localEffect) snapshot alone).
  */
-export async function applyReconciliation(backend, { stateKey, decision }) {
+export async function applyReconciliation(backend, {
+  stateKey,
+  decision,
+  capabilityId = null,
+  idempotencyKey = null,
+} = {}) {
   assertBusinessWriteAutonomyDisabled();
   const tenantId = await requireTenant(backend);
   if (!decision?.next_state) {
@@ -598,15 +606,25 @@ export async function applyReconciliation(backend, { stateKey, decision }) {
     );
   }
 
+  const wouldOverwriteValue =
+    decision.action === 'REPAIR' || decision.value_overwritten === true;
+
   const ns = decision.next_state;
   const existing = await backend.query(
     `SELECT state_id, value, conflict_status, freshness
        FROM current_state_records
-      WHERE tenant_id = $1 AND state_key = $2;`,
+      WHERE tenant_id = $1 AND state_key = $2
+      FOR UPDATE;`,
     [tenantId, stateKey],
   );
 
   if (existing.rows.length === 0) {
+    await assertNoBlockingLocalEffectAtMutation(backend, {
+      wouldOverwriteValue,
+      capabilityId,
+      idempotencyKey,
+      action: decision.action,
+    });
     const stateId = randomUUID();
     await backend.query(
       `INSERT INTO current_state_records (
@@ -652,6 +670,13 @@ export async function applyReconciliation(backend, { stateKey, decision }) {
     }
   }
 
+  await assertNoBlockingLocalEffectAtMutation(backend, {
+    wouldOverwriteValue,
+    capabilityId,
+    idempotencyKey,
+    action: decision.action,
+  });
+
   await backend.query(
     `UPDATE current_state_records SET
        value = $3::jsonb,
@@ -687,12 +712,40 @@ export async function applyReconciliation(backend, { stateKey, decision }) {
 }
 
 /**
+ * Fail closed immediately before a REPAIR/value-overwrite mutation when the
+ * ledger shows a pending/ambiguous local effect (re-query; do not reuse the
+ * reconcile() decision-time snapshot).
+ */
+async function assertNoBlockingLocalEffectAtMutation(backend, {
+  wouldOverwriteValue,
+  capabilityId,
+  idempotencyKey,
+  action,
+}) {
+  if (!wouldOverwriteValue) return;
+  const blocking = await loadBlockingLocalEffect(backend, {
+    capabilityId,
+    idempotencyKey,
+    forUpdate: true,
+  });
+  if (blocking) {
+    throw new ReconciliationError(
+      'STOP_CONDITION',
+      'blocking local effect present at mutation time; refuse REPAIR overwrite as drift',
+      { effect: blocking, action },
+    );
+  }
+}
+
+/**
  * Look up whether the effect ledger has a blocking local effect for this tenant.
  * Optional subject filter via request_hash / capability_id when provided.
+ * When forUpdate is true, locks matching ledger rows for the remainder of the txn.
  */
 export async function loadBlockingLocalEffect(backend, {
   capabilityId = null,
   idempotencyKey = null,
+  forUpdate = false,
 } = {}) {
   await requireTenant(backend);
   const params = [];
@@ -710,12 +763,13 @@ export async function loadBlockingLocalEffect(backend, {
     clauses.push(`idempotency_key = $${params.length}`);
   }
 
+  const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const r = await backend.query(
     `SELECT effect_id, status, postcondition_status, outcome, idempotency_key, capability_id
        FROM effect_ledger
       WHERE ${clauses.join(' AND ')}
       ORDER BY started_at DESC
-      LIMIT 1;`,
+      LIMIT 1${lockClause};`,
     params,
   );
   return r.rows[0] ?? null;
@@ -763,6 +817,8 @@ export function createReconciliationRuntime(db, { trustedTenantId } = {}) {
       const applied = await applyReconciliation(tx, {
         stateKey: args.localState.state_key,
         decision,
+        capabilityId: args.capabilityId ?? null,
+        idempotencyKey: args.idempotencyKey ?? null,
       });
 
       return { ...applied, decision };
