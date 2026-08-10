@@ -1,6 +1,6 @@
 {
   "sot_manifest_sha256": "8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87",
-  "git_commit_sha": "5b861f2afefe41090de57ddcdbafd22435160056",
+  "git_commit_sha": "6b0144920632b939de928c776b4d1de2b32aee74",
   "starting_git_sha": "5b861f2afefe41090de57ddcdbafd22435160056",
   "branch": "phase-1/secure-core-spine",
   "origin": "https://github.com/mac313248/jarvis-agencyos.git",
@@ -8,5 +8,5 @@
   "reviewer_runtime": null,
   "postgres_engine": "PGlite (real PostgreSQL WASM)",
   "postgres_server_version": "16.4",
-  "created_at": "2026-08-10T08:26:26.486Z"
+  "created_at": "2026-08-10T08:26:57.658Z"
 }
