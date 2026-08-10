@@ -84,25 +84,30 @@ PostgreSQL implementation — not a mocked repository layer.
   materiality engine, recovery). See acceptance-map.md.
 - 4 STRUCTURAL_PREREQUISITE (schema/primitive present; full runtime enforcement
   belongs to a later Foundation phase): #14 grant-check at execution, #16 replay
-  dedupe at ingestion, #44 global-memory policy, #47 branch protection (needs
-  owner GitHub settings — see OWNER ACTION note below).
+  dedupe at ingestion, #44 global-memory policy. (#47 branch protection is now
+  LIVE-VERIFIED PASS — see "GitHub gate" below.)
 - Live owner auth provider (OAuth/MFA provider) is DEFERRED; Phase 1 provides the
   session/MFA representation + binding primitives, not a live auth backend.
 - A real multi-process PostgreSQL cluster was not available in the build sandbox
   (Homebrew Cellar not writable; SysV shmget blocked by the Cursor sandbox). The
   same migrations/tests run unchanged against one when DATABASE_URL is provided.
 
-## OWNER ACTION note (not blocking Phase 1 gate)
-Acceptance #47 (protected main rejects unauthorized direct push) requires GitHub
-branch protection configured on the repository settings. This is an owner
-GitHub-settings action, not something code can self-serve. Recommended:
-enable branch protection on `main` requiring the Phase 1 CI check + a passing
-review before merge. This does not block the Phase 1 secure-core-spine gate.
+## GitHub gate (acceptance #45 / #47) — LIVE-VERIFIED PASS
+The owner completed the live GitHub gate from a normal Mac Mini terminal (the
+Cursor sandbox blocks api.github.com HTTP 403, so the builder could not do it
+from inside Cursor). main on mac313248/jarvis-agencyos is protected:
+  - required status check "Phase 1 — Secure Core Spine / phase1" (strict=true)
+  - enforce_admins=true; allow_force_pushes=false; allow_deletions=false
+  - PR protection on (required_approving_review_count=0, dismiss_stale_reviews=true)
+Independent readback captured in `github-gate-verification.txt`. #45 PASS
+(failed/missing required check blocks merge); #47 PASS (unauthorized direct
+push to main rejected). The verifier script was repaired (no false success on
+API error; nonzero exit on failed PUT; final PASS based on readback; idempotent).
 
 ## Reviewer verdict
 - First Codex review: **PASS WITH FIXES** (2 findings) — addressed.
 - Second Codex review: **PASS WITH FIXES** (4 findings) — addressed.
-- Current Codex goal review: **PASS WITH FIXES** (2 findings) — 1 addressed, 1 WAITING_ON_OWNER.
+- Current Codex goal review: **PASS WITH FIXES** (2 findings) — both resolved.
 - Current goal findings:
   1. **Cross-tenant authority read bypass.** Addressed: the runtime
      reader `read_authority_state()` is now zero-arg and derives the tenant
@@ -113,12 +118,11 @@ review before merge. This does not block the Phase 1 secure-core-spine gate.
      fail-closed) from the bootstrap path (tenant-specific, not exposed to
      app_runtime). 6 regression tests R1-R6 exercise the actual SQL/runtime
      path under app_runtime + tenant context.
-  2. **Acceptance #45 needs real enforcement.** WAITING_ON_OWNER:
-     the CI workflow exists but live GitHub branch-protection enforcement
-     could not be verified/configured because the `gh` token is invalid
-     (Forbidden). #45 kept REQUIRED_NOW (not relabeled deferred); not
-     claimed PASS. See `github-gate-verification.txt`.
-- Status: Finding 1 fully addressed and verified (41/41 tests green).
-  Finding 2 (#45) is WAITING_ON_OWNER on a single owner action
-  (re-authenticate `gh`); after that the builder will inspect and, if
-  needed, configure minimal branch protection and capture evidence.
+  2. **Acceptance #45 needs real enforcement.** RESOLVED / PASS:
+     the owner completed the live GitHub gate from a normal Mac Mini terminal.
+     main is protected with required check "Phase 1 — Secure Core Spine /
+     phase1" (strict=true), enforce_admins=true, force pushes disabled,
+     deletions disabled, PR protection on. #45 PASS; #47 PASS. See
+     `github-gate-verification.txt`.
+- Status: both goal findings fully resolved and verified (41/41 core-spine
+  tests green + live GitHub gate evidence).

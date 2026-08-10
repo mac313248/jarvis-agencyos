@@ -10,12 +10,13 @@
   "reviewer_runtime": "Codex (1st & 2nd: PASS WITH FIXES; goal: PASS WITH FIXES)",
   "codex_first_verdict": "PASS WITH FIXES (first review; 2 findings addressed)",
   "codex_second_verdict": "PASS WITH FIXES (second review; 4 findings addressed)",
-  "codex_goal_verdict": "PASS WITH FIXES (current goal review; 2 findings: 1 addressed, 2 (#45) WAITING_ON_OWNER)",
-  "acceptance_45_status": "WAITING_ON_OWNER — CI workflow exists; live GitHub branch-protection enforcement not yet verified. Cursor sandbox blocks api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS keychain token or inspect/configure branch protection from inside Cursor. Owner-runnable verifier scripts/verify-github-gate.sh pending run in a normal terminal. See artifacts/phase-1/github-gate-verification.txt",
+  "codex_goal_verdict": "PASS WITH FIXES (goal review; 2 findings: both resolved — Finding 1 addressed, Finding 2 (#45/#47) PASS via live GitHub enforcement)",
+  "acceptance_45_status": "PASS — live GitHub branch-protection enforcement verified by owner from a normal Mac Mini terminal. main is protected; required status check \"Phase 1 — Secure Core Spine / phase1\" is active with strict=true; failed/missing required check blocks merge. See artifacts/phase-1/github-gate-verification.txt",
+  "acceptance_47_status": "PASS — live main protection verified by owner: PR protection on, enforce_admins=true, allow_force_pushes=false, allow_deletions=false. See artifacts/phase-1/github-gate-verification.txt",
   "postgres_engine": "PGlite (real PostgreSQL WASM)",
   "postgres_server_version": "16.4",
   "pg_path_actually_executed": "PGlite (WASM) — actually executed in the Phase 1 test run",
   "database_url_path": "node pg driver + DATABASE_URL — installable/supported by the same code and migrations; NOT actually exercised in this build environment (no real external PostgreSQL cluster was tested)",
   "note": "git_commit_sha binds to the exact code+migrations+tests implementation commit whose suite was run. Any later commit is evidence/review-only and does not modify implementation. The evidence artifact cannot cryptographically contain its own final commit SHA.",
-  "created_at": "2026-08-10T09:47:56.328Z"
+  "created_at": "2026-08-10T10:07:15.818Z"
 }

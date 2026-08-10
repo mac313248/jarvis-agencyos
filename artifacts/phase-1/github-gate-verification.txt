@@ -101,41 +101,70 @@ verification must run in a non-sandboxed environment where api.github.com is
 reachable.
 
 ## #45 status
-REQUIRED_NOW — NOT YET PROVEN. WAITING_ON_OWNER.
+REQUIRED_NOW — PASS. Live GitHub enforcement verified (see "Final live gate
+configuration" below).
 
-The workflow YAML is insufficient evidence. Real enforcement requires
-either existing active GitHub branch protection (to be captured here once
-the verification runs in a non-sandboxed environment) OR a minimal ruleset
-configured there.
+## Final live gate configuration (2026-08-10, owner-run from a NORMAL Mac Mini
+terminal — not the Cursor sandbox)
+The owner completed the live GitHub gate from a normal Mac Mini terminal,
+where `gh` (mac313248, macOS keychain login) and api.github.com are both
+reachable. The earlier sandbox attempts (HTTP 403 on api.github.com) and the
+earlier malformed verifier request (the first `verify-github-gate.sh` printed
+a success-looking line even after a GitHub error — repaired, see
+"Verifier repair" below) are superseded by this live result.
 
-## Exact owner action required (one action — NOT a re-login)
-The owner's Mac Mini `gh` login (mac313248) is valid. Run the verifier from a
-NORMAL terminal (not Cursor's sandboxed terminal — api.github.com is blocked
-there), where `gh` can authenticate and api.github.com is reachable:
+Repository: mac313248/jarvis-agencyos  (wrong-owner-backup NOT touched)
+Protected branch: main
 
-  bash scripts/verify-github-gate.sh
+GitHub returned (branch protection on main):
+  required_status_checks.strict = true
+  required_status_checks.contexts = [
+    "Phase 1 — Secure Core Spine / phase1"
+  ]
+  required_pull_request_reviews.required_approving_review_count = 0
+  required_pull_request_reviews.dismiss_stale_reviews = true
+  enforce_admins.enabled = true
+  allow_force_pushes.enabled = false
+  allow_deletions.enabled = false
 
-The script unsets GH_TOKEN/GITHUB_TOKEN itself, then on mac313248/jarvis-agencyos
-only:
-  1. verifies `gh auth status`;
-  2. detects the real Phase 1 status-check name from a recent workflow run;
-  3. inspects branch protection / rulesets / required status checks on main;
-  4. if an active rule already requires the Phase 1 CI check before merge,
-     prints the exact GitHub enforcement evidence (ALREADY_ENFORCED);
-  5. if enforcement is absent, configures the MINIMAL protection on main
-     (require the Phase 1 CI status check emitted by
-     .github/workflows/phase-1.yml to pass before merge; require a pull request
-     before merge; enforce_admins=true; no force pushes; do not alter
-     wrong-owner-backup; do not merge Phase 1), then re-inspects and prints
-     the final configuration.
+Final independent readback:
+  {
+    "allow_deletions": false,
+    "allow_force_pushes": false,
+    "enforce_admins": true,
+    "required_approvals": 0,
+    "required_checks": [
+      "Phase 1 — Secure Core Spine / phase1"
+    ],
+    "strict": true
+  }
 
-Paste the full script output back to the builder. The builder will append it
-here and mark #45 PASS (or keep WAITING_ON_OWNER if the script reports
-auth/permission failure). Until then, #45 remains WAITING_ON_OWNER and is NOT
-claimed PASS.
+This proves: the actual Phase 1 GitHub check "Phase 1 — Secure Core Spine /
+phase1" is an ACTIVE required status check on protected main with strict=true,
+so a failed/missing required check blocks merge. main is actively protected
+(PR protection on, admin enforcement on, force pushes disabled, deletions
+disabled), so unauthorized direct pushes to main are rejected.
 
-## Note on #47
-#47 ("Protected main rejects unauthorized direct push") depends on the same
-branch-protection configuration. Its disposition is not changed by this
-attempt; it remains STRUCTURAL_PREREQUISITE and resolves together with #45
-once the verification runs in a non-sandboxed environment.
+## Verifier repair (scripts/verify-github-gate.sh / verify-github-gate.mjs)
+The first verifier printed a success-looking line ("configured branch
+protection requiring ...") even after a GitHub API error. Repaired so that:
+  - configuration success is printed only after the PUT succeeds;
+  - a failed PUT exits nonzero;
+  - the script never claims configuration succeeded after a GitHub API error;
+  - final PASS is based on a successful readback confirming ALL of:
+      * exact required check ("Phase 1 — Secure Core Spine / phase1");
+      * strict=true;
+      * enforce_admins=true;
+      * force pushes disabled;
+      * deletions disabled;
+      * PR protection present.
+  - idempotent: because branch protection is already configured, a normal
+    future run is verification-only and does NOT rewrite the protection.
+
+A unit test for the gate-evaluation logic lives at
+tests/support/verifier-gate.test.mjs (outside the core `tests/*.test.mjs`
+glob, so the core-spine suite stays at 41/41).
+
+## GITHUB GATE: PASS
+## #45: PASS — live GitHub enforcement verified
+## #47: PASS — live main protection verified

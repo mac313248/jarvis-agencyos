@@ -109,7 +109,7 @@ write('rls-negative-tests.txt', rlsTxt);
 // ---- Build binding record ----
 const codexFirstVerdict = 'PASS WITH FIXES (first review; 2 findings addressed)';
 const codexSecondVerdict = 'PASS WITH FIXES (second review; 4 findings addressed)';
-const codexGoalVerdict = process.env.CODEX_VERDICT3 || 'PASS WITH FIXES (current goal review; 2 findings: 1 addressed, 2 (#45) WAITING_ON_OWNER)';
+const codexGoalVerdict = process.env.CODEX_VERDICT3 || 'PASS WITH FIXES (goal review; 2 findings: both resolved — Finding 1 addressed, Finding 2 (#45/#47) PASS via live GitHub enforcement)';
 await recordBuildBinding(db, {
   sotManifestSha256: sot.manifestHash,
   gitCommitSha: implSha,
@@ -129,7 +129,8 @@ const binding = {
   codex_first_verdict: codexFirstVerdict,
   codex_second_verdict: codexSecondVerdict,
   codex_goal_verdict: codexGoalVerdict,
-  acceptance_45_status: 'WAITING_ON_OWNER — CI workflow exists; live GitHub branch-protection enforcement not yet verified. Cursor sandbox blocks api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS keychain token or inspect/configure branch protection from inside Cursor. Owner-runnable verifier scripts/verify-github-gate.sh pending run in a normal terminal. See artifacts/phase-1/github-gate-verification.txt',
+  acceptance_45_status: 'PASS — live GitHub branch-protection enforcement verified by owner from a normal Mac Mini terminal. main is protected; required status check "Phase 1 — Secure Core Spine / phase1" is active with strict=true; failed/missing required check blocks merge. See artifacts/phase-1/github-gate-verification.txt',
+  acceptance_47_status: 'PASS — live main protection verified by owner: PR protection on, enforce_admins=true, allow_force_pushes=false, allow_deletions=false. See artifacts/phase-1/github-gate-verification.txt',
   postgres_engine: 'PGlite (real PostgreSQL WASM)',
   postgres_server_version: await serverVersion(db),
   pg_path_actually_executed: 'PGlite (WASM) — actually executed in the Phase 1 test run',
@@ -216,15 +217,20 @@ evidence/review-only and does not modify implementation.
   - Finding 1 (cross-tenant authority read bypass) — addressed: runtime
     reader is now zero-arg and context-bound; old caller-selected reader
     dropped (migration 0010); 6 regression tests R1-R6.
-  - Finding 2 (acceptance #45 needs real enforcement) — WAITING_ON_OWNER:
-    CI workflow exists but live GitHub branch-protection enforcement
-    could not be verified/configured because the Cursor sandbox blocks
-    api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS
-    keychain token or reach the GitHub REST/GraphQL API from inside Cursor.
-    Owner-runnable verifier scripts/verify-github-gate.sh (unsets
-    GH_TOKEN/GITHUB_TOKEN, uses the keychain gh login) pending run in a
-    normal terminal. See artifacts/phase-1/github-gate-verification.txt.
-    #45 kept REQUIRED_NOW (not relabeled deferred); not claimed PASS.
+  - Finding 2 (acceptance #45 needs real enforcement) — RESOLVED / PASS:
+    The owner completed the live GitHub gate from a normal Mac Mini terminal
+    (where gh + api.github.com are reachable; the Cursor sandbox blocks
+    api.github.com HTTP 403, so the builder could not do it from inside
+    Cursor). main is now protected with required status check
+    "Phase 1 — Secure Core Spine / phase1" (strict=true), enforce_admins=true,
+    allow_force_pushes=false, allow_deletions=false, PR protection on.
+    #45 PASS (failed/missing required check blocks merge); #47 PASS
+    (unauthorized direct push to main rejected). Independent readback
+    captured in artifacts/phase-1/github-gate-verification.txt. The verifier
+    script (scripts/verify-github-gate.sh / verify-github-gate.mjs) was
+    repaired so it never prints success after a GitHub API error, exits
+    nonzero on failed PUT, and bases final PASS on a successful readback;
+    it is idempotent (verification-only when protection already configured).
 
 ## Required negative security tests (all green)
 See acceptance-map.md and test-results.txt. 41 tests across 10 suites

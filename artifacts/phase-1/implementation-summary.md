@@ -64,19 +64,24 @@ evidence/review-only and does not modify implementation.
   - Finding 2 (enforce inbound authenticity) — addressed.
   - Finding 3 (match canonical session-id types) — addressed.
   - Finding 4 (Postgres DATABASE_URL reproducibility) — addressed.
-- Current Codex goal review: PASS WITH FIXES (current goal review; 2 findings: 1 addressed, 2 (#45) WAITING_ON_OWNER)
+- Current Codex goal review: PASS WITH FIXES (goal review; 2 findings: both resolved — Finding 1 addressed, Finding 2 (#45/#47) PASS via live GitHub enforcement)
   - Finding 1 (cross-tenant authority read bypass) — addressed: runtime
     reader is now zero-arg and context-bound; old caller-selected reader
     dropped (migration 0010); 6 regression tests R1-R6.
-  - Finding 2 (acceptance #45 needs real enforcement) — WAITING_ON_OWNER:
-    CI workflow exists but live GitHub branch-protection enforcement
-    could not be verified/configured because the Cursor sandbox blocks
-    api.github.com (HTTP 403 on CONNECT), so gh cannot validate the macOS
-    keychain token or reach the GitHub REST/GraphQL API from inside Cursor.
-    Owner-runnable verifier scripts/verify-github-gate.sh (unsets
-    GH_TOKEN/GITHUB_TOKEN, uses the keychain gh login) pending run in a
-    normal terminal. See artifacts/phase-1/github-gate-verification.txt.
-    #45 kept REQUIRED_NOW (not relabeled deferred); not claimed PASS.
+  - Finding 2 (acceptance #45 needs real enforcement) — RESOLVED / PASS:
+    The owner completed the live GitHub gate from a normal Mac Mini terminal
+    (where gh + api.github.com are reachable; the Cursor sandbox blocks
+    api.github.com HTTP 403, so the builder could not do it from inside
+    Cursor). main is now protected with required status check
+    "Phase 1 — Secure Core Spine / phase1" (strict=true), enforce_admins=true,
+    allow_force_pushes=false, allow_deletions=false, PR protection on.
+    #45 PASS (failed/missing required check blocks merge); #47 PASS
+    (unauthorized direct push to main rejected). Independent readback
+    captured in artifacts/phase-1/github-gate-verification.txt. The verifier
+    script (scripts/verify-github-gate.sh / verify-github-gate.mjs) was
+    repaired so it never prints success after a GitHub API error, exits
+    nonzero on failed PUT, and bases final PASS on a successful readback;
+    it is idempotent (verification-only when protection already configured).
 
 ## Required negative security tests (all green)
 See acceptance-map.md and test-results.txt. 41 tests across 10 suites
@@ -99,8 +104,8 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  artifacts/phase-1/acceptance-map.md                | 131 ++++++
  artifacts/phase-1/build-binding.json               |  21 +
  artifacts/phase-1/codex-review-prompt.txt          |  50 ++
- artifacts/phase-1/github-gate-verification.txt     |  97 ++++
- artifacts/phase-1/implementation-summary.md        | 126 +++++
+ artifacts/phase-1/github-gate-verification.txt     | 141 ++++++
+ artifacts/phase-1/implementation-summary.md        | 138 ++++++
  artifacts/phase-1/migration-verification.txt       |  14 +
  artifacts/phase-1/phase-1-review-bundle.md         | 124 +++++
  artifacts/phase-1/rls-negative-tests.txt           |  40 ++
@@ -118,9 +123,9 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  .../0010_authority_runtime_context_bound.sql       |  31 ++
  package-lock.json                                  | 168 +++++++
  package.json                                       |  18 +
- scripts/build-evidence.mjs                         | 241 ++++++++++
+ scripts/build-evidence.mjs                         | 251 ++++++++++
  scripts/migrate.mjs                                |  18 +
- scripts/verify-github-gate.sh                      |  96 ++++
+ scripts/verify-github-gate.sh                      | 100 ++++
  scripts/verify-sot.mjs                             |  22 +
  src/contracts/approval.js                          |  99 ++++
  src/contracts/authority.js                         |  90 ++++
@@ -134,5 +139,5 @@ STRUCTURAL_PREREQUISITE (schema present, full enforcement later). None faked.
  tests/authority-kill.test.mjs                      | 190 ++++++++
  tests/contracts-auth.test.mjs                      | 511 +++++++++++++++++++++
  tests/rls-negative.test.mjs                        | 183 ++++++++
- 40 files changed, 3573 insertions(+)
+ 40 files changed, 3643 insertions(+)
 
