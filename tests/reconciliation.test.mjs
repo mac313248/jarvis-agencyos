@@ -22,7 +22,10 @@ import {
   CONFLICT_STATUS_VALUES,
   FAIL_CLOSED_FRESHNESS,
   FRESHNESS_VALUES,
+  LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE,
+  LOCAL_EFFECT_SCOPE_TENANT,
   ReconciliationError,
+  acquireLocalEffectScopeLock,
   applyReconciliation,
   buildCurrentStateRecord,
   computeFreshness,
@@ -31,6 +34,7 @@ import {
   hasReliableObservationFreshness,
   inferFailClosedSourceStatus,
   isBlockingLocalEffect,
+  localEffectScopeLockIdentity,
   reconcile,
 } from '../src/runtime/reconciliation.js';
 
@@ -85,6 +89,7 @@ async function insertBlockingEffect(tx, {
   status = 'PENDING',
   postcondition_status = null,
   outcome = null,
+  acquireScopeLock = true,
 } = {}) {
   const proposalId = randomUUID();
   const workflowId = randomUUID();
@@ -100,6 +105,11 @@ async function insertBlockingEffect(tx, {
      );`,
     [proposalId, workflowId, `rh-${effectId}`],
   );
+  // Production effect-ledger pending/ambiguous writes take the same tenant
+  // scope xact lock as REPAIR overwrite (closes insert phantoms).
+  if (acquireScopeLock) {
+    await acquireLocalEffectScopeLock(tx);
+  }
   await tx.query(
     `INSERT INTO effect_ledger (
        effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
@@ -641,6 +651,141 @@ describe('F-10 #37 pending/ambiguous local effect is never auto-overwritten as d
           WHERE effect_id = $1;`,
         [ambig.effect_id],
       );
+    });
+  });
+
+  test('REPAIR and pending effect writes share tenant local-effect scope xact lock identity', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const repairIdentity = await localEffectScopeLockIdentity(tx, A, LOCAL_EFFECT_SCOPE_TENANT);
+      const effectIdentity = await localEffectScopeLockIdentity(tx, A);
+      assert.equal(repairIdentity.classid, LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE);
+      assert.equal(effectIdentity.classid, LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE);
+      assert.equal(repairIdentity.objid, effectIdentity.objid);
+      assert.notEqual(repairIdentity.objid, 0);
+
+      const otherTenant = await localEffectScopeLockIdentity(tx, B);
+      assert.notEqual(otherTenant.objid, repairIdentity.objid);
+    });
+  });
+
+  test('REPAIR holds shared xact lock across mutation-time check→projection; phantom pending insert in window blocks overwrite', async () => {
+    const stateKey = `crm.contact:phantom-window-${randomUUID()}`;
+    const localValue = { name: 'KeepLocal', status: 'active' };
+    const providerValue = { name: 'DriftClobber', status: 'paused' };
+
+    const decision = reconcile({
+      localState: baseLocal({ state_key: stateKey, value: localValue }),
+      providerObservation: {
+        value: providerValue,
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-phantom-window',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      const expected = await localEffectScopeLockIdentity(tx, A);
+      let lockHeldInWindow = false;
+      let pendingInWindow = null;
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            ...decision,
+            next_state: { ...decision.next_state, state_key: stateKey },
+          },
+          testHooks: {
+            afterMutationTimeRecheck: async () => {
+              // Prove the shared tenant scope xact lock covers the overwrite window
+              // (FOR UPDATE on an empty effect set cannot close this gap alone).
+              const locks = await tx.query(
+                `SELECT classid, objid, granted
+                   FROM pg_locks
+                  WHERE locktype = 'advisory' AND granted`,
+              );
+              lockHeldInWindow = locks.rows.some(
+                (row) => Number(row.classid) === expected.classid
+                  && Number(row.objid) === expected.objid
+                  && row.granted === true,
+              );
+              assert.equal(lockHeldInWindow, true);
+
+              // Simulate a pending effect appearing after the mutation-time check
+              // and before projection UPDATE. Production writers take the same lock
+              // so a concurrent session cannot commit here; same-txn insert is still
+              // refused by the post-barrier recheck under the held lock.
+              pendingInWindow = await insertBlockingEffect(tx, {
+                status: 'PENDING',
+                acquireScopeLock: true,
+              });
+            },
+          },
+        }),
+        (err) => err instanceof ReconciliationError
+          && err.code === 'STOP_CONDITION'
+          && /blocking local effect present at mutation time/i.test(err.message),
+      );
+
+      assert.equal(lockHeldInWindow, true);
+      assert.ok(pendingInWindow?.effect_id);
+
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+      assert.equal(row.freshness, 'FRESH');
+      assert.equal(row.conflict_status, 'NONE');
+
+      await tx.query(
+        `UPDATE effect_ledger
+            SET status = 'COMPLETED', postcondition_status = 'VERIFIED', outcome = 'SUCCEEDED'
+          WHERE effect_id = $1;`,
+        [pendingInWindow.effect_id],
+      );
+    });
+  });
+
+  test('pending effect insert acquires scope lock before effect_ledger INSERT', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const expected = await localEffectScopeLockIdentity(tx, A);
+      const events = [];
+      const tracked = {
+        query: async (sql, params) => {
+          if (/pg_advisory_xact_lock/i.test(sql)) {
+            events.push({ type: 'lock', classid: params[0], objid: params[1] });
+          }
+          if (/INSERT INTO effect_ledger/i.test(sql)) {
+            events.push({ type: 'insert_effect' });
+          }
+          return tx.query(sql, params);
+        },
+      };
+
+      await insertBlockingEffect(tracked, { status: 'PENDING' });
+
+      const lockIdx = events.findIndex((e) => e.type === 'lock');
+      const insertIdx = events.findIndex((e) => e.type === 'insert_effect');
+      assert.ok(lockIdx >= 0, 'scope lock must be acquired');
+      assert.ok(insertIdx > lockIdx, 'lock must precede effect_ledger INSERT');
+      assert.equal(events[lockIdx].classid, expected.classid);
+      assert.equal(events[lockIdx].objid, expected.objid);
     });
   });
 });

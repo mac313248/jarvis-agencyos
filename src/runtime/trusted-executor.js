@@ -27,6 +27,7 @@ import {
 } from './autonomy.js';
 import { assertWritersAllowed, WritersFrozenError } from './dbos.js';
 import { LOCAL_FAKE_SURFACE } from './local-effect-adapter.js';
+import { acquireLocalEffectScopeLock } from './reconciliation.js';
 
 export class TrustedExecutorError extends Error {
   constructor(code, message, details = null) {
@@ -66,6 +67,15 @@ async function requireTenant(backend) {
     throw new TrustedExecutorError('MISSING_TENANT_CONTEXT', 'missing tenant context (fail-closed)');
   }
   return t;
+}
+
+/**
+ * Serialize effect-ledger pending/ambiguous creation/update with REPAIR
+ * value-overwrite via the shared tenant local-effect scope xact lock.
+ */
+async function withLocalEffectScopeLock(backend, tenantId, fn) {
+  await acquireLocalEffectScopeLock(backend, { tenantId });
+  return fn();
 }
 
 function decidePolicy({ grant, capability, proposal }) {
@@ -210,23 +220,26 @@ async function completeFromCommitted({
     trace_id: randomUUID(),
   });
 
-  await backend.query(
-    `UPDATE effect_ledger
-     SET status = 'COMPLETED',
-         postcondition_status = $2,
-         receipt_id = $3,
-         outcome = $4,
-         completed_at = now(),
-         error_class = $5
-     WHERE effect_id = $1;`,
-    [
-      ledger.effect_id,
-      post.status === 'ABSENT' ? 'UNKNOWN' : post.status,
-      receiptId,
-      outcome,
-      outcome === 'SUCCEEDED' ? null : `postcondition_${String(post.status).toLowerCase()}`,
-    ]
-  );
+  // Completion may land AMBIGUOUS/UNKNOWN/UNVERIFIED — same scope lock as REPAIR.
+  await withLocalEffectScopeLock(backend, proposal.tenant_id, async () => {
+    await backend.query(
+      `UPDATE effect_ledger
+       SET status = 'COMPLETED',
+           postcondition_status = $2,
+           receipt_id = $3,
+           outcome = $4,
+           completed_at = now(),
+           error_class = $5
+       WHERE effect_id = $1;`,
+      [
+        ledger.effect_id,
+        post.status === 'ABSENT' ? 'UNKNOWN' : post.status,
+        receiptId,
+        outcome,
+        outcome === 'SUCCEEDED' ? null : `postcondition_${String(post.status).toLowerCase()}`,
+      ]
+    );
+  });
 
   return {
     status: outcome,
@@ -418,43 +431,47 @@ export async function executeTrustedEffect(backend, args) {
       // Adapter committed but local ledger missing — recreate COMMITTED row.
       const existing = adapter.getCommitted(key);
       const effectId = randomUUID();
-      await backend.query(
-        `INSERT INTO effect_ledger (
-           effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
-           capability_id, request_hash, status, commit_token,
-           revocation_epoch_at_commit, kill_epoch_at_commit, committed_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'COMMITTED',$9,$10,$11, now());`,
-        [
-          effectId,
-          tenantId,
-          key,
-          proposal.proposal_id,
-          proposal.workflow_id,
-          proposal.step_id,
-          proposal.capability_id,
-          proposal.request_hash,
-          existing.commit_token,
-          authority.revocationEpoch,
-          authority.killEpoch,
-        ]
-      );
+      await withLocalEffectScopeLock(backend, tenantId, async () => {
+        await backend.query(
+          `INSERT INTO effect_ledger (
+             effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
+             capability_id, request_hash, status, commit_token,
+             revocation_epoch_at_commit, kill_epoch_at_commit, committed_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'COMMITTED',$9,$10,$11, now());`,
+          [
+            effectId,
+            tenantId,
+            key,
+            proposal.proposal_id,
+            proposal.workflow_id,
+            proposal.step_id,
+            proposal.capability_id,
+            proposal.request_hash,
+            existing.commit_token,
+            authority.revocationEpoch,
+            authority.killEpoch,
+          ]
+        );
+      });
       ledger = await loadLedgerByKey(backend, key);
     } else if (ledger.status !== 'COMMITTED') {
-      await backend.query(
-        `UPDATE effect_ledger
-         SET status = 'COMMITTED',
-             commit_token = COALESCE(commit_token, $2),
-             committed_at = COALESCE(committed_at, now()),
-             revocation_epoch_at_commit = COALESCE(revocation_epoch_at_commit, $3),
-             kill_epoch_at_commit = COALESCE(kill_epoch_at_commit, $4)
-         WHERE effect_id = $1;`,
-        [
-          ledger.effect_id,
-          adapter.getCommitted(key)?.commit_token ?? null,
-          authority.revocationEpoch,
-          authority.killEpoch,
-        ]
-      );
+      await withLocalEffectScopeLock(backend, tenantId, async () => {
+        await backend.query(
+          `UPDATE effect_ledger
+           SET status = 'COMMITTED',
+               commit_token = COALESCE(commit_token, $2),
+               committed_at = COALESCE(committed_at, now()),
+               revocation_epoch_at_commit = COALESCE(revocation_epoch_at_commit, $3),
+               kill_epoch_at_commit = COALESCE(kill_epoch_at_commit, $4)
+           WHERE effect_id = $1;`,
+          [
+            ledger.effect_id,
+            adapter.getCommitted(key)?.commit_token ?? null,
+            authority.revocationEpoch,
+            authority.killEpoch,
+          ]
+        );
+      });
       ledger = await loadLedgerByKey(backend, key);
     }
 
@@ -507,24 +524,27 @@ export async function executeTrustedEffect(backend, args) {
 
   const effectId = randomUUID();
   const startedAt = new Date().toISOString();
-  await backend.query(
-    `INSERT INTO effect_ledger (
-       effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
-       capability_id, request_hash, status, started_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9)
-     ON CONFLICT (idempotency_key) DO NOTHING;`,
-    [
-      effectId,
-      tenantId,
-      key,
-      proposal.proposal_id,
-      proposal.workflow_id,
-      proposal.step_id,
-      proposal.capability_id,
-      proposal.request_hash,
-      startedAt,
-    ]
-  );
+  // PENDING insert is mutually exclusive with REPAIR overwrite for this tenant.
+  await withLocalEffectScopeLock(backend, tenantId, async () => {
+    await backend.query(
+      `INSERT INTO effect_ledger (
+         effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
+         capability_id, request_hash, status, started_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'PENDING',$9)
+       ON CONFLICT (idempotency_key) DO NOTHING;`,
+      [
+        effectId,
+        tenantId,
+        key,
+        proposal.proposal_id,
+        proposal.workflow_id,
+        proposal.step_id,
+        proposal.capability_id,
+        proposal.request_hash,
+        startedAt,
+      ]
+    );
+  });
 
   // Race: another worker may have inserted first.
   ledger = await loadLedgerByKey(backend, key);
@@ -564,21 +584,23 @@ export async function executeTrustedEffect(backend, args) {
     request: proposal.canonical_request,
   });
 
-  await backend.query(
-    `UPDATE effect_ledger
-     SET status = 'COMMITTED',
-         commit_token = $2,
-         committed_at = now(),
-         revocation_epoch_at_commit = $3,
-         kill_epoch_at_commit = $4
-     WHERE effect_id = $1;`,
-    [
-      ledger.effect_id,
-      commitResult.commit_token,
-      revalidation.fresh.revocationEpoch,
-      revalidation.fresh.killEpoch,
-    ]
-  );
+  await withLocalEffectScopeLock(backend, tenantId, async () => {
+    await backend.query(
+      `UPDATE effect_ledger
+       SET status = 'COMMITTED',
+           commit_token = $2,
+           committed_at = now(),
+           revocation_epoch_at_commit = $3,
+           kill_epoch_at_commit = $4
+       WHERE effect_id = $1;`,
+      [
+        ledger.effect_id,
+        commitResult.commit_token,
+        revalidation.fresh.revocationEpoch,
+        revalidation.fresh.killEpoch,
+      ]
+    );
+  });
   ledger = await loadLedgerByKey(backend, key);
 
   if (args.injectCrash === 'after_commit') {

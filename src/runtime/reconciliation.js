@@ -581,17 +581,78 @@ async function requireTenant(backend) {
 }
 
 /**
+ * Transaction-scoped advisory lock namespace shared by REPAIR/value-overwrite
+ * and effect-ledger pending/ambiguous creation/update.
+ *
+ * Distinct from RECOVERY_FREEZE_ADVISORY_LOCK_KEY. Blocking-effect checks are
+ * tenant-scoped, so the lock key is tenant-scoped (resource_scope default '*').
+ * FOR UPDATE on existing effect rows cannot close insert phantoms; this lock can.
+ */
+export const LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE = 874010036;
+
+/** Default resource scope: tenant-wide (matches loadBlockingLocalEffect). */
+export const LOCAL_EFFECT_SCOPE_TENANT = '*';
+
+/**
+ * Resolve the advisory lock identity for a tenant/resource scope.
+ * Uses PostgreSQL hashtext so applyReconciliation and effect-ledger writers agree.
+ */
+export async function localEffectScopeLockIdentity(
+  backend,
+  tenantId,
+  resourceScope = LOCAL_EFFECT_SCOPE_TENANT,
+) {
+  if (!tenantId) {
+    throw new ReconciliationError('MISSING_TENANT_CONTEXT', 'tenantId required for scope lock');
+  }
+  const scope = resourceScope == null || resourceScope === ''
+    ? LOCAL_EFFECT_SCOPE_TENANT
+    : String(resourceScope);
+  const r = await backend.query(
+    `SELECT $1::int AS classid, hashtext(($2::text || '/' || $3::text)) AS objid;`,
+    [LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE, tenantId, scope],
+  );
+  return {
+    classid: Number(r.rows[0].classid),
+    objid: Number(r.rows[0].objid),
+    tenantId,
+    resourceScope: scope,
+  };
+}
+
+/**
+ * Acquire the transaction-scoped local-effect scope lock.
+ * Held until COMMIT/ROLLBACK; shared by REPAIR overwrite and pending/ambiguous
+ * effect-ledger mutations for the same tenant/resource scope.
+ */
+export async function acquireLocalEffectScopeLock(backend, {
+  tenantId = null,
+  resourceScope = LOCAL_EFFECT_SCOPE_TENANT,
+} = {}) {
+  const tenant = tenantId ?? await requireTenant(backend);
+  const identity = await localEffectScopeLockIdentity(backend, tenant, resourceScope);
+  await backend.query(
+    'SELECT pg_advisory_xact_lock($1, $2);',
+    [identity.classid, identity.objid],
+  );
+  return identity;
+}
+
+/**
  * Persist a reconcile decision onto current_state_records.
  * Never inserts provider value when value_overwritten is false and action is HOLD_*.
  *
- * REPAIR / value-overwrite mutations re-check effect_ledger at mutation time
- * (do not trust an earlier reconcile(localEffect) snapshot alone).
+ * REPAIR / value-overwrite mutations take the tenant local-effect scope xact lock
+ * and re-check effect_ledger at mutation time (do not trust an earlier
+ * reconcile(localEffect) snapshot, and do not rely on FOR UPDATE alone — that
+ * cannot prevent a concurrent pending/ambiguous insert phantom).
  */
 export async function applyReconciliation(backend, {
   stateKey,
   decision,
   capabilityId = null,
   idempotencyKey = null,
+  testHooks = null,
 } = {}) {
   assertBusinessWriteAutonomyDisabled();
   const tenantId = await requireTenant(backend);
@@ -619,11 +680,13 @@ export async function applyReconciliation(backend, {
   );
 
   if (existing.rows.length === 0) {
-    await assertNoBlockingLocalEffectAtMutation(backend, {
+    await prepareValueOverwriteMutation(backend, {
       wouldOverwriteValue,
+      tenantId,
       capabilityId,
       idempotencyKey,
       action: decision.action,
+      testHooks,
     });
     const stateId = randomUUID();
     await backend.query(
@@ -670,11 +733,13 @@ export async function applyReconciliation(backend, {
     }
   }
 
-  await assertNoBlockingLocalEffectAtMutation(backend, {
+  await prepareValueOverwriteMutation(backend, {
     wouldOverwriteValue,
+    tenantId,
     capabilityId,
     idempotencyKey,
     action: decision.action,
+    testHooks,
   });
 
   await backend.query(
@@ -709,6 +774,40 @@ export async function applyReconciliation(backend, {
   );
 
   return { state_id: existing.rows[0].state_id, inserted: false, decision };
+}
+
+/**
+ * For REPAIR/value-overwrite: take the shared tenant scope xact lock, then
+ * fail closed if the ledger shows a pending/ambiguous local effect.
+ * Lock is held through the subsequent projection INSERT/UPDATE (same txn).
+ */
+async function prepareValueOverwriteMutation(backend, {
+  wouldOverwriteValue,
+  tenantId,
+  capabilityId,
+  idempotencyKey,
+  action,
+  testHooks = null,
+}) {
+  if (!wouldOverwriteValue) return;
+  await acquireLocalEffectScopeLock(backend, { tenantId });
+  await assertNoBlockingLocalEffectAtMutation(backend, {
+    wouldOverwriteValue: true,
+    capabilityId,
+    idempotencyKey,
+    action,
+  });
+  if (typeof testHooks?.afterMutationTimeRecheck === 'function') {
+    await testHooks.afterMutationTimeRecheck();
+    // Re-check after the test barrier while still holding the xact lock so a
+    // same-txn insert in the window cannot overwrite as drift either.
+    await assertNoBlockingLocalEffectAtMutation(backend, {
+      wouldOverwriteValue: true,
+      capabilityId,
+      idempotencyKey,
+      action,
+    });
+  }
 }
 
 /**
