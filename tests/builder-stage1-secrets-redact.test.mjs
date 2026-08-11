@@ -188,7 +188,7 @@ describe('Stage-1 secret redaction', () => {
     assert.ok(events.some((e) => e.event_type === EVENT_TYPE.WORKER_STATUS));
 
     // Direct store write with nested credential shape.
-    core.store.appendEvent({
+    const stored = core.store.appendEvent({
       task_id: task.task_id,
       factory_run_id: run.factory_run_id,
       event_type: EVENT_TYPE.WORKER_STATUS,
@@ -197,12 +197,12 @@ describe('Stage-1 secret redaction', () => {
         env: { CURSOR_API_KEY: FAKE_CURSOR_KEY, OPENAI_API_KEY: FAKE_OPENAI },
       },
     });
-    const stored = core.store.listEventsForTask(task.task_id).at(-1);
     assert.ok(stored?.payload, 'expected stored event payload');
     assert.equal(stored.payload?.client?.apiKey, REDACTED);
     assert.equal(stored.payload?.env?.CURSOR_API_KEY, REDACTED);
     assert.equal(stored.payload?.env?.OPENAI_API_KEY, REDACTED);
     assertNoLeak(JSON.stringify(stored));
+    assertNoLeak(JSON.stringify(core.store.listEventsForTask(task.task_id)));
 
     const err = new WorkerProviderError(`bad ${FAKE_CURSOR_KEY}`, {
       cause: { message: FAKE_CURSOR_KEY, name: 'Error' },
