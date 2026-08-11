@@ -1,0 +1,33 @@
+name: Phase 1 — Secure Core Spine
+
+on:
+  push:
+    branches: [main, 'phase-1/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  phase1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: SOT mismatch guard
+        run: node scripts/verify-sot.mjs
+
+      - name: Migrate (clean PGlite)
+        run: |
+          rm -rf .pgdata
+          node scripts/migrate.mjs
+
+      - name: Phase 1 test suite (RLS + contracts + authority)
+        run: |
+          rm -rf .pgdata
+          npm test

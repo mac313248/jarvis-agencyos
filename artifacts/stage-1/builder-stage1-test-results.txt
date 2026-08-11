@@ -1,0 +1,756 @@
+
+> jarvis-agencyos@0.15.0-builder-stage1 test:builder-stage1
+> node --test tests/builder-stage1-*.test.mjs
+
+TAP version 13
+# (node:49491) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 candidate registry + verifier (items 9–10)
+    # Subtest: A–E: binds branch/SHA/PR/CI and verification to exact SHA
+    ok 1 - A–E: binds branch/SHA/PR/CI and verification to exact SHA
+      ---
+      duration_ms: 15.106709
+      type: 'test'
+      ...
+    # Subtest: F: changing SHA invalidates old verification/approval
+    ok 2 - F: changing SHA invalidates old verification/approval
+      ---
+      duration_ms: 15.63925
+      type: 'test'
+      ...
+    # Subtest: G: stale/cancelled run cannot authorize candidate
+    ok 3 - G: stale/cancelled run cannot authorize candidate
+      ---
+      duration_ms: 7.715167
+      type: 'test'
+      ...
+    # Subtest: H: worker saying PASS cannot override failing verification
+    ok 4 - H: worker saying PASS cannot override failing verification
+      ---
+      duration_ms: 5.78425
+      type: 'test'
+      ...
+    # Subtest: missing GitHub landing evidence cannot PASS (Codex blocker)
+    ok 5 - missing GitHub landing evidence cannot PASS (Codex blocker)
+      ---
+      duration_ms: 4.763875
+      type: 'test'
+      ...
+    # Subtest: PR head_ref must equal candidate.branch (Codex blocker)
+    ok 6 - PR head_ref must equal candidate.branch (Codex blocker)
+      ---
+      duration_ms: 2.954666
+      type: 'test'
+      ...
+    # Subtest: re-verify FAIL invalidates prior PASS authority (Codex blocker)
+    ok 7 - re-verify FAIL invalidates prior PASS authority (Codex blocker)
+      ---
+      duration_ms: 6.871708
+      type: 'test'
+      ...
+    # Subtest: same-SHA CI change invalidates prior PASS authority (Codex blocker)
+    ok 8 - same-SHA CI change invalidates prior PASS authority (Codex blocker)
+      ---
+      duration_ms: 5.602958
+      type: 'test'
+      ...
+    # Subtest: verification for SHA A cannot authorize SHA B
+    ok 9 - verification for SHA A cannot authorize SHA B
+      ---
+      duration_ms: 2.292417
+      type: 'test'
+      ...
+    1..9
+ok 1 - Stage-1 candidate registry + verifier (items 9–10)
+  ---
+  duration_ms: 68.209958
+  type: 'suite'
+  ...
+# LIVE_CANDIDATE_SMOKE candidate_id=cand_dcb676d9-6987-4629-9e7e-999f61176f75 commit_sha=ad28fde109017f16f8dfd9e15b4888cef6a1df7c pr=59 ci=pending/null
+# Subtest: Stage-1 live GitHub candidate smoke (disposable PR)
+    # Subtest: captures branch/SHA/PR/CI for a disposable draft PR (no merge)
+    ok 1 - captures branch/SHA/PR/CI for a disposable draft PR (no merge)
+      ---
+      duration_ms: 14052.650875
+      type: 'test'
+      ...
+    1..1
+ok 2 - Stage-1 live GitHub candidate smoke (disposable PR)
+  ---
+  duration_ms: 14052.849125
+  type: 'suite'
+  ...
+# (node:49492) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 exact CI wait (A–G)
+    # Subtest: A: pending → success continues (SUCCESS outcome + evidence)
+    ok 1 - A: pending → success continues (SUCCESS outcome + evidence)
+      ---
+      duration_ms: 12.568
+      type: 'test'
+      ...
+    # Subtest: B: pending → failure fails (FAILURE outcome)
+    ok 2 - B: pending → failure fails (FAILURE outcome)
+      ---
+      duration_ms: 4.417375
+      type: 'test'
+      ...
+    # Subtest: C: pending → timeout BLOCKED
+    ok 3 - C: pending → timeout BLOCKED
+      ---
+      duration_ms: 9.81
+      type: 'test'
+      ...
+    # Subtest: D: SHA change invalidates old CI evidence
+    ok 4 - D: SHA change invalidates old CI evidence
+      ---
+      duration_ms: 8.859125
+      type: 'test'
+      ...
+    # Subtest: E: wrong PR/branch fails closed
+    ok 5 - E: wrong PR/branch fails closed
+      ---
+      duration_ms: 12.325917
+      type: 'test'
+      ...
+    # Subtest: F: restart while waiting resumes safely without duplicate worker launch
+    ok 6 - F: restart while waiting resumes safely without duplicate worker launch
+      ---
+      duration_ms: 10.220167
+      type: 'test'
+      ...
+    # Subtest: G: no smoke-only CI bypass exists
+    ok 7 - G: no smoke-only CI bypass exists
+      ---
+      duration_ms: 0.756
+      type: 'test'
+      ...
+    # Subtest: emits CI wait lifecycle events with evidence
+    ok 8 - emits CI wait lifecycle events with evidence
+      ---
+      duration_ms: 1.81625
+      type: 'test'
+      ...
+    1..8
+ok 3 - Stage-1 exact CI wait (A–G)
+  ---
+  duration_ms: 61.884083
+  type: 'suite'
+  ...
+# (node:49493) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 Builder Core (items 2–5)
+    # Subtest: boundary: Jarvis Interface vs Builder Core
+        # Subtest: keeps distinct trust domains and refuses business-core authority
+        ok 1 - keeps distinct trust domains and refuses business-core authority
+          ---
+          duration_ms: 2.767709
+          type: 'test'
+          ...
+        # Subtest: delegates typed commands to Builder Core
+        ok 2 - delegates typed commands to Builder Core
+          ---
+          duration_ms: 4.872875
+          type: 'test'
+          ...
+        # Subtest: fails closed on unknown commands
+        ok 3 - fails closed on unknown commands
+          ---
+          duration_ms: 1.996125
+          type: 'test'
+          ...
+        1..3
+    ok 1 - boundary: Jarvis Interface vs Builder Core
+      ---
+      duration_ms: 10.296959
+      type: 'suite'
+      ...
+    # Subtest: Stage-1 IDs and contracts
+        # Subtest: mints distinct prefixed IDs
+        ok 1 - mints distinct prefixed IDs
+          ---
+          duration_ms: 0.456542
+          type: 'test'
+          ...
+        # Subtest: validates enums and stable content hashes
+        ok 2 - validates enums and stable content hashes
+          ---
+          duration_ms: 0.396542
+          type: 'test'
+          ...
+        1..2
+    ok 2 - Stage-1 IDs and contracts
+      ---
+      duration_ms: 1.278833
+      type: 'suite'
+      ...
+    # Subtest: durable task/run/candidate/approval/event state
+        # Subtest: persists and reconstructs nonterminal state across reopen
+        ok 1 - persists and reconstructs nonterminal state across reopen
+          ---
+          duration_ms: 20.157833
+          type: 'test'
+          ...
+        # Subtest: stores events and rejects invalid failure classes at the store layer
+        ok 2 - stores events and rejects invalid failure classes at the store layer
+          ---
+          duration_ms: 1.06825
+          type: 'test'
+          ...
+        1..2
+    ok 3 - durable task/run/candidate/approval/event state
+      ---
+      duration_ms: 23.522334
+      type: 'suite'
+      ...
+    # Subtest: task locking and immutable acceptance/hash binding
+        # Subtest: locks owner intent into immutable proposal_id + content_hash
+        ok 1 - locks owner intent into immutable proposal_id + content_hash
+          ---
+          duration_ms: 2.671875
+          type: 'test'
+          ...
+        # Subtest: rejects mutation of locked acceptance / paths / tools / intent
+        ok 2 - rejects mutation of locked acceptance / paths / tools / intent
+          ---
+          duration_ms: 4.782459
+          type: 'test'
+          ...
+        # Subtest: detects tampered locked finish-line fields via hash verification
+        ok 3 - detects tampered locked finish-line fields via hash verification
+          ---
+          duration_ms: 1.776792
+          type: 'test'
+          ...
+        # Subtest: requires lock before run creation
+        ok 4 - requires lock before run creation
+          ---
+          duration_ms: 2.058334
+          type: 'test'
+          ...
+        # Subtest: binds approvals to exact proposal_id + content_hash
+        ok 5 - binds approvals to exact proposal_id + content_hash
+          ---
+          duration_ms: 2.059542
+          type: 'test'
+          ...
+        1..5
+    ok 4 - task locking and immutable acceptance/hash binding
+      ---
+      duration_ms: 13.665042
+      type: 'suite'
+      ...
+    1..4
+ok 4 - Stage-1 Builder Core (items 2–5)
+  ---
+  duration_ms: 49.320041
+  type: 'suite'
+  ...
+# FAILURE_BATTERY {"test_id":"FB-01","initial_state":{"task_id":"task_40ce6347-1464-4be4-9c80-497c23438903","factory_run_id":"run_8db8774a-890d-42e8-8105-7c48c71b4641","status":"RUNNING"},"injected_failure":"worker ERROR mid-run via status()","expected_result":"task durable; evidence preserved; retry allowed with fresh factory_run_id","actual_result":{"task_status":"RUNNING","crashed_run_status":"FAILED","failure_class":"PROVIDER_ERROR","evidence_preserved":true,"fresh_factory_run_id":"run_9049b455-f681-4315-9345-aad552f06c77","same_as_old":false},"evidence":{"events":["WORKER_LAUNCHED","RETRY_STARTED","WORKER_STATUS"],"crashed_evidence":{"launched":true,"crash_mode":"crash-on-status","crashed":true,"at":"mid-run","last_provider_status":"ERROR","last_provider_error":{"code":"WORKER_CRASH","message":"worker terminated mid-run","retryable":true}}},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-02","initial_state":{"old_factory_run_id":"run_ccc2c07c-9fed-4b7f-a499-6aafcb579d16","new_factory_run_id":"run_97b3d28e-8fcf-4481-8118-a25f6eff8615"},"injected_failure":"stale/old run returns FINISHED after newer run is current","expected_result":"old run cannot register candidate / apply result / change task authority","actual_result":{"staleCandidateBlocked":true,"staleApplyBlocked":true,"task_status":"RUNNING","current":"run_97b3d28e-8fcf-4481-8118-a25f6eff8615"},"evidence":{"stale_events":[{"rejected_factory_run_id":"run_ccc2c07c-9fed-4b7f-a499-6aafcb579d16","run_status":"STALE","provider_status":"FINISHED"},{"reason":"candidate_from_cancelled_or_stale_run","status":"STALE","code":"STALE_RUN"}],"old_run_status":"STALE"},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-03","initial_state":{"candidate_id":"cand_04397d18-e925-454d-a0fa-a9bbd3e704ce","task_status":"LOCKED"},"injected_failure":"worker_claim=PASS with failing tests + failing CI","expected_result":"verification FAIL/BLOCKED; not authoritative; worker claim ignored","actual_result":{"result":"FAIL","authoritative":false,"candidate_status":"REJECTED","worker_claim_recorded":"PASS"},"evidence":{"checks":[{"name":"worker_self_certification","ok":null},{"name":"task_tests","ok":false},{"name":"github_landing","ok":true},{"name":"github_ci","ok":false},{"name":"landing_evidence_snapshot","ok":false}],"failure_class":"CI_FAIL"},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-04","initial_state":{"acceptance_ref":"tests/builder-stage1-failure-battery.test.mjs","allowed_paths":["src/builder/","tests/builder-stage1-failure-battery.test.mjs"],"content_hash":"94c439b4595238c30edd9afa8daf574214120f99429b8d9ed00f52040e861dce","proposal_id":"prop_c7d2c9a6-c99d-46ac-be28-78f145ca3401"},"injected_failure":"mutate acceptance_ref + allowed_paths after lock","expected_result":"mutation rejected; lock hash unchanged","actual_result":{"rejected":true,"acceptance_ref":"tests/builder-stage1-failure-battery.test.mjs","allowed_paths":["src/builder/","tests/builder-stage1-failure-battery.test.mjs"],"content_hash":"94c439b4595238c30edd9afa8daf574214120f99429b8d9ed00f52040e861dce"},"evidence":{"proposal_id":"prop_c7d2c9a6-c99d-46ac-be28-78f145ca3401","hash_unchanged":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-05","initial_state":{"candA":"cand_5381a2e4-58f7-461d-8313-5f294f10fab3","shaA":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"injected_failure":"CI failure on SHA A; then new SHA B candidate","expected_result":"A cannot PASS; A verification not authoritative for B; B needs its own evidence","actual_result":{"a_result":"FAIL","a_authoritative":false,"a_status_after_b":"SUPERSEDED","b_result":"PASS","b_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"evidence":{"a_ci":{"name":"github_ci","ok":false,"authoritative":true,"detail":"{\\"ci_status\\":\\"completed\\",\\"ci_conclusion\\":\\"failure\\",\\"combined_state\\":\\"failure\\"}"},"a_superseded":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-06","initial_state":{"approval_id":"appr_cb1116fb-6d85-4e57-ac16-79e74b1d999d","candidate_a":"cand_104cf95b-af56-4a1e-93f2-58a99d5142e6","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"injected_failure":"new candidate B with different SHA","expected_result":"approval A invalidated; cannot authorize B","actual_result":{"approval_status":"INVALIDATED","candidate_b":"cand_84986c18-2652-46c0-9987-477ba323705b","binds_b":false},"evidence":{"invalidation_events":[{"approval_id":"appr_cb1116fb-6d85-4e57-ac16-79e74b1d999d","reason":"candidate_commit_sha_changed","old_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","new_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-07","initial_state":{"review_id":"rev_94ec6e13-f9f1-4d25-b218-3e1369195107","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"injected_failure":"candidate SHA changes A -> B after Codex PASS","expected_result":"old review invalidated / not authoritative for B","actual_result":{"review_invalidated":true,"review_authoritative":false,"candidate_b":"cand_2b0f47c2-b44f-4fb1-91fa-9da61efcc5ad","review_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"evidence":{"review_status":"PASS","a_superseded":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-08","initial_state":{"providers":["cursor","github","web_search"]},"injected_failure":"github unavailable; attempt auto-widen shell","expected_result":"permitted fallback only; else BLOCKED; no permission widening","actual_result":{"fallback_provider":"web_search","fallback_flag":true,"unavailableBlocked":true,"widenRejected":true,"task2_status":"BLOCKED"},"evidence":{"fallback_evidence_id":"trev_4a96c13b-15ef-4253-8c69-095847496df0","denied_events":["PROVIDER_UNAVAILABLE"]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-09","initial_state":{"task_id":"task_640c6164-6bd7-4916-89ae-c64cd97a97a1","active_runs":2},"injected_failure":"two durable RUNNING runs after restart","expected_result":"recovery BLOCKED; no guessed current_factory_run_id","actual_result":{"recovery_status":"BLOCKED","reason":"MULTIPLE_ACTIVE_RUNS","current_factory_run_id":null,"pointer":null},"evidence":{"events":["TASK_CREATED","TASK_LOCKED","RUN_CREATED","RECOVERY_BLOCKED"]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-10","initial_state":{"factory_run_id":"run_53aed175-0a42-4998-a268-0b9b4bdafad1","launches_before_restart":1},"injected_failure":"process restart while run RUNNING","expected_result":"reconstruct current run; no second launch","actual_result":{"recovery_status":"OK","current_factory_run_id":"run_53aed175-0a42-4998-a268-0b9b4bdafad1","launches_after":1,"duplicateBlocked":true},"evidence":{"provider_status":{"ok":true,"read_only":true,"factory_run_id":"run_53aed175-0a42-4998-a268-0b9b4bdafad1","provider_status":"RUNNING"},"duplicate_launch_prevented":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-11","initial_state":{"max_attempts":2,"first_run":"run_297f2545-7c5e-4ffa-af46-b857eb779e07"},"injected_failure":"repeated TEST_FAIL beyond max_attempts + POLICY_VIOLATION","expected_result":"NEEDS_OWNER/BLOCKED; no infinite retry; policy failures non-retryable","actual_result":{"first_retry_allowed":true,"exhausted_allowed":false,"exhausted_stop":"NEEDS_OWNER","policy_allowed":false,"policy_stop":"BLOCKED","final_status":"BLOCKED"},"evidence":{"events":["RETRY_STARTED","RETRY_EXHAUSTED","RETRY_DENIED"]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-12","initial_state":{"task_id":"task_75f0cb8e-69ee-46cb-b433-01eec29c2764","tool_manifest":{"providers":["cursor","github","web_search"],"tools":["coding_worker","repo_read","research"],"mode":"build"}},"injected_failure":"business credentials + unauthorized tool + research authority widen","expected_result":"fail closed; POLICY_VIOLATION not retry-weakened","actual_result":{"credBlocked":true,"toolBlocked":true,"researchAuthBlocked":true,"retry_allowed":false,"retry_stop":"BLOCKED"},"evidence":{"task_status":"BLOCKED","denied":["UNAUTHORIZED_TOOL","RESEARCH_AUTHORITY_VIOLATION"]},"result":"PASS"}
+# (node:49494) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 FULL FAILURE BATTERY (item 17)
+    # Subtest: FB-01 WORKER CRASH: mid-run terminate preserves task + evidence; retry fresh factory_run_id
+    ok 1 - FB-01 WORKER CRASH: mid-run terminate preserves task + evidence; retry fresh factory_run_id
+      ---
+      duration_ms: 13.011125
+      type: 'test'
+      ...
+    # Subtest: FB-02 STALE WORKER RETURN: old run cannot regain authority
+    ok 2 - FB-02 STALE WORKER RETURN: old run cannot regain authority
+      ---
+      duration_ms: 5.536333
+      type: 'test'
+      ...
+    # Subtest: FB-03 FALSE WORKER PASS: worker claim ignored when verification fails
+    ok 3 - FB-03 FALSE WORKER PASS: worker claim ignored when verification fails
+      ---
+      duration_ms: 4.350125
+      type: 'test'
+      ...
+    # Subtest: FB-04 FINISH-LINE TAMPERING: acceptance/path mutation rejected
+    ok 4 - FB-04 FINISH-LINE TAMPERING: acceptance/path mutation rejected
+      ---
+      duration_ms: 1.824666
+      type: 'test'
+      ...
+    # Subtest: FB-05 CI FAILURE: failing CI cannot PASS; old CI cannot authorize new SHA
+    ok 5 - FB-05 CI FAILURE: failing CI cannot PASS; old CI cannot authorize new SHA
+      ---
+      duration_ms: 6.020334
+      type: 'test'
+      ...
+    # Subtest: FB-06 APPROVAL INVALIDATION: approval for A invalid for B
+    ok 6 - FB-06 APPROVAL INVALIDATION: approval for A invalid for B
+      ---
+      duration_ms: 3.330584
+      type: 'test'
+      ...
+    # Subtest: FB-07 REVIEW INVALIDATION: review PASS for A cannot authorize B
+    ok 7 - FB-07 REVIEW INVALIDATION: review PASS for A cannot authorize B
+      ---
+      duration_ms: 5.77575
+      type: 'test'
+      ...
+    # Subtest: FB-08 RESEARCH/TOOL PROVIDER FAILURE: fallback only if already permitted else BLOCKED
+    ok 8 - FB-08 RESEARCH/TOOL PROVIDER FAILURE: fallback only if already permitted else BLOCKED
+      ---
+      duration_ms: 2.473375
+      type: 'test'
+      ...
+    # Subtest: FB-09 AUTHORITY/STATE CORRUPTION: ambiguous bindings fail closed
+    ok 9 - FB-09 AUTHORITY/STATE CORRUPTION: ambiguous bindings fail closed
+      ---
+      duration_ms: 8.463958
+      type: 'test'
+      ...
+    # Subtest: FB-10 RESTART DURING ACTIVE WORK: reconstruct; no duplicate launch
+    ok 10 - FB-10 RESTART DURING ACTIVE WORK: reconstruct; no duplicate launch
+      ---
+      duration_ms: 13.238042
+      type: 'test'
+      ...
+    # Subtest: FB-11 RETRY EXHAUSTION: stops at caps; never infinite retry
+    ok 11 - FB-11 RETRY EXHAUSTION: stops at caps; never infinite retry
+      ---
+      duration_ms: 1.644083
+      type: 'test'
+      ...
+    # Subtest: FB-12 SECURITY POLICY FAILURE: credentials/tools/paths fail closed; no weaken-retry
+    ok 12 - FB-12 SECURITY POLICY FAILURE: credentials/tools/paths fail closed; no weaken-retry
+      ---
+      duration_ms: 1.524667
+      type: 'test'
+      ...
+    1..12
+ok 5 - Stage-1 FULL FAILURE BATTERY (item 17)
+  ---
+  duration_ms: 68.807541
+  type: 'suite'
+  ...
+# (node:49495) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 end-to-end orchestration
+    # Subtest: A/B/C/D/E/F/H/L: one owner submit runs pipeline to DONE
+    ok 1 - A/B/C/D/E/F/H/L: one owner submit runs pipeline to DONE
+      ---
+      duration_ms: 21.236666
+      type: 'test'
+      ...
+    # Subtest: G: REQUEST_CHANGES enters bounded repair/retry with fresh factory_run_id
+    ok 2 - G: REQUEST_CHANGES enters bounded repair/retry with fresh factory_run_id
+      ---
+      duration_ms: 10.026625
+      type: 'test'
+      ...
+    # Subtest: I: exhausted retry becomes NEEDS_OWNER/BLOCKED
+    ok 3 - I: exhausted retry becomes NEEDS_OWNER/BLOCKED
+      ---
+      duration_ms: 6.923958
+      type: 'test'
+      ...
+    # Subtest: J: restart during orchestration reconstructs safely
+    ok 4 - J: restart during orchestration reconstructs safely
+      ---
+      duration_ms: 12.364041
+      type: 'test'
+      ...
+    # Subtest: K: stale run cannot complete task
+    ok 5 - K: stale run cannot complete task
+      ---
+      duration_ms: 2.893792
+      type: 'test'
+      ...
+    1..5
+ok 6 - Stage-1 end-to-end orchestration
+  ---
+  duration_ms: 54.939208
+  type: 'suite'
+  ...
+# LIVE_ORCH_SMOKE decision=DONE reason=verified_and_reviewed task=task_f7820f99-663d-44d3-a66e-5c0293122061 run=run_8e2be40c-4465-4ba0-9370-4210ff14319c provider=run-6ae57d4f-5f5c-437a-aa39-b1aca8481ac4 candidate=cand_dcb4da49-8a35-4195-a2ff-ee911e6cd1dc sha=110f443f603785447e11b204143b5aaac6332dd3 pr=https://github.com/mac313248/jarvis-agencyos/pull/60 ci=completed/success verify=PASS review=PASS primary_model=gpt-5.6-luna fallback_model=null fallback_used=false model_used=gpt-5.6-luna owner_interventions=0 missing=[]
+# Subtest: Stage-1 live disposable orchestration smoke
+    # Subtest: owner command path with real Cursor + verify + Codex when available
+    ok 1 - owner command path with real Cursor + verify + Codex when available
+      ---
+      duration_ms: 111127.803292
+      type: 'test'
+      ...
+    1..1
+ok 7 - Stage-1 live disposable orchestration smoke
+  ---
+  duration_ms: 111128.064458
+  type: 'suite'
+  ...
+# (node:49496) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 WorkerProvider + CursorProvider (items 6–8)
+    # Subtest: WorkerProvider interface
+        # Subtest: requires launch/status/cancel/collect
+        ok 1 - requires launch/status/cancel/collect
+          ---
+          duration_ms: 0.94125
+          type: 'test'
+          ...
+        # Subtest: rejects provider results that claim task DONE
+        ok 2 - rejects provider results that claim task DONE
+          ---
+          duration_ms: 0.262042
+          type: 'test'
+          ...
+        # Subtest: abstract WorkerProvider methods fail closed
+        ok 3 - abstract WorkerProvider methods fail closed
+          ---
+          duration_ms: 0.1795
+          type: 'test'
+          ...
+        1..3
+    ok 1 - WorkerProvider interface
+      ---
+      duration_ms: 2.003208
+      type: 'suite'
+      ...
+    # Subtest: CursorProvider security + mapping
+        # Subtest: maps cursor statuses and forbids business credentials
+        ok 1 - maps cursor statuses and forbids business credentials
+          ---
+          duration_ms: 3.2145
+          type: 'test'
+          ...
+        # Subtest: launch/status/cancel/collect with fake SDK and maps factory_run_id
+        ok 2 - launch/status/cancel/collect with fake SDK and maps factory_run_id
+          ---
+          duration_ms: 5.20525
+          type: 'test'
+          ...
+        # Subtest: status trusts API getRun over stale in-memory handle error
+        ok 3 - status trusts API getRun over stale in-memory handle error
+          ---
+          duration_ms: 0.857167
+          type: 'test'
+          ...
+        # Subtest: preserves truthful auth/launch errors
+        ok 4 - preserves truthful auth/launch errors
+          ---
+          duration_ms: 1.953667
+          type: 'test'
+          ...
+        # Subtest: createCursorSdkAdapter exposes official Agent/Cursor surface
+        ok 5 - createCursorSdkAdapter exposes official Agent/Cursor surface
+          ---
+          duration_ms: 0.869833
+          type: 'test'
+          ...
+        1..5
+    ok 2 - CursorProvider security + mapping
+      ---
+      duration_ms: 12.526583
+      type: 'suite'
+      ...
+    # Subtest: Builder Core fencing around CursorProvider
+        # Subtest: A–F: launch/status/cancel/collect + factory↔provider mapping + timeout/error
+        ok 1 - A–F: launch/status/cancel/collect + factory↔provider mapping + timeout/error
+          ---
+          duration_ms: 12.255542
+          type: 'test'
+          ...
+        # Subtest: G: cancelled/stale run cannot become authoritative later
+        ok 2 - G: cancelled/stale run cannot become authoritative later
+          ---
+          duration_ms: 4.878042
+          type: 'test'
+          ...
+        # Subtest: collect after cancel cannot revive a cancelled run
+        ok 3 - collect after cancel cannot revive a cancelled run
+          ---
+          duration_ms: 8.485541
+          type: 'test'
+          ...
+        # Subtest: H: only one coding worker can be active
+        ok 4 - H: only one coding worker can be active
+          ---
+          duration_ms: 4.144125
+          type: 'test'
+          ...
+        1..4
+    ok 3 - Builder Core fencing around CursorProvider
+      ---
+      duration_ms: 30.12275
+      type: 'suite'
+      ...
+# LIVE_SMOKE factory_run_id=run_3a5508d8-0575-46d2-a060-bb466de8f4e6 provider_run_id=run-a8e1eaea-8457-4c62-8282-49cdb552060f provider_agent_id=bc-6d8a93cc-d198-48ab-931d-f8fb46d9c342
+    # Subtest: Live Cursor smoke (environment-limited)
+        # Subtest: probes official SDK auth and does not invent success on invalid key
+        ok 1 - probes official SDK auth and does not invent success on invalid key
+          ---
+          duration_ms: 6306.253792
+          type: 'test'
+          ...
+        1..1
+    ok 4 - Live Cursor smoke (environment-limited)
+      ---
+      duration_ms: 6306.530458
+      type: 'suite'
+      ...
+    1..4
+ok 8 - Stage-1 WorkerProvider + CursorProvider (items 6–8)
+  ---
+  duration_ms: 6352.081792
+  type: 'suite'
+  ...
+# LIVE_CODEX_REVIEW review_id=rev_9cca71f0-46e1-4adf-b253-342bd566cf32 candidate_id=cand_9319f26c-01c9-4449-91ed-b875cc7bb251 commit_sha=6fc6d373b4ad142dab0e6d863a38e934c6316db2 review_status=REQUEST_CHANGES gate=FAIL
+# (node:49497) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 Codex review (item 11)
+    # Subtest: defaults review_required=true and requires verifier before Codex
+    ok 1 - defaults review_required=true and requires verifier before Codex
+      ---
+      duration_ms: 10.448667
+      type: 'test'
+      ...
+    # Subtest: A–C: stores Codex review bound to exact candidate/SHA
+    ok 2 - A–C: stores Codex review bound to exact candidate/SHA
+      ---
+      duration_ms: 8.457875
+      type: 'test'
+      ...
+    # Subtest: D: SHA change invalidates old review
+    ok 3 - D: SHA change invalidates old review
+      ---
+      duration_ms: 3.113542
+      type: 'test'
+      ...
+    # Subtest: re-verify invalidates prior PASS review authority
+    ok 4 - re-verify invalidates prior PASS review authority
+      ---
+      duration_ms: 3.879917
+      type: 'test'
+      ...
+    # Subtest: stale caller-supplied verification cannot authorize Codex review
+    ok 5 - stale caller-supplied verification cannot authorize Codex review
+      ---
+      duration_ms: 2.114
+      type: 'test'
+      ...
+    # Subtest: E: REQUEST_CHANGES prevents acceptance gate
+    ok 6 - E: REQUEST_CHANGES prevents acceptance gate
+      ---
+      duration_ms: 2.050959
+      type: 'test'
+      ...
+    # Subtest: F: Codex failure when review_required=true => BLOCKED
+    ok 7 - F: Codex failure when review_required=true => BLOCKED
+      ---
+      duration_ms: 1.827625
+      type: 'test'
+      ...
+    # Subtest: G: review_required=false bypasses Codex only, not deterministic verification
+    ok 8 - G: review_required=false bypasses Codex only, not deterministic verification
+      ---
+      duration_ms: 2.549334
+      type: 'test'
+      ...
+    # Subtest: H: reviewer cannot modify candidate/task/acceptance
+    ok 9 - H: reviewer cannot modify candidate/task/acceptance
+      ---
+      duration_ms: 1.4265
+      type: 'test'
+      ...
+    # Subtest: parses Codex JSONL/agent_message protocol
+    ok 10 - parses Codex JSONL/agent_message protocol
+      ---
+      duration_ms: 0.289833
+      type: 'test'
+      ...
+    1..10
+ok 9 - Stage-1 Codex review (item 11)
+  ---
+  duration_ms: 37.618208
+  type: 'suite'
+  ...
+# Subtest: Stage-1 approval binding (item 12) + stale-run fencing (item 13)
+    # Subtest: approval binds proposal_id + content_hash + candidate/commit and invalidates on SHA change
+    ok 1 - approval binds proposal_id + content_hash + candidate/commit and invalidates on SHA change
+      ---
+      duration_ms: 1.654333
+      type: 'test'
+      ...
+    # Subtest: stale/cancelled run cannot produce authoritative candidate/review
+    ok 2 - stale/cancelled run cannot produce authoritative candidate/review
+      ---
+      duration_ms: 1.634083
+      type: 'test'
+      ...
+    1..2
+ok 10 - Stage-1 approval binding (item 12) + stale-run fencing (item 13)
+  ---
+  duration_ms: 3.345208
+  type: 'suite'
+  ...
+# Subtest: Stage-1 bounded retry/repair (item 14)
+    # Subtest: mints fresh factory_run_id, enforces caps, denies hard policy failures
+    ok 1 - mints fresh factory_run_id, enforces caps, denies hard policy failures
+      ---
+      duration_ms: 1.582542
+      type: 'test'
+      ...
+    1..1
+ok 11 - Stage-1 bounded retry/repair (item 14)
+  ---
+  duration_ms: 1.731667
+  type: 'suite'
+  ...
+# Subtest: Stage-1 Codex capacity-only model fallback
+    # Subtest: retries once on capacity with same prompt; never on auth/policy
+    ok 1 - retries once on capacity with same prompt; never on auth/policy
+      ---
+      duration_ms: 1.486458
+      type: 'test'
+      ...
+    1..1
+ok 12 - Stage-1 Codex capacity-only model fallback
+  ---
+  duration_ms: 1.651125
+  type: 'suite'
+  ...
+# Subtest: Stage-1 live Codex review smoke
+    # Subtest: A–C live: Codex read-only review of exact candidate SHA
+    ok 1 - A–C live: Codex read-only review of exact candidate SHA
+      ---
+      duration_ms: 11808.448
+      type: 'test'
+      ...
+    1..1
+ok 13 - Stage-1 live Codex review smoke
+  ---
+  duration_ms: 11808.517041
+  type: 'suite'
+  ...
+# (node:49498) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 secret redaction
+    # Subtest: redacts sensitive keys and known secret value shapes
+    ok 1 - redacts sensitive keys and known secret value shapes
+      ---
+      duration_ms: 2.240083
+      type: 'test'
+      ...
+    # Subtest: CursorProvider never exposes key via JSON/inspect/errors/evidence
+    ok 2 - CursorProvider never exposes key via JSON/inspect/errors/evidence
+      ---
+      duration_ms: 6.571083
+      type: 'test'
+      ...
+    # Subtest: durable store + trajectory redacts secrets from evidence/events/errors
+    ok 3 - durable store + trajectory redacts secrets from evidence/events/errors
+      ---
+      duration_ms: 6.460083
+      type: 'test'
+      ...
+    # Subtest: loadCursorApiKey errors never embed key material
+    ok 4 - loadCursorApiKey errors never embed key material
+      ---
+      duration_ms: 0.888583
+      type: 'test'
+      ...
+    1..4
+ok 14 - Stage-1 secret redaction
+  ---
+  duration_ms: 17.139417
+  type: 'suite'
+  ...
+# (node:49499) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 tool manifest / research policy (item 15)
+    # Subtest: A: allowed tool works and preserves provenance
+    ok 1 - A: allowed tool works and preserves provenance
+      ---
+      duration_ms: 12.548
+      type: 'test'
+      ...
+    # Subtest: B: unauthorized tool is blocked
+    ok 2 - B: unauthorized tool is blocked
+      ---
+      duration_ms: 3.172833
+      type: 'test'
+      ...
+    # Subtest: C: research content attempts to change authority and fails
+    ok 3 - C: research content attempts to change authority and fails
+      ---
+      duration_ms: 4.365292
+      type: 'test'
+      ...
+    # Subtest: D: unavailable permitted provider gives truthful fallback or BLOCKED
+    ok 4 - D: unavailable permitted provider gives truthful fallback or BLOCKED
+      ---
+      duration_ms: 3.389667
+      type: 'test'
+      ...
+    # Subtest: tool_manifest is immutable after lock (no automatic widening)
+    ok 5 - tool_manifest is immutable after lock (no automatic widening)
+      ---
+      duration_ms: 0.56275
+      type: 'test'
+      ...
+    1..5
+ok 15 - Stage-1 tool manifest / research policy (item 15)
+  ---
+  duration_ms: 24.919333
+  type: 'suite'
+  ...
+# Subtest: Stage-1 restart / recovery reconciliation (item 16)
+    # Subtest: E/H: restart reconstructs nonterminal task + candidate/verification/review bindings
+    ok 1 - E/H: restart reconstructs nonterminal task + candidate/verification/review bindings
+      ---
+      duration_ms: 31.800166
+      type: 'test'
+      ...
+    # Subtest: F: restart does not duplicate active worker launch
+    ok 2 - F: restart does not duplicate active worker launch
+      ---
+      duration_ms: 10.757792
+      type: 'test'
+      ...
+    # Subtest: G: cancelled/stale run stays non-authoritative after restart
+    ok 3 - G: cancelled/stale run stays non-authoritative after restart
+      ---
+      duration_ms: 9.486417
+      type: 'test'
+      ...
+    # Subtest: I: corrupted/ambiguous recovery state fails closed
+    ok 4 - I: corrupted/ambiguous recovery state fails closed
+      ---
+      duration_ms: 16.680584
+      type: 'test'
+      ...
+    # Subtest: old verification cannot regain authority after SHA change + restart
+    ok 5 - old verification cannot regain authority after SHA change + restart
+      ---
+      duration_ms: 14.041709
+      type: 'test'
+      ...
+    1..5
+ok 16 - Stage-1 restart / recovery reconciliation (item 16)
+  ---
+  duration_ms: 84.255792
+  type: 'suite'
+  ...
+1..16
+# tests 90
+# suites 24
+# pass 90
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 111528.601416

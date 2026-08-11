@@ -1,0 +1,987 @@
+// tests/reconciliation.test.mjs
+// F-10 Materialized state / freshness / reconciliation acceptance:
+//   #36 provider mismatch with no local pending effect safely repairs or escalates
+//   #37 pending/ambiguous local effect is never auto-overwritten as drift
+//   #38 stale source becomes STALE/UNKNOWN
+//   #39 conflicting authoritative evidence becomes CONFLICTED
+//
+// Stop condition: ambiguous local effect overwritten as drift.
+// Business-write autonomy remains DISABLED.
+
+import { test, describe, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { freshCluster, seedTwoTenants, asRuntimeTenant } from './_helpers.mjs';
+import {
+  BUSINESS_WRITE_AUTONOMY,
+  LIVE_EXTERNAL_SIDE_EFFECTS,
+  assertBusinessWriteAutonomyDisabled,
+} from '../src/runtime/autonomy.js';
+import {
+  AGING_RATIO,
+  CONFLICT_STATUS_VALUES,
+  FAIL_CLOSED_FRESHNESS,
+  FRESHNESS_VALUES,
+  LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE,
+  LOCAL_EFFECT_SCOPE_TENANT,
+  ReconciliationError,
+  acquireLocalEffectScopeLock,
+  applyReconciliation,
+  buildCurrentStateRecord,
+  computeFreshness,
+  createReconciliationRuntime,
+  detectSourceConflict,
+  hasReliableObservationFreshness,
+  inferFailClosedSourceStatus,
+  isBlockingLocalEffect,
+  localEffectScopeLockIdentity,
+  reconcile,
+} from '../src/runtime/reconciliation.js';
+
+let db;
+const A = '11111111-1111-1111-1111-111111111111';
+const B = '22222222-2222-2222-2222-222222222222';
+
+before(async () => {
+  db = await freshCluster({ dataDir: './.pgdata/reconciliation-test' });
+  await seedTwoTenants(db, { aId: A, bId: B });
+});
+
+after(async () => { await db.close(); });
+
+function baseLocal(overrides = {}) {
+  const now = overrides.now ?? '2026-08-10T12:00:00.000Z';
+  const {
+    state_key = 'crm.contact:c-1',
+    value = { name: 'Ada', status: 'active' },
+    state_version = '1',
+    observed_at = now,
+    max_age_seconds = 3600,
+    conflict_status = 'NONE',
+    evidence_refs = ['ev-local-1'],
+    freshness,
+    source_status,
+    ...rest
+  } = overrides;
+  return buildCurrentStateRecord({
+    tenant_id: A,
+    state_key,
+    domain: 'crm',
+    subject_ref: 'subject:c-1',
+    value,
+    state_version,
+    source_system: 'local_projection',
+    as_of: now,
+    observed_at,
+    verified_at: now,
+    max_age_seconds,
+    conflict_status,
+    evidence_refs,
+    freshness,
+    source_status,
+    now,
+    ...rest,
+  });
+}
+
+/** Seed a tenant-scoped blocking effect_ledger row (proposal FK required). */
+async function insertBlockingEffect(tx, {
+  status = 'PENDING',
+  postcondition_status = null,
+  outcome = null,
+  acquireScopeLock = true,
+} = {}) {
+  const proposalId = randomUUID();
+  const workflowId = randomUUID();
+  const effectId = randomUUID();
+  const idempotencyKey = `recon-test-${effectId}`;
+  await tx.query(
+    `INSERT INTO action_proposals (
+       proposal_id, tenant_id, workflow_id, step_id, actor, capability_id,
+       target_ref, canonical_request, request_hash, risk_class, reversibility
+     ) VALUES (
+       $1, cur_tenant(), $2, 'recon-step', 'agent0', 'cap.recon.test',
+       'local:target', '{}'::jsonb, $3, 'low', 'reversible'
+     );`,
+    [proposalId, workflowId, `rh-${effectId}`],
+  );
+  // Production effect-ledger pending/ambiguous writes take the same tenant
+  // scope xact lock as REPAIR overwrite (closes insert phantoms).
+  if (acquireScopeLock) {
+    await acquireLocalEffectScopeLock(tx);
+  }
+  await tx.query(
+    `INSERT INTO effect_ledger (
+       effect_id, tenant_id, idempotency_key, proposal_id, workflow_id, step_id,
+       capability_id, request_hash, status, postcondition_status, outcome
+     ) VALUES (
+       $1, cur_tenant(), $2, $3, $4, 'recon-step',
+       'cap.recon.test', $5, $6, $7, $8
+     );`,
+    [
+      effectId,
+      idempotencyKey,
+      proposalId,
+      workflowId,
+      `rh-${effectId}`,
+      status,
+      postcondition_status,
+      outcome,
+    ],
+  );
+  return { effect_id: effectId, proposal_id: proposalId, idempotency_key: idempotencyKey };
+}
+
+describe('F-10 autonomy posture', () => {
+  test('business-write autonomy remains DISABLED', () => {
+    assert.equal(BUSINESS_WRITE_AUTONOMY, false);
+    assert.equal(LIVE_EXTERNAL_SIDE_EFFECTS, false);
+    assert.equal(assertBusinessWriteAutonomyDisabled(), true);
+  });
+
+  test('CurrentStateRecord freshness/conflict enums match contract', () => {
+    assert.deepEqual([...FRESHNESS_VALUES], [
+      'FRESH', 'AGING', 'STALE', 'OFFLINE', 'CONFLICTED', 'UNKNOWN',
+    ]);
+    assert.deepEqual([...CONFLICT_STATUS_VALUES], [
+      'NONE', 'PENDING_LOCAL_EFFECT', 'SOURCE_CONFLICT', 'UNKNOWN',
+    ]);
+  });
+
+  test('createReconciliationRuntime requires trusted tenant (fail-closed)', () => {
+    assert.throws(
+      () => createReconciliationRuntime(db),
+      (err) => err instanceof ReconciliationError && err.code === 'MISSING_TENANT_CONTEXT',
+    );
+  });
+});
+
+describe('F-10 freshness engine', () => {
+  test('FRESH → AGING → STALE by age vs max_age_seconds', () => {
+    const observed = Date.parse('2026-08-10T12:00:00.000Z');
+    const maxAge = 1000;
+    assert.equal(
+      computeFreshness({ observed_at: observed, max_age_seconds: maxAge, now: observed + 100 }),
+      'FRESH',
+    );
+    assert.equal(
+      computeFreshness({
+        observed_at: observed,
+        max_age_seconds: maxAge,
+        now: observed + (maxAge * AGING_RATIO + 1) * 1000,
+      }),
+      'AGING',
+    );
+    assert.equal(
+      computeFreshness({
+        observed_at: observed,
+        max_age_seconds: maxAge,
+        now: observed + (maxAge + 1) * 1000,
+      }),
+      'STALE',
+    );
+  });
+
+  test('OFFLINE / CONFLICTED / UNKNOWN precedence', () => {
+    assert.equal(computeFreshness({ source_status: 'OFFLINE' }), 'OFFLINE');
+    assert.equal(
+      computeFreshness({ conflict_status: 'PENDING_LOCAL_EFFECT', source_status: 'OFFLINE' }),
+      'OFFLINE',
+    );
+    assert.equal(
+      computeFreshness({
+        observed_at: Date.now(),
+        max_age_seconds: 10,
+        conflict_status: 'SOURCE_CONFLICT',
+      }),
+      'CONFLICTED',
+    );
+    assert.equal(computeFreshness({}), 'UNKNOWN');
+  });
+
+  test('force_freshness cannot override OFFLINE/CONFLICTED/UNKNOWN/STALE to FRESH', () => {
+    assert.deepEqual([...FAIL_CLOSED_FRESHNESS], [
+      'OFFLINE', 'CONFLICTED', 'UNKNOWN', 'STALE',
+    ]);
+
+    assert.equal(
+      computeFreshness({ source_status: 'OFFLINE', force_freshness: 'FRESH' }),
+      'OFFLINE',
+    );
+    assert.equal(
+      computeFreshness({ source_status: 'UNREACHABLE', force_freshness: 'FRESH' }),
+      'OFFLINE',
+    );
+    assert.equal(
+      computeFreshness({
+        conflict_status: 'PENDING_LOCAL_EFFECT',
+        force_freshness: 'FRESH',
+      }),
+      'CONFLICTED',
+    );
+    assert.equal(
+      computeFreshness({
+        conflict_status: 'SOURCE_CONFLICT',
+        force_freshness: 'AGING',
+      }),
+      'CONFLICTED',
+    );
+    assert.equal(
+      computeFreshness({ source_status: 'UNKNOWN', force_freshness: 'FRESH' }),
+      'UNKNOWN',
+    );
+    assert.equal(
+      computeFreshness({ source_status: 'STALE', force_freshness: 'FRESH' }),
+      'STALE',
+    );
+
+    const observed = Date.parse('2026-08-10T12:00:00.000Z');
+    assert.equal(
+      computeFreshness({
+        observed_at: observed,
+        max_age_seconds: 60,
+        now: observed + 120_000,
+        force_freshness: 'FRESH',
+      }),
+      'STALE',
+    );
+    assert.equal(
+      computeFreshness({
+        observed_at: null,
+        max_age_seconds: 60,
+        force_freshness: 'FRESH',
+      }),
+      'UNKNOWN',
+    );
+
+    // Safe labels may still accept an explicit non-freshening override.
+    assert.equal(
+      computeFreshness({
+        observed_at: observed,
+        max_age_seconds: 3600,
+        now: observed + 1000,
+        force_freshness: 'AGING',
+      }),
+      'AGING',
+    );
+  });
+});
+
+describe('F-10 fail-closed missing provider freshness metadata', () => {
+  test('hasReliableObservationFreshness requires observed_at and max_age', () => {
+    assert.equal(hasReliableObservationFreshness({ value: { x: 1 } }), false);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: '2026-08-10T12:00:00.000Z',
+    }), false);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: '2026-08-10T12:00:00.000Z',
+      max_age_seconds: 60,
+    }), true);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: '2026-08-10T12:00:00.000Z',
+    }, 60), true);
+    assert.equal(hasReliableObservationFreshness({
+      observed_at: 'not-a-timestamp',
+      max_age_seconds: 60,
+    }), false);
+  });
+
+  test('missing observed_at refuses REPAIR and does not overwrite local value', () => {
+    const localValue = { name: 'KeepLocal', status: 'active' };
+    const local = baseLocal({ value: localValue });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { name: 'ProviderWins', status: 'clobber' },
+        source_system: 'fake-provider',
+        // deliberately no observed_at / as_of
+        evidence_ref: 'ev-missing-meta',
+        state_version: '99',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+
+    assert.equal(decision.action, 'ESCALATE');
+    assert.equal(decision.value_overwritten, false);
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+    assert.equal(decision.next_state.conflict_status, 'UNKNOWN');
+    assert.deepEqual(decision.next_state.value, localValue);
+    assert.notEqual(decision.next_state.state_version, '99');
+    assert.equal(decision.next_state.source_system, 'local_projection');
+  });
+
+  test('missing observed_at with matching value still MARK_UNKNOWN without materializing as FRESH', () => {
+    const local = baseLocal({ value: { qty: 1 } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { qty: 1 },
+        // no observed_at — must not invent now and treat as FRESH
+      },
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'MARK_UNKNOWN');
+    assert.equal(decision.value_overwritten, false);
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+    assert.deepEqual(decision.next_state.value, { qty: 1 });
+  });
+
+  test('null observed_at cannot silently repair provider value', () => {
+    const local = baseLocal({ value: { keep: true } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { keep: false },
+        observed_at: null,
+        as_of: null,
+        max_age_seconds: 3600,
+      },
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.value_overwritten, false);
+    assert.ok(['ESCALATE', 'MARK_UNKNOWN'].includes(decision.action));
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+    assert.deepEqual(decision.next_state.value, { keep: true });
+  });
+});
+
+describe('F-10 #36 provider mismatch with no local pending effect safely repairs or escalates', () => {
+  test('safe repair updates projection when no pending local effect', async () => {
+    const local = baseLocal({ value: { name: 'Ada', status: 'active' } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { name: 'Ada', status: 'paused' },
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-provider-1',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+    assert.equal(decision.next_state.value.status, 'paused');
+    assert.equal(decision.next_state.conflict_status, 'NONE');
+    assert.ok(['FRESH', 'AGING'].includes(decision.next_state.freshness));
+
+    const stateKey = `crm.contact:repair-${randomUUID()}`;
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, verified_at, max_age_seconds,
+           freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   $5,$5,$5,3600,'FRESH','NONE','[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(local.value), '2026-08-10T12:00:00.000Z'],
+      );
+
+      const applied = await applyReconciliation(tx, {
+        stateKey,
+        decision: {
+          ...decision,
+          next_state: { ...decision.next_state, state_key: stateKey },
+        },
+      });
+      assert.equal(applied.inserted, false);
+
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status, state_version, source_system
+           FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.equal(row.value.status, 'paused');
+      assert.equal(row.conflict_status, 'NONE');
+      assert.equal(row.source_system, 'fake-provider');
+      assert.equal(row.state_version, '2');
+    });
+  });
+
+  test('escalate path refuses overwrite when observation incomplete', () => {
+    const now = '2026-08-10T12:05:00.000Z';
+    const local = baseLocal({ value: { qty: 1 }, now });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { qty: 99 },
+        incomplete: true,
+        observed_at: now,
+      },
+      localEffect: null,
+      now,
+    });
+    assert.equal(decision.action, 'ESCALATE');
+    assert.equal(decision.value_overwritten, false);
+    assert.deepEqual(decision.next_state.value, local.value);
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+  });
+
+  test('escalateOnMismatch keeps local value', () => {
+    const now = '2026-08-10T12:05:00.000Z';
+    const local = baseLocal({ value: { flag: true }, now });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: { value: { flag: false }, observed_at: now },
+      escalateOnMismatch: true,
+      now,
+    });
+    assert.equal(decision.action, 'ESCALATE');
+    assert.equal(decision.value_overwritten, false);
+    assert.equal(decision.next_state.value.flag, true);
+  });
+});
+
+describe('F-10 #37 pending/ambiguous local effect is never auto-overwritten as drift', () => {
+  test('pending local effect marks CONFLICTED and preserves value', () => {
+    assert.equal(isBlockingLocalEffect({ status: 'PENDING' }), true);
+    const local = baseLocal({ value: { balance: 10 } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { balance: 0 },
+        observed_at: '2026-08-10T12:05:00.000Z',
+        source_system: 'fake-provider',
+      },
+      localEffect: { status: 'PENDING' },
+    });
+    assert.equal(decision.action, 'HOLD_CONFLICTED');
+    assert.equal(decision.value_overwritten, false);
+    assert.equal(decision.next_state.freshness, 'CONFLICTED');
+    assert.equal(decision.next_state.conflict_status, 'PENDING_LOCAL_EFFECT');
+    assert.deepEqual(decision.next_state.value, { balance: 10 });
+  });
+
+  test('ambiguous postcondition never overwritten as drift (persisted)', async () => {
+    assert.equal(isBlockingLocalEffect({ postcondition_status: 'AMBIGUOUS' }), true);
+    const stateKey = `crm.contact:ambig-${randomUUID()}`;
+    const localValue = { name: 'KeepMe', status: 'pending-write' };
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      const runtime = createReconciliationRuntime(db, { trustedTenantId: A });
+      const result = await runtime.reconcileState(tx, {
+        localState: baseLocal({ state_key: stateKey, value: localValue }),
+        providerObservation: {
+          value: { name: 'Clobber', status: 'provider-wins' },
+          observed_at: new Date().toISOString(),
+        },
+        localEffect: { status: 'COMMITTED', postcondition_status: 'AMBIGUOUS' },
+        autoLoadLocalEffect: false,
+      });
+
+      assert.equal(result.decision.action, 'HOLD_CONFLICTED');
+      assert.equal(result.decision.value_overwritten, false);
+
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+      assert.equal(row.freshness, 'CONFLICTED');
+      assert.equal(row.conflict_status, 'PENDING_LOCAL_EFFECT');
+    });
+  });
+
+  test('applyReconciliation stop-condition rejects HOLD that would overwrite value', async () => {
+    const stateKey = `crm.contact:stop-${randomUUID()}`;
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1','{"x":1}'::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey],
+      );
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            action: 'HOLD_CONFLICTED',
+            value_overwritten: false,
+            next_state: baseLocal({ state_key: stateKey, value: { x: 999 } }),
+          },
+        }),
+        (err) => err instanceof ReconciliationError && err.code === 'STOP_CONDITION',
+      );
+
+      const row = (await tx.query(
+        `SELECT value FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, { x: 1 });
+    });
+  });
+
+  test('REPAIR decided before pending effect appears is refused at apply; value preserved', async () => {
+    const stateKey = `crm.contact:race-pending-${randomUUID()}`;
+    const localValue = { name: 'LocalKeep', status: 'active' };
+    const providerValue = { name: 'ProviderClobber', status: 'paused' };
+
+    // Decision computed with no blocking local effect → REPAIR.
+    const decision = reconcile({
+      localState: baseLocal({ state_key: stateKey, value: localValue }),
+      providerObservation: {
+        value: providerValue,
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-race-1',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      // Concurrent pending effect appears after reconcile() decided REPAIR.
+      const pending = await insertBlockingEffect(tx, { status: 'PENDING' });
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            ...decision,
+            next_state: { ...decision.next_state, state_key: stateKey },
+          },
+        }),
+        (err) => err instanceof ReconciliationError
+          && err.code === 'STOP_CONDITION'
+          && /blocking local effect present at mutation time/i.test(err.message),
+      );
+
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+      assert.equal(row.freshness, 'FRESH');
+      assert.equal(row.conflict_status, 'NONE');
+
+      // Clear fixture so concurrent/later REPAIR applies are not poisoned.
+      await tx.query(
+        `UPDATE effect_ledger
+            SET status = 'COMPLETED', postcondition_status = 'VERIFIED', outcome = 'SUCCEEDED'
+          WHERE effect_id = $1;`,
+        [pending.effect_id],
+      );
+    });
+  });
+
+  test('REPAIR decided before ambiguous effect appears is refused at apply; value preserved', async () => {
+    const stateKey = `crm.contact:race-ambig-${randomUUID()}`;
+    const localValue = { balance: 42 };
+    const decision = reconcile({
+      localState: baseLocal({ state_key: stateKey, value: localValue }),
+      providerObservation: {
+        value: { balance: 0 },
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-race-ambig',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      const ambig = await insertBlockingEffect(tx, {
+        status: 'COMMITTED',
+        postcondition_status: 'AMBIGUOUS',
+        outcome: 'AMBIGUOUS',
+      });
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            ...decision,
+            next_state: { ...decision.next_state, state_key: stateKey },
+          },
+        }),
+        (err) => err instanceof ReconciliationError && err.code === 'STOP_CONDITION',
+      );
+
+      const row = (await tx.query(
+        `SELECT value FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+
+      await tx.query(
+        `UPDATE effect_ledger
+            SET status = 'COMPLETED', postcondition_status = 'VERIFIED', outcome = 'SUCCEEDED'
+          WHERE effect_id = $1;`,
+        [ambig.effect_id],
+      );
+    });
+  });
+
+  test('REPAIR and pending effect writes share tenant local-effect scope xact lock identity', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const repairIdentity = await localEffectScopeLockIdentity(tx, A, LOCAL_EFFECT_SCOPE_TENANT);
+      const effectIdentity = await localEffectScopeLockIdentity(tx, A);
+      assert.equal(repairIdentity.classid, LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE);
+      assert.equal(effectIdentity.classid, LOCAL_EFFECT_SCOPE_LOCK_NAMESPACE);
+      assert.equal(repairIdentity.objid, effectIdentity.objid);
+      assert.notEqual(repairIdentity.objid, 0);
+
+      const otherTenant = await localEffectScopeLockIdentity(tx, B);
+      assert.notEqual(otherTenant.objid, repairIdentity.objid);
+    });
+  });
+
+  test('REPAIR holds shared xact lock across mutation-time check→projection; phantom pending insert in window blocks overwrite', async () => {
+    const stateKey = `crm.contact:phantom-window-${randomUUID()}`;
+    const localValue = { name: 'KeepLocal', status: 'active' };
+    const providerValue = { name: 'DriftClobber', status: 'paused' };
+
+    const decision = reconcile({
+      localState: baseLocal({ state_key: stateKey, value: localValue }),
+      providerObservation: {
+        value: providerValue,
+        source_system: 'fake-provider',
+        observed_at: '2026-08-10T12:05:00.000Z',
+        as_of: '2026-08-10T12:05:00.000Z',
+        evidence_ref: 'ev-phantom-window',
+        state_version: '2',
+      },
+      localEffect: null,
+      now: '2026-08-10T12:05:00.000Z',
+    });
+    assert.equal(decision.action, 'REPAIR');
+    assert.equal(decision.value_overwritten, true);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '[]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+
+      const expected = await localEffectScopeLockIdentity(tx, A);
+      let lockHeldInWindow = false;
+      let pendingInWindow = null;
+
+      await assert.rejects(
+        () => applyReconciliation(tx, {
+          stateKey,
+          decision: {
+            ...decision,
+            next_state: { ...decision.next_state, state_key: stateKey },
+          },
+          testHooks: {
+            afterMutationTimeRecheck: async () => {
+              // Prove the shared tenant scope xact lock covers the overwrite window
+              // (FOR UPDATE on an empty effect set cannot close this gap alone).
+              const locks = await tx.query(
+                `SELECT classid, objid, granted
+                   FROM pg_locks
+                  WHERE locktype = 'advisory' AND granted`,
+              );
+              lockHeldInWindow = locks.rows.some(
+                (row) => Number(row.classid) === expected.classid
+                  && Number(row.objid) === expected.objid
+                  && row.granted === true,
+              );
+              assert.equal(lockHeldInWindow, true);
+
+              // Simulate a pending effect appearing after the mutation-time check
+              // and before projection UPDATE. Production writers take the same lock
+              // so a concurrent session cannot commit here; same-txn insert is still
+              // refused by the post-barrier recheck under the held lock.
+              pendingInWindow = await insertBlockingEffect(tx, {
+                status: 'PENDING',
+                acquireScopeLock: true,
+              });
+            },
+          },
+        }),
+        (err) => err instanceof ReconciliationError
+          && err.code === 'STOP_CONDITION'
+          && /blocking local effect present at mutation time/i.test(err.message),
+      );
+
+      assert.equal(lockHeldInWindow, true);
+      assert.ok(pendingInWindow?.effect_id);
+
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+      assert.equal(row.freshness, 'FRESH');
+      assert.equal(row.conflict_status, 'NONE');
+
+      await tx.query(
+        `UPDATE effect_ledger
+            SET status = 'COMPLETED', postcondition_status = 'VERIFIED', outcome = 'SUCCEEDED'
+          WHERE effect_id = $1;`,
+        [pendingInWindow.effect_id],
+      );
+    });
+  });
+
+  test('pending effect insert acquires scope lock before effect_ledger INSERT', async () => {
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      const expected = await localEffectScopeLockIdentity(tx, A);
+      const events = [];
+      const tracked = {
+        query: async (sql, params) => {
+          if (/pg_advisory_xact_lock/i.test(sql)) {
+            events.push({ type: 'lock', classid: params[0], objid: params[1] });
+          }
+          if (/INSERT INTO effect_ledger/i.test(sql)) {
+            events.push({ type: 'insert_effect' });
+          }
+          return tx.query(sql, params);
+        },
+      };
+
+      await insertBlockingEffect(tracked, { status: 'PENDING' });
+
+      const lockIdx = events.findIndex((e) => e.type === 'lock');
+      const insertIdx = events.findIndex((e) => e.type === 'insert_effect');
+      assert.ok(lockIdx >= 0, 'scope lock must be acquired');
+      assert.ok(insertIdx > lockIdx, 'lock must precede effect_ledger INSERT');
+      assert.equal(events[lockIdx].classid, expected.classid);
+      assert.equal(events[lockIdx].objid, expected.objid);
+    });
+  });
+});
+
+describe('F-10 #38 stale source becomes STALE/UNKNOWN', () => {
+  test('age beyond max_age_seconds → STALE', () => {
+    const local = baseLocal({
+      observed_at: '2026-08-10T10:00:00.000Z',
+      max_age_seconds: 60,
+    });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: null,
+      now: '2026-08-10T12:00:00.000Z',
+    });
+    assert.equal(decision.action, 'MARK_STALE');
+    assert.equal(decision.next_state.freshness, 'STALE');
+    assert.equal(decision.value_overwritten, false);
+  });
+
+  test('provider STALE observation → STALE without overwrite', () => {
+    const local = baseLocal({ value: { keep: true } });
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: { keep: false },
+        source_status: 'STALE',
+        observed_at: '2026-08-01T00:00:00.000Z',
+      },
+      now: '2026-08-10T12:00:00.000Z',
+    });
+    assert.equal(decision.action, 'MARK_STALE');
+    assert.equal(decision.next_state.freshness, 'STALE');
+    assert.deepEqual(decision.next_state.value, { keep: true });
+  });
+
+  test('UNKNOWN source → UNKNOWN', () => {
+    const local = baseLocal();
+    const decision = reconcile({
+      localState: local,
+      providerObservation: {
+        value: local.value,
+        source_status: 'UNKNOWN',
+        observed_at: '2026-08-10T12:00:00.000Z',
+      },
+    });
+    assert.equal(decision.action, 'MARK_UNKNOWN');
+    assert.equal(decision.next_state.freshness, 'UNKNOWN');
+  });
+
+  test('OFFLINE source → OFFLINE', () => {
+    const decision = reconcile({
+      localState: baseLocal({ source_status: 'OFFLINE' }),
+      providerObservation: null,
+    });
+    assert.equal(decision.next_state.freshness, 'OFFLINE');
+    assert.equal(decision.next_state.source_status, 'OFFLINE');
+  });
+
+  test('OFFLINE then no-provider reconcile stays OFFLINE/UNKNOWN (never FRESH)', () => {
+    const t1 = '2026-08-10T12:00:00.000Z';
+    const t2 = '2026-08-10T12:00:30.000Z';
+    const first = reconcile({
+      localState: baseLocal({ source_status: 'OFFLINE', now: t1 }),
+      providerObservation: null,
+      now: t1,
+    });
+    assert.equal(first.next_state.freshness, 'OFFLINE');
+    assert.equal(first.next_state.source_status, 'OFFLINE');
+    assert.equal(first.next_state.observed_at, t1);
+
+    // In-memory carry: next_state includes source_status.
+    const second = reconcile({
+      localState: first.next_state,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['OFFLINE', 'UNKNOWN'].includes(second.next_state.freshness));
+    assert.notEqual(second.next_state.freshness, 'FRESH');
+    assert.notEqual(second.next_state.freshness, 'AGING');
+
+    // DB-shaped carry: only freshness persisted (no source_status column).
+    const { source_status: _drop, ...dbShaped } = first.next_state;
+    assert.equal(dbShaped.source_status, undefined);
+    assert.equal(inferFailClosedSourceStatus(dbShaped), 'OFFLINE');
+    const third = reconcile({
+      localState: dbShaped,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['OFFLINE', 'UNKNOWN'].includes(third.next_state.freshness));
+    assert.notEqual(third.next_state.freshness, 'FRESH');
+  });
+
+  test('UNKNOWN then no-provider reconcile stays UNKNOWN/CONFLICTED (never FRESH)', () => {
+    const t1 = '2026-08-10T12:00:00.000Z';
+    const t2 = '2026-08-10T12:00:30.000Z';
+    const first = reconcile({
+      localState: baseLocal({ now: t1 }),
+      providerObservation: {
+        value: { name: 'Ada', status: 'active' },
+        source_status: 'UNKNOWN',
+        observed_at: t1,
+      },
+      now: t1,
+    });
+    assert.equal(first.action, 'MARK_UNKNOWN');
+    assert.equal(first.next_state.freshness, 'UNKNOWN');
+    assert.equal(first.next_state.source_status, 'UNKNOWN');
+    assert.equal(first.next_state.observed_at, t1);
+
+    const second = reconcile({
+      localState: first.next_state,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['UNKNOWN', 'CONFLICTED'].includes(second.next_state.freshness));
+    assert.notEqual(second.next_state.freshness, 'FRESH');
+    assert.notEqual(second.next_state.freshness, 'AGING');
+
+    const { source_status: _drop, ...dbShaped } = first.next_state;
+    assert.equal(inferFailClosedSourceStatus(dbShaped), 'UNKNOWN');
+    const third = reconcile({
+      localState: dbShaped,
+      providerObservation: null,
+      now: t2,
+    });
+    assert.ok(['UNKNOWN', 'CONFLICTED'].includes(third.next_state.freshness));
+    assert.notEqual(third.next_state.freshness, 'FRESH');
+  });
+});
+
+describe('F-10 #39 conflicting authoritative evidence becomes CONFLICTED', () => {
+  test('detectSourceConflict on disagreeing authoritative evidence', () => {
+    assert.equal(
+      detectSourceConflict(
+        { authoritative: true, state_key: 'k', value: { a: 1 }, source_system: 's1', evidence_ref: 'e1' },
+        { authoritative: true, state_key: 'k', value: { a: 2 }, source_system: 's2', evidence_ref: 'e2' },
+      ),
+      true,
+    );
+    assert.equal(
+      detectSourceConflict(
+        { authoritative: true, state_key: 'k', value: { a: 1 }, source_system: 's1', evidence_ref: 'e1' },
+        { authoritative: true, state_key: 'k', value: { a: 1 }, source_system: 's1', evidence_ref: 'e1' },
+      ),
+      false,
+    );
+  });
+
+  test('conflicting authoritative evidence → CONFLICTED / SOURCE_CONFLICT, value preserved', async () => {
+    const stateKey = `crm.contact:conflict-${randomUUID()}`;
+    const localValue = { stage: 'qualified' };
+
+    const decision = reconcile({
+      localState: baseLocal({
+        state_key: stateKey,
+        value: localValue,
+        evidence_refs: ['ev-a'],
+      }),
+      conflictingEvidence: {
+        authoritative: true,
+        state_key: stateKey,
+        value: { stage: 'disqualified' },
+        source_system: 'other-authoritative',
+        evidence_ref: 'ev-b',
+      },
+      providerObservation: {
+        value: { stage: 'disqualified' },
+        observed_at: '2026-08-10T12:05:00.000Z',
+      },
+    });
+
+    assert.equal(decision.action, 'HOLD_CONFLICTED');
+    assert.equal(decision.next_state.freshness, 'CONFLICTED');
+    assert.equal(decision.next_state.conflict_status, 'SOURCE_CONFLICT');
+    assert.equal(decision.value_overwritten, false);
+    assert.deepEqual(decision.next_state.value, localValue);
+
+    await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+      await tx.query(
+        `INSERT INTO current_state_records (
+           state_id, tenant_id, state_key, domain, subject_ref, value, state_version,
+           source_system, as_of, observed_at, max_age_seconds, freshness, conflict_status, evidence_refs
+         ) VALUES ($1,$2,$3,'crm','subject:c-1',$4::jsonb,'1','local_projection',
+                   now(), now(), 3600, 'FRESH', 'NONE', '["ev-a"]'::jsonb);`,
+        [randomUUID(), A, stateKey, JSON.stringify(localValue)],
+      );
+      await applyReconciliation(tx, { stateKey, decision });
+      const row = (await tx.query(
+        `SELECT value, freshness, conflict_status FROM current_state_records WHERE state_key=$1;`,
+        [stateKey],
+      )).rows[0];
+      assert.deepEqual(row.value, localValue);
+      assert.equal(row.freshness, 'CONFLICTED');
+      assert.equal(row.conflict_status, 'SOURCE_CONFLICT');
+    });
+  });
+});
