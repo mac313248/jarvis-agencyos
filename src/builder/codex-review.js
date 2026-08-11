@@ -14,7 +14,7 @@ import {
   newId,
 } from './contracts.js';
 import { BuilderCoreError } from './errors.js';
-import { VerifierError } from './verifier.js';
+import { VerifierError, isVerificationAuthoritative } from './verifier.js';
 
 const DEFAULT_SCHEMA = 'scripts/builder-codex-review.schema.json';
 const DEFAULT_CODEX_BIN = 'codex';
@@ -197,11 +197,21 @@ export async function reviewExactCandidate({
   }
 
   const sha = assertCommitSha(candidate.commit_sha);
-  let ver = verification;
-  if (!ver && candidate.verification_ref) {
-    ver = core.store.getVerification(candidate.verification_ref);
+  // Caller-supplied verification objects are never authoritative. Always bind to
+  // the candidate's current stored verification_ref and require live authority.
+  if (verification != null) {
+    const presentedId = verification.verification_id;
+    if (!presentedId || presentedId !== candidate.verification_ref) {
+      throw new VerifierError(
+        'Codex review requires the candidate current stored verification_ref',
+        'VERIFIER_REQUIRED_FIRST'
+      );
+    }
   }
-  if (!ver || ver.result !== VERIFICATION_RESULT.PASS || ver.invalidated_at) {
+  const ver = candidate.verification_ref
+    ? core.store.getVerification(candidate.verification_ref)
+    : null;
+  if (!ver || !isVerificationAuthoritative(core, ver.verification_id)) {
     throw new VerifierError(
       'Codex review requires prior deterministic PASS on the exact candidate',
       'VERIFIER_REQUIRED_FIRST'
@@ -448,8 +458,11 @@ export function isReviewAuthoritative(core, reviewId) {
   if (review.review_status !== REVIEW_STATUS.PASS) return false;
   const candidate = core.store.getCandidate(review.candidate_id);
   if (!candidate) return false;
+  if (candidate.status !== CANDIDATE_STATUS.VERIFIED) return false;
+  if (candidate.review_ref !== reviewId) return false;
   if (candidate.commit_sha !== review.commit_sha) return false;
-  if (candidate.status === CANDIDATE_STATUS.SUPERSEDED) return false;
+  if (!candidate.verification_ref) return false;
+  if (!isVerificationAuthoritative(core, candidate.verification_ref)) return false;
   return true;
 }
 

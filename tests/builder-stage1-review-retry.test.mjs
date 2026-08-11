@@ -202,6 +202,61 @@ describe('Stage-1 Codex review (item 11)', () => {
     core.close();
   });
 
+  it('stale caller-supplied verification cannot authorize Codex review', async () => {
+    const core = createBuilderCore();
+    const { candidate } = seedCandidate(core);
+    const first = await passVerifier(core, candidate.candidate_id);
+    assert.equal(first.result, VERIFICATION_RESULT.PASS);
+    assert.equal(
+      core.isVerificationAuthoritative(first.verification.verification_id),
+      true
+    );
+
+    // Landing/CI change clears verification_ref and invalidates prior PASS.
+    const failingGh = {
+      ...reviewGithub(),
+      summarizeCi() {
+        return {
+          ci_status: 'completed',
+          ci_conclusion: 'failure',
+          checks: [{ name: 'ci', status: 'completed', conclusion: 'failure' }],
+          combined_state: 'failure',
+          captured_at: new Date().toISOString(),
+        };
+      },
+      async getCheckRunsForCommit() {
+        return [
+          {
+            id: 1,
+            name: 'ci',
+            status: 'completed',
+            conclusion: 'failure',
+            html_url: 'https://github.com/mac313248/jarvis-agencyos/pull/7',
+          },
+        ];
+      },
+      async getCombinedStatusForCommit() {
+        return { state: 'failure', statuses: [], total_count: 1 };
+      },
+    };
+    await core.refreshCandidateLanding(candidate.candidate_id, failingGh);
+    assert.equal(core.store.getCandidate(candidate.candidate_id).verification_ref, null);
+    assert.equal(
+      core.isVerificationAuthoritative(first.verification.verification_id),
+      false
+    );
+
+    await assert.rejects(
+      () =>
+        core.reviewCandidate(candidate.candidate_id, {
+          invoker: fakeInvoker(REVIEW_STATUS.PASS, ['stale pass']),
+          verification: first.verification,
+        }),
+      (err) => err.code === 'VERIFIER_REQUIRED_FIRST'
+    );
+    core.close();
+  });
+
   it('E: REQUEST_CHANGES prevents acceptance gate', async () => {
     const core = createBuilderCore();
     const { candidate } = seedCandidate(core);
