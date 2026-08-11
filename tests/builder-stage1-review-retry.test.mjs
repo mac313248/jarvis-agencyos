@@ -18,6 +18,9 @@ import {
   createCodexReviewInvoker,
   parseCodexReviewOutput,
   CodexReviewError,
+  isCodexModelCapacityOrUnavailable,
+  DEFAULT_CODEX_REVIEW_MODEL,
+  DEFAULT_CODEX_FALLBACK_MODEL,
 } from '../src/builder/index.js';
 
 const SHA_A = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -499,6 +502,78 @@ describe('Stage-1 bounded retry/repair (item 14)', () => {
         .some((e) => e.event_type === EVENT_TYPE.RETRY_EXHAUSTED)
     );
     core.close();
+  });
+});
+
+describe('Stage-1 Codex capacity-only model fallback', () => {
+  it('retries once on capacity with same prompt; never on auth/policy', async () => {
+    assert.equal(
+      isCodexModelCapacityOrUnavailable(
+        'Selected model is at capacity. Please try a different model.'
+      ),
+      true
+    );
+    assert.equal(
+      isCodexModelCapacityOrUnavailable('AuthenticationError: Invalid API key'),
+      false
+    );
+
+    const calls = [];
+    const invoker = createCodexReviewInvoker({
+      repoRoot: '/tmp',
+      schemaPath: '/tmp/schema.json',
+      model: DEFAULT_CODEX_REVIEW_MODEL,
+      fallbackModel: DEFAULT_CODEX_FALLBACK_MODEL,
+      execFileSyncFn: (_bin, args) => {
+        const modelIdx = args.indexOf('-m');
+        const model = modelIdx >= 0 ? args[modelIdx + 1] : null;
+        const prompt = args.at(-1);
+        calls.push({ model, prompt });
+        if (model === DEFAULT_CODEX_REVIEW_MODEL) {
+          const err = new Error('capacity');
+          err.stdout = JSON.stringify({
+            type: 'error',
+            message: 'Selected model is at capacity. Please try a different model.',
+          });
+          throw err;
+        }
+        return JSON.stringify({
+          review_status: 'PASS',
+          findings: [],
+        });
+      },
+    });
+    const prompt = 'immutable review prompt';
+    const out = await invoker.review({ prompt });
+    assert.equal(out.ok, true);
+    assert.equal(out.fallback_used, true);
+    assert.equal(out.primary_model, DEFAULT_CODEX_REVIEW_MODEL);
+    assert.equal(out.fallback_model, DEFAULT_CODEX_FALLBACK_MODEL);
+    assert.equal(out.model, DEFAULT_CODEX_FALLBACK_MODEL);
+    assert.equal(out.attempts, 2);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].prompt, prompt);
+    assert.equal(calls[1].prompt, prompt);
+    assert.equal(calls[0].model, DEFAULT_CODEX_REVIEW_MODEL);
+    assert.equal(calls[1].model, DEFAULT_CODEX_FALLBACK_MODEL);
+
+    const authCalls = [];
+    const authInvoker = createCodexReviewInvoker({
+      repoRoot: '/tmp',
+      schemaPath: '/tmp/schema.json',
+      model: DEFAULT_CODEX_REVIEW_MODEL,
+      fallbackModel: DEFAULT_CODEX_FALLBACK_MODEL,
+      execFileSyncFn: (_bin, args) => {
+        authCalls.push(args.indexOf('-m') >= 0 ? args[args.indexOf('-m') + 1] : null);
+        const err = new Error('auth');
+        err.stdout = 'AuthenticationError: not logged in';
+        throw err;
+      },
+    });
+    const authOut = await authInvoker.review({ prompt: 'x' });
+    assert.equal(authOut.ok, false);
+    assert.equal(authOut.fallback_used, false);
+    assert.equal(authCalls.length, 1);
   });
 });
 

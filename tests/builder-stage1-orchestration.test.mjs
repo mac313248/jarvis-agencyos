@@ -529,6 +529,7 @@ describe('Stage-1 live disposable orchestration smoke', () => {
     const invoker = createCodexReviewInvoker({
       repoRoot: new URL('..', import.meta.url).pathname,
       timeoutMs: 10 * 60 * 1000,
+      // Primary once; one capacity-only fallback to an already-supported model.
     });
 
     const response = await jarvis.dispatch(JARVIS_COMMANDS.EXECUTE_SOFTWARE_TASK, {
@@ -585,8 +586,14 @@ describe('Stage-1 live disposable orchestration smoke', () => {
       )
       .map((t) => t.code || t.reason || t.status || t.message);
 
+    const cand = response.result.candidate_id
+      ? core.store.getCandidate(response.result.candidate_id)
+      : null;
+    const reviewRow = response.result.review?.review_id
+      ? core.store.getReview(response.result.review.review_id)
+      : null;
     console.log(
-      'LIVE_ORCH_SMOKE decision=%s reason=%s task=%s run=%s provider=%s candidate=%s sha=%s verify=%s review=%s missing=%j',
+      'LIVE_ORCH_SMOKE decision=%s reason=%s task=%s run=%s provider=%s candidate=%s sha=%s pr=%s ci=%s/%s verify=%s review=%s primary_model=%s fallback_model=%s fallback_used=%s model_used=%s owner_interventions=%s missing=%j',
       response.result.decision,
       response.result.reason,
       response.result.task_id,
@@ -594,8 +601,16 @@ describe('Stage-1 live disposable orchestration smoke', () => {
       response.result.provider_run_id,
       response.result.candidate_id,
       response.result.commit_sha,
+      cand?.pr_url || cand?.pr_number || null,
+      cand?.ci_status || null,
+      cand?.ci_conclusion || null,
       response.result.verification?.result,
       response.result.review?.review_status,
+      reviewRow?.evidence?.primary_model || invoker.primary_model || null,
+      reviewRow?.evidence?.fallback_model || null,
+      Boolean(reviewRow?.evidence?.fallback_used),
+      reviewRow?.evidence?.model_used || null,
+      response.owner_interventions,
       missing
     );
 

@@ -91,6 +91,9 @@ export {
   buildCodexReviewPrompt,
   parseCodexReviewOutput,
   CodexReviewError,
+  isCodexModelCapacityOrUnavailable,
+  DEFAULT_CODEX_REVIEW_MODEL,
+  DEFAULT_CODEX_FALLBACK_MODEL,
 } from './codex-review.js';
 export {
   beginRepairAttempt,

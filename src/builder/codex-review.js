@@ -18,6 +18,10 @@ import { VerifierError, isVerificationAuthoritative } from './verifier.js';
 
 const DEFAULT_SCHEMA = 'scripts/builder-codex-review.schema.json';
 const DEFAULT_CODEX_BIN = 'codex';
+/** Primary review model (matches local Codex config when present). */
+export const DEFAULT_CODEX_REVIEW_MODEL = 'gpt-5.6-luna';
+/** Single already-supported alternate used only on capacity/unavailable-model. */
+export const DEFAULT_CODEX_FALLBACK_MODEL = 'gpt-5.4';
 
 export class CodexReviewError extends Error {
   constructor(message, code = 'CODEX_REVIEW_ERROR') {
@@ -25,6 +29,21 @@ export class CodexReviewError extends Error {
     this.name = 'CodexReviewError';
     this.code = code;
   }
+}
+
+/** Capacity / unavailable-model only — never auth, policy, or REQUEST_CHANGES. */
+export function isCodexModelCapacityOrUnavailable(raw) {
+  const text = String(raw || '');
+  if (
+    /unauthorized|authentication|auth failed|invalid api key|login required|forbidden|policy|permission denied|not logged in/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+  return /at capacity|selected model is at capacity|model .* unavailable|unavailable model|unknown model|model_not_found|model not found|try a different model/i.test(
+    text
+  );
 }
 
 function nowIso() {
@@ -109,51 +128,95 @@ export function createCodexReviewInvoker({
   schemaPath = join(repoRoot, DEFAULT_SCHEMA),
   execFileSyncFn = execFileSync,
   timeoutMs = 10 * 60 * 1000,
+  model = DEFAULT_CODEX_REVIEW_MODEL,
+  fallbackModel = DEFAULT_CODEX_FALLBACK_MODEL,
 } = {}) {
+  function runOnce(prompt, modelId) {
+    const args = [
+      '-a',
+      'never',
+      'exec',
+      '-C',
+      repoRoot,
+      '-s',
+      'read-only',
+      '--ephemeral',
+      '--json',
+      '--output-schema',
+      schemaPath,
+    ];
+    if (modelId) {
+      args.push('-m', modelId);
+    }
+    // Prompt last; never put credentials in argv beyond model id.
+    args.push(prompt);
+    try {
+      // Global -a never before exec; sandbox read-only; ephemeral; schema-bound.
+      const out = execFileSyncFn(codexBin, args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: timeoutMs,
+        env: process.env,
+      });
+      return { ok: true, raw: out, model: modelId || null };
+    } catch (err) {
+      const raw = String(err?.stdout || err?.stderr || err?.message || err);
+      const timedOut = /ETIMEDOUT|timed out/i.test(
+        String(err?.code || err?.message || '')
+      );
+      return {
+        ok: false,
+        raw,
+        model: modelId || null,
+        error: {
+          name: err?.name || 'Error',
+          message: raw.split('\n').find((l) => l.trim())?.slice(0, 400) || 'codex failed',
+          code: timedOut ? 'TIMEOUT' : 'CODEX_INVOKE_FAILED',
+          retryable: false,
+        },
+      };
+    }
+  }
+
   return {
     mode: 'read-only',
+    primary_model: model || null,
+    fallback_model: fallbackModel || null,
     async review({ prompt }) {
-      try {
-        // Global -a never before exec; sandbox read-only; ephemeral; schema-bound.
-        const out = execFileSyncFn(
-          codexBin,
-          [
-            '-a',
-            'never',
-            'exec',
-            '-C',
-            repoRoot,
-            '-s',
-            'read-only',
-            '--ephemeral',
-            '--json',
-            '--output-schema',
-            schemaPath,
-            prompt,
-          ],
-          {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'pipe'],
-            maxBuffer: 64 * 1024 * 1024,
-            timeout: timeoutMs,
-            env: process.env,
-          }
-        );
-        return { ok: true, raw: out };
-      } catch (err) {
-        const raw = String(err?.stdout || err?.stderr || err?.message || err);
-        const timedOut = /ETIMEDOUT|timed out/i.test(String(err?.code || err?.message || ''));
+      const primary = runOnce(prompt, model);
+      if (primary.ok) {
         return {
-          ok: false,
-          raw,
-          error: {
-            name: err?.name || 'Error',
-            message: raw.split('\n')[0].slice(0, 400),
-            code: timedOut ? 'TIMEOUT' : 'CODEX_INVOKE_FAILED',
-            retryable: false,
-          },
+          ...primary,
+          primary_model: model || null,
+          fallback_model: null,
+          fallback_used: false,
+          attempts: 1,
         };
       }
+      // Exactly one fallback, and only for capacity / unavailable-model.
+      if (
+        fallbackModel &&
+        fallbackModel !== model &&
+        isCodexModelCapacityOrUnavailable(primary.raw || primary.error?.message)
+      ) {
+        const second = runOnce(prompt, fallbackModel);
+        return {
+          ...second,
+          primary_model: model || null,
+          fallback_model: fallbackModel,
+          fallback_used: true,
+          primary_error: primary.error || null,
+          attempts: 2,
+        };
+      }
+      return {
+        ...primary,
+        primary_model: model || null,
+        fallback_model: null,
+        fallback_used: false,
+        attempts: 1,
+      };
     },
   };
 }
@@ -286,6 +349,15 @@ export async function reviewExactCandidate({
   });
 
   const invoked = await invoker.review({ prompt, candidate, task, verification: ver });
+  const modelEvidence = {
+    primary_model: invoked?.primary_model ?? invoker.primary_model ?? null,
+    fallback_model: invoked?.fallback_used
+      ? invoked?.fallback_model ?? invoker.fallback_model ?? null
+      : null,
+    fallback_used: Boolean(invoked?.fallback_used),
+    model_used: invoked?.model ?? null,
+    attempts: invoked?.attempts ?? 1,
+  };
   if (!invoked?.ok) {
     const blocked = core.store.insertReview({
       review_id: newId('rev'),
@@ -298,6 +370,7 @@ export async function reviewExactCandidate({
       evidence: {
         error: invoked?.error || { code: 'CODEX_UNAVAILABLE' },
         raw_excerpt: String(invoked?.raw || '').slice(0, 2000),
+        ...modelEvidence,
       },
       reviewed_at: nowIso(),
     });
@@ -333,6 +406,7 @@ export async function reviewExactCandidate({
       evidence: {
         error: { code: parsed.code },
         raw_excerpt: String(invoked.raw || '').slice(0, 2000),
+        ...modelEvidence,
       },
       reviewed_at: nowIso(),
     });
@@ -356,6 +430,7 @@ export async function reviewExactCandidate({
       verification_id: ver.verification_id,
       invoker_mode: invoker.mode || 'read-only',
       raw_excerpt: String(invoked.raw || '').slice(0, 2000),
+      ...modelEvidence,
     },
     reviewed_at: nowIso(),
   });
