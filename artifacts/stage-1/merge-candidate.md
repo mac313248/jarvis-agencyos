@@ -1,6 +1,6 @@
 # Stage-1 Freeze — Exact Merge Candidate
 
-Status: **PREPARED — AWAITING CODEX CONFIRMATION PASS**  
+Status: **PREPARED — CODEX MERGE-READINESS PASS — AWAITING EXPLICIT MERGE AUTHORIZATION**  
 Merge authorized: **NO**
 
 ## Two SHAs (intentional Phase pattern)

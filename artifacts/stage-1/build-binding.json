@@ -21,10 +21,10 @@
   "sot_verify": "PASS",
   "business_write_autonomy": "DISABLED",
   "merge_authorized": false,
-  "merge_gate": "Codex merge-readiness review must return PASS before any merge to main",
+  "merge_gate": "Codex merge-readiness PASS recorded; await explicit owner/operator merge authorization (PR remains draft)",
   "repair_note": "Sealed processTrustedInternalEvent; removed caller-mintable buildTrustedInternalProvenance / trusted_provenance options.",
   "created_at": "2026-08-11T17:59:35.638Z",
-  "codex_merge_readiness_verdict": "PASS WITH FIXES then confirmation pending after historical quarantine + SHA role clarification",
-  "freeze_merge_candidate_tip": "pending \u2014 freeze branch HEAD after this evidence commit",
+  "codex_merge_readiness_verdict": "PASS",
+  "freeze_merge_candidate_tip": "693d6d911525301146952904fc92f4fd300fc3ac",
   "merge_candidate_clarification": "Merge PR tip = freeze branch HEAD (impl+evidence). Code review authority = reviewed_implementation_sha."
 }
