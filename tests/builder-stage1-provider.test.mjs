@@ -216,7 +216,22 @@ describe('Stage-1 WorkerProvider + CursorProvider (items 6–8)', () => {
       assert.equal(launched.factory_run_id, 'run_factory_1');
       assert.ok(launched.provider_run_id.startsWith('run-fake-'));
       assert.ok(launched.provider_agent_id.startsWith('bc-fake-'));
-      assert.equal(sdk.createCalls[0].cloud.metadata.factory_run_id, 'run_factory_1');
+      assert.equal(sdk.createCalls[0].cloud.metadata, undefined);
+
+      const withMeta = createCursorProvider({
+        apiKey: 'test-key',
+        sdkAdapter: fakeAdapter(sdk),
+        includeCloudMetadata: true,
+      });
+      await withMeta.launch({
+        factory_run_id: 'run_factory_meta',
+        task,
+        prompt: 'meta probe',
+      });
+      assert.equal(
+        sdk.createCalls.at(-1).cloud.metadata.factory_run_id,
+        'run_factory_meta'
+      );
 
       const st = await provider.status({
         factory_run_id: 'run_factory_1',
@@ -404,6 +419,28 @@ describe('Stage-1 WorkerProvider + CursorProvider (items 6–8)', () => {
       assert.ok(second.run.factory_run_id !== first.run.factory_run_id);
       const events = core.store.listEventsForTask(task.task_id);
       assert.ok(events.some((e) => e.event_type === EVENT_TYPE.STALE_RUN_REJECTED));
+      core.close();
+    });
+
+    it('collect after cancel cannot revive a cancelled run', async () => {
+      const sdk = new FakeCursorSdk();
+      const provider = createCursorProvider({
+        apiKey: 'test-key',
+        sdkAdapter: fakeAdapter(sdk),
+      });
+      const core = createBuilderCore({ workerProvider: provider });
+      const task = core.createAndLockTask(INTENT);
+      const launched = await core.launchCodingWorker({
+        task_id: task.task_id,
+        prompt: 'cancel sticky',
+      });
+      await core.cancelCodingWorker(launched.run.factory_run_id);
+      // Provider still reports running (eventual consistency).
+      sdk.runs.get(launched.run.provider_run_id).run.status = 'running';
+      const collected = await core.collectCodingWorker(launched.run.factory_run_id);
+      assert.equal(collected.run.status, RUN_STATUS.CANCELLED);
+      assert.equal(core.getCurrentCodingRun(), null);
+      assert.equal(collected.task_accepted, false);
       core.close();
     });
 

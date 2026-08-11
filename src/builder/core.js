@@ -439,9 +439,15 @@ export class BuilderCore {
         'FACTORY_RUN_MISMATCH'
       );
     }
-    const nextStatus = mapProviderStatusToRunStatus(providerResult.provider_status);
-    const failure_class =
-      providerResult.provider_status === PROVIDER_STATUS.TIMEOUT
+
+    // CANCELLED/STALE are sticky local authority decisions. Provider lag that
+    // still reports RUNNING must not revive them into an active coding run.
+    const stickyTerminal = [RUN_STATUS.CANCELLED, RUN_STATUS.STALE].includes(run.status);
+    const mapped = mapProviderStatusToRunStatus(providerResult.provider_status);
+    const nextStatus = stickyTerminal ? run.status : mapped;
+    const failure_class = stickyTerminal
+      ? run.failure_class
+      : providerResult.provider_status === PROVIDER_STATUS.TIMEOUT
         ? FAILURE_CLASS.TIMEOUT
         : providerResult.provider_status === PROVIDER_STATUS.ERROR
           ? FAILURE_CLASS.PROVIDER_ERROR
@@ -452,7 +458,7 @@ export class BuilderCore {
       status: nextStatus,
       ended_at: ACTIVE_RUN_STATUSES.includes(nextStatus)
         ? null
-        : new Date().toISOString(),
+        : (run.ended_at || new Date().toISOString()),
       failure_class,
       evidence: {
         ...(run.evidence || {}),
@@ -461,6 +467,10 @@ export class BuilderCore {
         last_provider_error: providerResult.error,
       },
     });
+    if (!ACTIVE_RUN_STATUSES.includes(updated.status) &&
+        this._currentFactoryRunId === run.factory_run_id) {
+      this._currentFactoryRunId = null;
+    }
     this.store.appendEvent({
       task_id: run.task_id,
       factory_run_id: run.factory_run_id,
@@ -470,6 +480,7 @@ export class BuilderCore {
         provider_run_id: providerResult.provider_run_id,
         provider_agent_id: providerResult.provider_agent_id,
         error: providerResult.error,
+        local_run_status: updated.status,
       },
     });
     return { run: updated, provider_result: providerResult };

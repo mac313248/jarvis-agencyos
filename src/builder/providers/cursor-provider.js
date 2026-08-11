@@ -72,6 +72,7 @@ export class CursorProvider extends WorkerProvider {
     startingRef = 'main',
     model = 'composer-2.5',
     autoCreatePR = false,
+    includeCloudMetadata = false,
   } = {}) {
     super();
     this._apiKey = apiKey;
@@ -81,6 +82,7 @@ export class CursorProvider extends WorkerProvider {
     this.startingRef = startingRef;
     this.model = model;
     this.autoCreatePR = autoCreatePR;
+    this.includeCloudMetadata = includeCloudMetadata;
     // In-memory handles for the active process; durable IDs live in Builder Core.
     this._handles = new Map(); // factory_run_id -> { agent, run }
   }
@@ -148,20 +150,26 @@ export class CursorProvider extends WorkerProvider {
     }
 
     try {
+      // Do not send cloud.metadata unless explicitly enabled: some accounts
+      // reject it with feature_unavailable. factory_run_id mapping remains
+      // authoritative in Builder Core durable state.
+      const cloud = {
+        repos: [{ url: this.repoUrl, startingRef: this.startingRef }],
+        autoCreatePR: this.autoCreatePR,
+        skipReviewerRequest: true,
+        ...(Object.keys(envVars).length ? { envVars } : {}),
+      };
+      if (this.includeCloudMetadata) {
+        cloud.metadata = {
+          factory_run_id,
+          task_id: task.task_id,
+          builder_trust_domain: 'BUILDER_CORE',
+        };
+      }
       const agent = await this._sdk.createAgent({
         apiKey,
         model: { id: this.model },
-        cloud: {
-          repos: [{ url: this.repoUrl, startingRef: this.startingRef }],
-          autoCreatePR: this.autoCreatePR,
-          skipReviewerRequest: true,
-          metadata: {
-            factory_run_id,
-            task_id: task.task_id,
-            builder_trust_domain: 'BUILDER_CORE',
-          },
-          ...(Object.keys(envVars).length ? { envVars } : {}),
-        },
+        cloud,
       });
 
       const run = await agent.send(prompt, {
