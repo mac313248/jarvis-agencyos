@@ -1,0 +1,22 @@
+{
+  "sot_manifest_sha256": "8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87",
+  "reviewed_implementation_sha": "d556690b38b6dd191dd402014b89ad7ea50d59ff",
+  "git_commit_sha": "d556690b38b6dd191dd402014b89ad7ea50d59ff",
+  "evidence_or_review_only_sha": "pending — evidence/review-only commit created after this binding; not embedded (avoids self-referential Git-SHA loop)",
+  "starting_git_sha": "5b861f2afefe41090de57ddcdbafd22435160056",
+  "branch": "phase-1/secure-core-spine",
+  "origin": "https://github.com/mac313248/jarvis-agencyos.git",
+  "builder_runtime": "Cursor (GLM-5.2)",
+  "reviewer_runtime": "Codex (1st & 2nd: PASS WITH FIXES; goal: PASS WITH FIXES)",
+  "codex_first_verdict": "PASS WITH FIXES (first review; 2 findings addressed)",
+  "codex_second_verdict": "PASS WITH FIXES (second review; 4 findings addressed)",
+  "codex_goal_verdict": "PASS WITH FIXES (goal review; 2 findings: both resolved — Finding 1 addressed, Finding 2 (#45/#47) PASS via live GitHub enforcement)",
+  "acceptance_45_status": "PASS — live GitHub branch-protection enforcement verified by owner from a normal Mac Mini terminal. main is protected; required status check \"Phase 1 — Secure Core Spine / phase1\" is active with strict=true; failed/missing required check blocks merge. See artifacts/phase-1/github-gate-verification.txt",
+  "acceptance_47_status": "PASS — live main protection verified by owner: PR protection on, enforce_admins=true, allow_force_pushes=false, allow_deletions=false. See artifacts/phase-1/github-gate-verification.txt",
+  "postgres_engine": "PGlite (real PostgreSQL WASM)",
+  "postgres_server_version": "16.4",
+  "pg_path_actually_executed": "PGlite (WASM) — actually executed in the Phase 1 test run",
+  "database_url_path": "node pg driver + DATABASE_URL — installable/supported by the same code and migrations; NOT actually exercised in this build environment (no real external PostgreSQL cluster was tested)",
+  "note": "git_commit_sha binds to the exact code+migrations+tests implementation commit whose suite was run. Any later commit is evidence/review-only and does not modify implementation. The evidence artifact cannot cryptographically contain its own final commit SHA.",
+  "created_at": "2026-08-10T10:07:15.818Z"
+}

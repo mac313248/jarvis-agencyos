@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["review_status", "findings"],
+  "properties": {
+    "review_status": {
+      "enum": ["PASS", "REQUEST_CHANGES", "BLOCKED"]
+    },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
