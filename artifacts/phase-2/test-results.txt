@@ -1,0 +1,521 @@
+Phase 2 full regression (node --test)
+exit_code=0
+pass=65
+fail=0
+
+
+> jarvis-agencyos@0.2.0-phase2 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: authority / kill fail-closed (bootstrap path)
+    # Subtest: 32. Revocation arriving between policy decision and commit blocks commit
+    ok 1 - 32. Revocation arriving between policy decision and commit blocks commit
+      ---
+      duration_ms: 9.847083
+      type: 'test'
+      ...
+    # Subtest: 33. Receipt records commit-time revocation/kill epochs
+    ok 2 - 33. Receipt records commit-time revocation/kill epochs
+      ---
+      duration_ms: 55.012209
+      type: 'test'
+      ...
+    # Subtest: 34. Authority/kill-store outage blocks material writes (fail-closed)
+    ok 3 - 34. Authority/kill-store outage blocks material writes (fail-closed)
+      ---
+      duration_ms: 1.774875
+      type: 'test'
+      ...
+    # Subtest: 35. Zombie worker with stale epoch cannot commit
+    ok 4 - 35. Zombie worker with stale epoch cannot commit
+      ---
+      duration_ms: 21.896084
+      type: 'test'
+      ...
+    # Subtest: 34b. Inactive authority blocks commit
+    ok 5 - 34b. Inactive authority blocks commit
+      ---
+      duration_ms: 12.487208
+      type: 'test'
+      ...
+    1..5
+ok 1 - authority / kill fail-closed (bootstrap path)
+  ---
+  duration_ms: 2087.750416
+  type: 'suite'
+  ...
+# Subtest: cross-tenant authority reader regression (runtime path)
+    # Subtest: R1. Under Tenant A context, runtime reader returns Tenant A state (not Tenant B)
+    ok 1 - R1. Under Tenant A context, runtime reader returns Tenant A state (not Tenant B)
+      ---
+      duration_ms: 7.628791
+      type: 'test'
+      ...
+    # Subtest: R2. Under Tenant A context, the old caller-selected cross-tenant reader is impossible
+    ok 2 - R2. Under Tenant A context, the old caller-selected cross-tenant reader is impossible
+      ---
+      duration_ms: 5.286667
+      type: 'test'
+      ...
+    # Subtest: R3. Under Tenant A context, the zero-arg runtime reader returns A (not B)
+    ok 3 - R3. Under Tenant A context, the zero-arg runtime reader returns A (not B)
+      ---
+      duration_ms: 6.390083
+      type: 'test'
+      ...
+    # Subtest: R4. Missing tenant context fails closed; authority_control invisible to app_runtime
+    ok 4 - R4. Missing tenant context fails closed; authority_control invisible to app_runtime
+      ---
+      duration_ms: 7.132416
+      type: 'test'
+      ...
+    # Subtest: R5. Tenant B context can read Tenant B state normally
+    ok 5 - R5. Tenant B context can read Tenant B state normally
+      ---
+      duration_ms: 6.003667
+      type: 'test'
+      ...
+    # Subtest: R6. Existing revocation/kill behavior preserved (runtime path revalidate)
+    ok 6 - R6. Existing revocation/kill behavior preserved (runtime path revalidate)
+      ---
+      duration_ms: 15.975
+      type: 'test'
+      ...
+    1..6
+ok 2 - cross-tenant authority reader regression (runtime path)
+  ---
+  duration_ms: 56.952084
+  type: 'suite'
+  ...
+# Subtest: P2-1 capability contract fields
+    # Subtest: P2-1 validated object matches canonical 06 field set
+    ok 1 - P2-1 validated object matches canonical 06 field set
+      ---
+      duration_ms: 1.116041
+      type: 'test'
+      ...
+    # Subtest: P2-1 persisted row round-trips all canonical fields
+    ok 2 - P2-1 persisted row round-trips all canonical fields
+      ---
+      duration_ms: 29.261875
+      type: 'test'
+      ...
+    # Subtest: P2-1 contract_metadata records Capability v1
+    ok 3 - P2-1 contract_metadata records Capability v1
+      ---
+      duration_ms: 1.216083
+      type: 'test'
+      ...
+    1..3
+ok 3 - P2-1 capability contract fields
+  ---
+  duration_ms: 2080.887083
+  type: 'suite'
+  ...
+# Subtest: P2-2..P2-6 capability RLS / tenant isolation
+    # Subtest: seed Tenant B capability as bootstrap, invisible to A
+    ok 1 - seed Tenant B capability as bootstrap, invisible to A
+      ---
+      duration_ms: 1.357083
+      type: 'test'
+      ...
+    # Subtest: P2-2 Tenant A cannot enumerate/read Tenant B capability rows
+    ok 2 - P2-2 Tenant A cannot enumerate/read Tenant B capability rows
+      ---
+      duration_ms: 6.187459
+      type: 'test'
+      ...
+    # Subtest: P2-3 Tenant A cannot INSERT/UPDATE/DELETE Tenant B capability rows
+    ok 3 - P2-3 Tenant A cannot INSERT/UPDATE/DELETE Tenant B capability rows
+      ---
+      duration_ms: 25.398833
+      type: 'test'
+      ...
+    # Subtest: P2-4 missing tenant context fails closed for capabilities
+    ok 4 - P2-4 missing tenant context fails closed for capabilities
+      ---
+      duration_ms: 5.657625
+      type: 'test'
+      ...
+    # Subtest: P2-5 runtime role non-superuser / no BYPASSRLS / not capabilities owner
+    ok 5 - P2-5 runtime role non-superuser / no BYPASSRLS / not capabilities owner
+      ---
+      duration_ms: 3.552958
+      type: 'test'
+      ...
+    # Subtest: P2-6 cross-tenant capability fallback reference rejected
+    ok 6 - P2-6 cross-tenant capability fallback reference rejected
+      ---
+      duration_ms: 21.606666
+      type: 'test'
+      ...
+    1..6
+ok 4 - P2-2..P2-6 capability RLS / tenant isolation
+  ---
+  duration_ms: 64.158041
+  type: 'suite'
+  ...
+# Subtest: P2-7..P2-9 / P2-16 resolver lifecycle + tenant binding
+    # Subtest: P2-7 unknown capability fails closed
+    ok 1 - P2-7 unknown capability fails closed
+      ---
+      duration_ms: 7.392291
+      type: 'test'
+      ...
+    # Subtest: P2-8 status=disabled cannot resolve as executable
+    ok 2 - P2-8 status=disabled cannot resolve as executable
+      ---
+      duration_ms: 11.043833
+      type: 'test'
+      ...
+    # Subtest: P2-9 status=degraded is not silently treated as active
+    ok 3 - P2-9 status=degraded is not silently treated as active
+      ---
+      duration_ms: 8.756166
+      type: 'test'
+      ...
+    # Subtest: P2-16 resolution bound to trusted tenant; caller cannot select another tenant
+    ok 4 - P2-16 resolution bound to trusted tenant; caller cannot select another tenant
+      ---
+      duration_ms: 10.981583
+      type: 'test'
+      ...
+    1..4
+ok 5 - P2-7..P2-9 / P2-16 resolver lifecycle + tenant binding
+  ---
+  duration_ms: 38.344958
+  type: 'suite'
+  ...
+# Subtest: P2-10..P2-15 enums, secrets, ambiguity classification
+    # Subtest: P2-10 credential_ref opaque; raw secret fields rejected; no secret columns
+    ok 1 - P2-10 credential_ref opaque; raw secret fields rejected; no secret columns
+      ---
+      duration_ms: 5.535208
+      type: 'test'
+      ...
+    # Subtest: P2-11 unsafe idempotency/postcondition never autonomously retryable after ambiguity
+    ok 2 - P2-11 unsafe idempotency/postcondition never autonomously retryable after ambiguity
+      ---
+      duration_ms: 0.108
+      type: 'test'
+      ...
+    # Subtest: P2-11 resolver surfaces the same classification
+    ok 3 - P2-11 resolver surfaces the same classification
+      ---
+      duration_ms: 7.853792
+      type: 'test'
+      ...
+    # Subtest: P2-12 control_surface enum enforced
+    ok 4 - P2-12 control_surface enum enforced
+      ---
+      duration_ms: 0.144333
+      type: 'test'
+      ...
+    # Subtest: P2-13 reversibility enum enforced
+    ok 5 - P2-13 reversibility enum enforced
+      ---
+      duration_ms: 0.052375
+      type: 'test'
+      ...
+    # Subtest: P2-14 provider_idempotency enum enforced
+    ok 6 - P2-14 provider_idempotency enum enforced
+      ---
+      duration_ms: 0.043042
+      type: 'test'
+      ...
+    # Subtest: P2-15 status enum enforced (DB + validation)
+    ok 7 - P2-15 status enum enforced (DB + validation)
+      ---
+      duration_ms: 4.997375
+      type: 'test'
+      ...
+    1..7
+ok 6 - P2-10..P2-15 enums, secrets, ambiguity classification
+  ---
+  duration_ms: 18.856375
+  type: 'suite'
+  ...
+# Subtest: Master \#14 / \#21 capability non-circumvention + identity
+    # Subtest: \#14 resolution cannot revive or circumvent revoked grant / authority
+    ok 1 - \#14 resolution cannot revive or circumvent revoked grant / authority
+      ---
+      duration_ms: 10.088667
+      type: 'test'
+      ...
+    # Subtest: \#21 capability_id identity stable in idempotency key (no alias mutation)
+    ok 2 - \#21 capability_id identity stable in idempotency key (no alias mutation)
+      ---
+      duration_ms: 5.53275
+      type: 'test'
+      ...
+    1..2
+ok 7 - Master \#14 / \#21 capability non-circumvention + identity
+  ---
+  duration_ms: 15.688292
+  type: 'suite'
+  ...
+# Subtest: P2-17 / P2-18 regression posture + autonomy
+    # Subtest: P2-18 business-write autonomy DISABLED; no forbidden execution surfaces introduced
+    ok 1 - P2-18 business-write autonomy DISABLED; no forbidden execution surfaces introduced
+      ---
+      duration_ms: 0.556334
+      type: 'test'
+      ...
+    # Subtest: P2-17 migration 0011 applied; Phase 1 tables still present
+    ok 2 - P2-17 migration 0011 applied; Phase 1 tables still present
+      ---
+      duration_ms: 2.330333
+      type: 'test'
+      ...
+    1..2
+ok 8 - P2-17 / P2-18 regression posture + autonomy
+  ---
+  duration_ms: 2.942291
+  type: 'suite'
+  ...
+# Subtest: approval / auth binding
+    # Subtest: 13. High-risk approval rejects absent/stale step-up MFA
+    ok 1 - 13. High-risk approval rejects absent/stale step-up MFA
+      ---
+      duration_ms: 1.576333
+      type: 'test'
+      ...
+    # Subtest: 14. Approval rejects mismatched proposal_id or request_hash
+    ok 2 - 14. Approval rejects mismatched proposal_id or request_hash
+      ---
+      duration_ms: 0.208708
+      type: 'test'
+      ...
+    # Subtest: 14a. A different valid step-up session_id cannot validate the approval
+    ok 3 - 14a. A different valid step-up session_id cannot validate the approval
+      ---
+      duration_ms: 0.164125
+      type: 'test'
+      ...
+    # Subtest: 14b. A different owner_principal_id cannot validate the approval
+    ok 4 - 14b. A different owner_principal_id cannot validate the approval
+      ---
+      duration_ms: 0.150083
+      type: 'test'
+      ...
+    # Subtest: 14c. The correctly bound session still validates
+    ok 5 - 14c. The correctly bound session still validates
+      ---
+      duration_ms: 0.07025
+      type: 'test'
+      ...
+    # Subtest: 14d. Exact session binding succeeds with a NON-UUID canonical string session id
+    ok 6 - 14d. Exact session binding succeeds with a NON-UUID canonical string session id
+      ---
+      duration_ms: 0.082708
+      type: 'test'
+      ...
+    # Subtest: 15. Mutation of binding/state invalidates an old approval
+    ok 7 - 15. Mutation of binding/state invalidates an old approval
+      ---
+      duration_ms: 0.19825
+      type: 'test'
+      ...
+    # Subtest: 16. Raw text claiming approval grants nothing
+    ok 8 - 16. Raw text claiming approval grants nothing
+      ---
+      duration_ms: 0.163417
+      type: 'test'
+      ...
+    1..8
+ok 9 - approval / auth binding
+  ---
+  duration_ms: 2051.516667
+  type: 'suite'
+  ...
+# Subtest: inbound authenticity boundary
+    # Subtest: 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
+    ok 1 - 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
+      ---
+      duration_ms: 0.189875
+      type: 'test'
+      ...
+    # Subtest: 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
+    ok 2 - 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
+      ---
+      duration_ms: 29.449583
+      type: 'test'
+      ...
+    1..2
+ok 10 - inbound authenticity boundary
+  ---
+  duration_ms: 29.891959
+  type: 'suite'
+  ...
+# Subtest: receipts / PII
+    # Subtest: 18. Immutable receipt storage does not require raw customer PII
+    ok 1 - 18. Immutable receipt storage does not require raw customer PII
+      ---
+      duration_ms: 27.517625
+      type: 'test'
+      ...
+    1..1
+ok 11 - receipts / PII
+  ---
+  duration_ms: 27.626833
+  type: 'suite'
+  ...
+# Subtest: deterministic idempotency
+    # Subtest: 19. Idempotency key stable across restart/re-instantiation
+    ok 1 - 19. Idempotency key stable across restart/re-instantiation
+      ---
+      duration_ms: 0.502208
+      type: 'test'
+      ...
+    1..1
+ok 12 - deterministic idempotency
+  ---
+  duration_ms: 0.545334
+  type: 'suite'
+  ...
+# Subtest: SOT mismatch guard
+    # Subtest: 20. SOT mismatch guard refuses continuation on mismatch
+    ok 1 - 20. SOT mismatch guard refuses continuation on mismatch
+      ---
+      duration_ms: 21.408459
+      type: 'test'
+      ...
+    1..1
+ok 13 - SOT mismatch guard
+  ---
+  duration_ms: 21.486459
+  type: 'suite'
+  ...
+# Subtest: DB-backed approval state binding + canonical string session id
+    # Subtest: 1DB. Persisted proposal+approval+session validate via real loaders, then state mutation invalidates
+    ok 1 - 1DB. Persisted proposal+approval+session validate via real loaders, then state mutation invalidates
+      ---
+      duration_ms: 35.631958
+      type: 'test'
+      ...
+    1..1
+ok 14 - DB-backed approval state binding + canonical string session id
+  ---
+  duration_ms: 35.681166
+  type: 'suite'
+  ...
+# Subtest: inbound authenticity DB enforcement
+    # Subtest: 2DBa. FAILED + materialized_state=true is rejected by the DB
+    ok 1 - 2DBa. FAILED + materialized_state=true is rejected by the DB
+      ---
+      duration_ms: 5.125917
+      type: 'test'
+      ...
+    # Subtest: 2DBb. UNKNOWN + materialized_state=true is rejected by the DB
+    ok 2 - 2DBb. UNKNOWN + materialized_state=true is rejected by the DB
+      ---
+      duration_ms: 6.266959
+      type: 'test'
+      ...
+    # Subtest: 2DBc. VERIFIED + materialized_state=true is allowed; NOT_APPLICABLE + materialized_state=true is allowed
+    ok 3 - 2DBc. VERIFIED + materialized_state=true is allowed; NOT_APPLICABLE + materialized_state=true is allowed
+      ---
+      duration_ms: 6.478541
+      type: 'test'
+      ...
+    # Subtest: 2DBd. FAILED/UNKNOWN with materialized_state=false is allowed (security/source-health record only)
+    ok 4 - 2DBd. FAILED/UNKNOWN with materialized_state=false is allowed (security/source-health record only)
+      ---
+      duration_ms: 4.465584
+      type: 'test'
+      ...
+    1..4
+ok 15 - inbound authenticity DB enforcement
+  ---
+  duration_ms: 22.450875
+  type: 'suite'
+  ...
+# Subtest: RLS negative security tests
+    # Subtest: 1. Tenant A direct query cannot read Tenant B rows
+    ok 1 - 1. Tenant A direct query cannot read Tenant B rows
+      ---
+      duration_ms: 19.25925
+      type: 'test'
+      ...
+    # Subtest: 2. Tenant A cannot INSERT a row owned by Tenant B
+    ok 2 - 2. Tenant A cannot INSERT a row owned by Tenant B
+      ---
+      duration_ms: 9.739375
+      type: 'test'
+      ...
+    # Subtest: 3. Tenant A cannot UPDATE Tenant B rows
+    ok 3 - 3. Tenant A cannot UPDATE Tenant B rows
+      ---
+      duration_ms: 17.053833
+      type: 'test'
+      ...
+    # Subtest: 4. Tenant A cannot DELETE Tenant B rows
+    ok 4 - 4. Tenant A cannot DELETE Tenant B rows
+      ---
+      duration_ms: 11.589833
+      type: 'test'
+      ...
+    # Subtest: 5. Missing tenant context fails closed (no rows visible, no writes)
+    ok 5 - 5. Missing tenant context fails closed (no rows visible, no writes)
+      ---
+      duration_ms: 46.875833
+      type: 'test'
+      ...
+    # Subtest: 6. Runtime role cannot bypass RLS (cannot escalate privileges)
+    ok 6 - 6. Runtime role cannot bypass RLS (cannot escalate privileges)
+      ---
+      duration_ms: 27.495334
+      type: 'test'
+      ...
+    # Subtest: 7. Runtime role is not a protected-table owner
+    ok 7 - 7. Runtime role is not a protected-table owner
+      ---
+      duration_ms: 3.458708
+      type: 'test'
+      ...
+    # Subtest: 8. Runtime role is not a superuser
+    ok 8 - 8. Runtime role is not a superuser
+      ---
+      duration_ms: 1.224
+      type: 'test'
+      ...
+    # Subtest: 9. Runtime role lacks BYPASSRLS
+    ok 9 - 9. Runtime role lacks BYPASSRLS
+      ---
+      duration_ms: 1.280417
+      type: 'test'
+      ...
+    # Subtest: 10. Pooled connection A->B cannot leak tenant context
+    ok 10 - 10. Pooled connection A->B cannot leak tenant context
+      ---
+      duration_ms: 13.043209
+      type: 'test'
+      ...
+    # Subtest: 11. Cross-tenant FK/reference is rejected
+    ok 11 - 11. Cross-tenant FK/reference is rejected
+      ---
+      duration_ms: 7.469708
+      type: 'test'
+      ...
+    # Subtest: 12. Model/client-supplied tenant ID cannot override trusted context
+    ok 12 - 12. Model/client-supplied tenant ID cannot override trusted context
+      ---
+      duration_ms: 6.466708
+      type: 'test'
+      ...
+    1..12
+ok 16 - RLS negative security tests
+  ---
+  duration_ms: 2109.148708
+  type: 'suite'
+  ...
+1..16
+# tests 65
+# suites 16
+# pass 65
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2296.259583
