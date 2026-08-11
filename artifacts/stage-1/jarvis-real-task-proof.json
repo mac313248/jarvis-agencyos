@@ -1,0 +1,69 @@
+{
+  "task_id": "task_2ff41a80-f37e-438a-93ff-f917f6b69d12",
+  "task_status": "ACCEPTED",
+  "max_attempts": 4,
+  "candidates": [
+    {
+      "candidate_id": "cand_f238ca53-d66f-46ff-b945-b9606840113c",
+      "status": "SUPERSEDED",
+      "pr_number": 48,
+      "commit_sha": "6deb281b796904ef0a35f56a8e9b672ac84b809c",
+      "ci_conclusion": "success",
+      "review_ref": "rev_94666c38-1a63-428d-a140-2cddd3a6bc67",
+      "verification_ref": "ver_f96a15af-d7f7-4fd9-9da1-e21e2e8dfbcc"
+    },
+    {
+      "candidate_id": "cand_c162af6f-6ded-446d-be49-0873332a7bc1",
+      "status": "SUPERSEDED",
+      "pr_number": 49,
+      "commit_sha": "39e4e183fad301492231f13769a111ef70361a73",
+      "ci_conclusion": "success",
+      "review_ref": "rev_c4be5415-b2c9-43dd-9a9e-468805caf3a0",
+      "verification_ref": "ver_4a5d3769-c343-40b4-9d46-bd76a3187eb4"
+    },
+    {
+      "candidate_id": "cand_2fe987a2-2f93-427c-956c-2d4064afcd8d",
+      "status": "SUPERSEDED",
+      "pr_number": 50,
+      "commit_sha": "a843b7b4b7570169988940844b77c21f63af7deb",
+      "ci_conclusion": "success",
+      "review_ref": "rev_ad8f4ee6-484d-42b1-8f5b-fcf0423192ec",
+      "verification_ref": "ver_28b068b3-37b1-48ec-b2d5-1c303c849cc3"
+    },
+    {
+      "candidate_id": "cand_93cdffd8-109f-4737-b82f-365b1ac2a0f3",
+      "status": "VERIFIED",
+      "pr_number": 51,
+      "commit_sha": "54b038ebcabc6ef6f40a1bcab5838abef4119213",
+      "ci_conclusion": "success",
+      "review_ref": "rev_639e8207-7291-4b2c-9e7f-6dbf051697d0",
+      "verification_ref": "ver_64274f87-969a-4c53-b7a9-25a1c9ab8cc5"
+    }
+  ],
+  "reviews": [
+    {
+      "review_id": "rev_94666c38-1a63-428d-a140-2cddd3a6bc67",
+      "candidate_id": "cand_f238ca53-d66f-46ff-b945-b9606840113c",
+      "review_status": "REQUEST_CHANGES",
+      "findings_json": "[\"Trusted-internal bypass is forgeable: `evaluateInboundAuthenticityGate` accepts `trusted_provenance` directly from its caller, and the exported `buildTrustedInternalProvenance(event_type)` creates a valid bypass object from arbitrary input. An untrusted caller can therefore construct `buildTrustedInternalProvenance('internal.tick')` and materialize state without connector authentication, violating the requirement that trusted-internal classification come only from trusted infrastructure provenance.\"]"
+    },
+    {
+      "review_id": "rev_c4be5415-b2c9-43dd-9a9e-468805caf3a0",
+      "candidate_id": "cand_c162af6f-6ded-446d-be49-0873332a7bc1",
+      "review_status": "REQUEST_CHANGES",
+      "findings_json": "[\"Trusted-internal provenance is forgeable: evaluateInboundAuthenticityGate accepts a plain caller-supplied trusted_provenance object, and classifyTrustedInternalProvenance only checks matching string fields. An untrusted caller can pass {classification:\\\"TRUSTED_INTERNAL\\\",source:\\\"agencyos.trusted-runtime\\\",event_type:\\\"internal.tick\\\"} (or call the exported builder) and bypass authenticity, allowing materialization. The provenance must be produced/enforced by a non-forgeable trusted infrastructure boundary, capability, or equivalent mechanism.\"]"
+    },
+    {
+      "review_id": "rev_ad8f4ee6-484d-42b1-8f5b-fcf0423192ec",
+      "candidate_id": "cand_2fe987a2-2f93-427c-956c-2d4064afcd8d",
+      "review_status": "REQUEST_CHANGES",
+      "findings_json": "[\"Trusted-internal provenance is forgeable by callers: buildTrustedInternalProvenance() is exported and returns an ordinary object, while evaluateInboundAuthenticityGate/processInboundEvent accept any caller-supplied trusted_provenance object and classify it solely by matching public string fields. An untrusted caller can therefore construct buildTrustedInternalProvenance('internal.tick') and bypass external authenticity, violating the locked requirement that trusted-internal classification come only from positive infrastructure provenance.\"]"
+    },
+    {
+      "review_id": "rev_639e8207-7291-4b2c-9e7f-6dbf051697d0",
+      "candidate_id": "cand_93cdffd8-109f-4737-b82f-365b1ac2a0f3",
+      "review_status": "PASS",
+      "findings_json": "[]"
+    }
+  ]
+}

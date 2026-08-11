@@ -1,0 +1,2870 @@
+Stage-1 freeze full npm test results
+captured_at=2026-08-11T17:40:00Z
+implementation_sha=54b038ebcabc6ef6f40a1bcab5838abef4119213
+line_count=2864
+summary: tests=369 pass=369 fail=0
+--- full output ---
+
+> jarvis-agencyos@0.15.0-builder-stage1 test
+> node --test tests/*.test.mjs
+
+TAP version 13
+# Subtest: authority / kill fail-closed (bootstrap path)
+    # Subtest: 32. Revocation arriving between policy decision and commit blocks commit
+    ok 1 - 32. Revocation arriving between policy decision and commit blocks commit
+      ---
+      duration_ms: 13.901208
+      type: 'test'
+      ...
+    # Subtest: 33. Receipt records commit-time revocation/kill epochs
+    ok 2 - 33. Receipt records commit-time revocation/kill epochs
+      ---
+      duration_ms: 22.086042
+      type: 'test'
+      ...
+    # Subtest: 34. Authority/kill-store outage blocks material writes (fail-closed)
+    ok 3 - 34. Authority/kill-store outage blocks material writes (fail-closed)
+      ---
+      duration_ms: 1.707542
+      type: 'test'
+      ...
+    # Subtest: 35. Zombie worker with stale epoch cannot commit
+    ok 4 - 35. Zombie worker with stale epoch cannot commit
+      ---
+      duration_ms: 9.733
+      type: 'test'
+      ...
+    # Subtest: 34b. Inactive authority blocks commit
+    ok 5 - 34b. Inactive authority blocks commit
+      ---
+      duration_ms: 16.394041
+      type: 'test'
+      ...
+    1..5
+ok 1 - authority / kill fail-closed (bootstrap path)
+  ---
+  duration_ms: 2814.006
+  type: 'suite'
+  ...
+# Subtest: cross-tenant authority reader regression (runtime path)
+    # Subtest: R1. Under Tenant A context, runtime reader returns Tenant A state (not Tenant B)
+    ok 1 - R1. Under Tenant A context, runtime reader returns Tenant A state (not Tenant B)
+      ---
+      duration_ms: 8.045458
+      type: 'test'
+      ...
+    # Subtest: R2. Under Tenant A context, the old caller-selected cross-tenant reader is impossible
+    ok 2 - R2. Under Tenant A context, the old caller-selected cross-tenant reader is impossible
+      ---
+      duration_ms: 5.777959
+      type: 'test'
+      ...
+    # Subtest: R3. Under Tenant A context, the zero-arg runtime reader returns A (not B)
+    ok 3 - R3. Under Tenant A context, the zero-arg runtime reader returns A (not B)
+      ---
+      duration_ms: 6.968458
+      type: 'test'
+      ...
+    # Subtest: R4. Missing tenant context fails closed; authority_control invisible to app_runtime
+    ok 4 - R4. Missing tenant context fails closed; authority_control invisible to app_runtime
+      ---
+      duration_ms: 8.381083
+      type: 'test'
+      ...
+    # Subtest: R5. Tenant B context can read Tenant B state normally
+    ok 5 - R5. Tenant B context can read Tenant B state normally
+      ---
+      duration_ms: 3.44025
+      type: 'test'
+      ...
+    # Subtest: R6. Existing revocation/kill behavior preserved (runtime path revalidate)
+    ok 6 - R6. Existing revocation/kill behavior preserved (runtime path revalidate)
+      ---
+      duration_ms: 18.056583
+      type: 'test'
+      ...
+    1..6
+ok 2 - cross-tenant authority reader regression (runtime path)
+  ---
+  duration_ms: 58.410417
+  type: 'suite'
+  ...
+# Subtest: F-13 autonomy + contract surface
+    # Subtest: acceptance harness initialized (cancelled suite is not a pass)
+    ok 1 - acceptance harness initialized (cancelled suite is not a pass)
+      ---
+      duration_ms: 0.429458
+      type: 'test'
+      ...
+    # Subtest: business-write autonomy remains DISABLED
+    ok 2 - business-write autonomy remains DISABLED
+      ---
+      duration_ms: 0.068667
+      type: 'test'
+      ...
+    # Subtest: contract_metadata records BackupRestoreRehearsal v1
+    ok 3 - contract_metadata records BackupRestoreRehearsal v1
+      ---
+      duration_ms: 3.127916
+      type: 'test'
+      ...
+    # Subtest: required backup surfaces match SOT inventory
+    ok 4 - required backup surfaces match SOT inventory
+      ---
+      duration_ms: 0.374917
+      type: 'test'
+      ...
+    # Subtest: backup_artifacts and backup_rehearsal_runs are FORCE RLS tenant-owned
+    ok 5 - backup_artifacts and backup_rehearsal_runs are FORCE RLS tenant-owned
+      ---
+      duration_ms: 4.04875
+      type: 'test'
+      ...
+    1..5
+ok 3 - F-13 autonomy + contract surface
+  ---
+  duration_ms: 2762.750542
+  type: 'suite'
+  ...
+# Subtest: F-13 \#53 stop condition: unrehearsed restore
+    # Subtest: assertRestoreRehearsed requires trusted tenant (fail-closed)
+    ok 1 - assertRestoreRehearsed requires trusted tenant (fail-closed)
+      ---
+      duration_ms: 0.871208
+      type: 'test'
+      ...
+    # Subtest: assertRestoreRehearsed fails closed before any successful rehearsal
+    ok 2 - assertRestoreRehearsed fails closed before any successful rehearsal
+      ---
+      duration_ms: 11.673042
+      type: 'test'
+      ...
+    # Subtest: createBackupRestoreRuntime requires trusted tenant (fail-closed)
+    ok 3 - createBackupRestoreRuntime requires trusted tenant (fail-closed)
+      ---
+      duration_ms: 0.894583
+      type: 'test'
+      ...
+    1..3
+ok 4 - F-13 \#53 stop condition: unrehearsed restore
+  ---
+  duration_ms: 13.879125
+  type: 'suite'
+  ...
+# Subtest: F-13 \#53 backup restore is actually rehearsed
+    # Subtest: wipe+restore+reconcile proves backup; unrehearsed gate then passes
+    ok 1 - wipe+restore+reconcile proves backup; unrehearsed gate then passes
+      ---
+      duration_ms: 182.344792
+      type: 'test'
+      ...
+    # Subtest: rehearsal freezes writers mid-restore and refuses premature thaw
+    ok 2 - rehearsal freezes writers mid-restore and refuses premature thaw
+      ---
+      duration_ms: 159.58275
+      type: 'test'
+      ...
+    # Subtest: incomplete backup surfaces refuse rehearsal (fail-closed)
+    ok 3 - incomplete backup surfaces refuse rehearsal (fail-closed)
+      ---
+      duration_ms: 40.875458
+      type: 'test'
+      ...
+    1..3
+ok 5 - F-13 \#53 backup restore is actually rehearsed
+  ---
+  duration_ms: 382.938208
+  type: 'suite'
+  ...
+# Subtest: F-13 tenant isolation of backup epochs/artifacts/runs
+    # Subtest: tenant B cannot see, select, rehearse, or assert tenant A backups
+    ok 1 - tenant B cannot see, select, rehearse, or assert tenant A backups
+      ---
+      duration_ms: 193.5005
+      type: 'test'
+      ...
+    # Subtest: tenant B durable rows stay isolated during tenant A rehearsal
+    ok 2 - tenant B durable rows stay isolated during tenant A rehearsal
+      ---
+      duration_ms: 143.399583
+      type: 'test'
+      ...
+    1..2
+ok 6 - F-13 tenant isolation of backup epochs/artifacts/runs
+  ---
+  duration_ms: 336.997375
+  type: 'suite'
+  ...
+# Subtest: F-13 \#53 negative restore proofs (fail-closed)
+    # Subtest: corrupted postgres backup fingerprint/payload fails rehearsal
+    ok 1 - corrupted postgres backup fingerprint/payload fails rehearsal
+      ---
+      duration_ms: 37.9105
+      type: 'test'
+      ...
+    # Subtest: missing or mismatched object-storage version fails at DB/runtime boundary
+    ok 2 - missing or mismatched object-storage version fails at DB/runtime boundary
+      ---
+      duration_ms: 358.007417
+      type: 'test'
+      ...
+    # Subtest: mismatched git provenance fails rehearsal
+    ok 3 - mismatched git provenance fails rehearsal
+      ---
+      duration_ms: 158.402334
+      type: 'test'
+      ...
+    # Subtest: missing derived-index rebuild fails closed
+    ok 4 - missing derived-index rebuild fails closed
+      ---
+      duration_ms: 108.375291
+      type: 'test'
+      ...
+    # Subtest: SUCCESS constraint rejects premature writer thaw proof
+    ok 5 - SUCCESS constraint rejects premature writer thaw proof
+      ---
+      duration_ms: 2.197208
+      type: 'test'
+      ...
+    1..5
+ok 7 - F-13 \#53 negative restore proofs (fail-closed)
+  ---
+  duration_ms: 665.088
+  type: 'suite'
+  ...
+# Subtest: dry-run contracts next slice and stops at WAITING_ON_OWNER
+ok 8 - dry-run contracts next slice and stops at WAITING_ON_OWNER
+  ---
+  duration_ms: 466.755291
+  type: 'test'
+  ...
+# Subtest: resume: state.json persists and is reloaded
+ok 9 - resume: state.json persists and is reloaded
+  ---
+  duration_ms: 330.937041
+  type: 'test'
+  ...
+# Subtest: dry-run then normal run resumes with injected mocks (no app phase files)
+ok 10 - dry-run then normal run resumes with injected mocks (no app phase files)
+  ---
+  duration_ms: 579.040084
+  type: 'test'
+  ...
+# Subtest: genuine WAITING_ON_OWNER (dry_run_checkpoint:false) stays permanent
+ok 11 - genuine WAITING_ON_OWNER (dry_run_checkpoint:false) stays permanent
+  ---
+  duration_ms: 275.231
+  type: 'test'
+  ...
+# Subtest: legacy dry-run WAITING_ON_OWNER without dry_run_checkpoint field resumes
+ok 12 - legacy dry-run WAITING_ON_OWNER without dry_run_checkpoint field resumes
+  ---
+  duration_ms: 354.036334
+  type: 'test'
+  ...
+# Subtest: malformed review stops at REVIEW_PROTOCOL_ERROR
+ok 13 - malformed review stops at REVIEW_PROTOCOL_ERROR
+  ---
+  duration_ms: 448.288375
+  type: 'test'
+  ...
+# Subtest: PASS_WITH_FIXES then PASS accepts the phase
+ok 14 - PASS_WITH_FIXES then PASS accepts the phase
+  ---
+  duration_ms: 330.842125
+  type: 'test'
+  ...
+# Subtest: PASS_WITH_FIXES twice fails closed (no 3rd cycle)
+ok 15 - PASS_WITH_FIXES twice fails closed (no 3rd cycle)
+  ---
+  duration_ms: 358.456917
+  type: 'test'
+  ...
+# Subtest: FAIL on first verdict fails closed
+ok 16 - FAIL on first verdict fails closed
+  ---
+  duration_ms: 325.639667
+  type: 'test'
+  ...
+# Subtest: FAILED_ACCEPTANCE_GATE durable report includes actual blockers; terminal re-run does not replay Cursor
+ok 17 - FAILED_ACCEPTANCE_GATE durable report includes actual blockers; terminal re-run does not replay Cursor
+  ---
+  duration_ms: 521.702
+  type: 'test'
+  ...
+# Subtest: PASS_WITH_FIXES then FAIL persists second-verdict blockers
+ok 18 - PASS_WITH_FIXES then FAIL persists second-verdict blockers
+  ---
+  duration_ms: 403.697
+  type: 'test'
+  ...
+# Subtest: tests failing before review fails closed (no Codex call)
+ok 19 - tests failing before review fails closed (no Codex call)
+  ---
+  duration_ms: 366.00825
+  type: 'test'
+  ...
+# Subtest: dirty Git state is refused
+ok 20 - dirty Git state is refused
+  ---
+  duration_ms: 227.478916
+  type: 'test'
+  ...
+# Subtest: clean + dry-run succeeds
+ok 21 - clean + dry-run succeeds
+  ---
+  duration_ms: 358.536417
+  type: 'test'
+  ...
+# Subtest: dirty + dry-run fails closed before phase work (no writers)
+ok 22 - dirty + dry-run fails closed before phase work (no writers)
+  ---
+  duration_ms: 240.914875
+  type: 'test'
+  ...
+# Subtest: dirty + normal mode fails closed before phase work (no writers)
+ok 23 - dirty + normal mode fails closed before phase work (no writers)
+  ---
+  duration_ms: 275.143958
+  type: 'test'
+  ...
+# Subtest: run refuses on protected main branch
+ok 24 - run refuses on protected main branch
+  ---
+  duration_ms: 286.820375
+  type: 'test'
+  ...
+# Subtest: SOT mismatch refuses and leaves real SOT unchanged
+ok 25 - SOT mismatch refuses and leaves real SOT unchanged
+  ---
+  duration_ms: 194.468959
+  type: 'test'
+  ...
+# Subtest: approved manifest hash constant matches the real repo
+ok 26 - approved manifest hash constant matches the real repo
+  ---
+  duration_ms: 3.537875
+  type: 'test'
+  ...
+# Subtest: every foundation slice has business_write_autonomy DISABLED
+ok 27 - every foundation slice has business_write_autonomy DISABLED
+  ---
+  duration_ms: 0.199625
+  type: 'test'
+  ...
+# Subtest: validatePhaseContract rejects non-DISABLED autonomy
+ok 28 - validatePhaseContract rejects non-DISABLED autonomy
+  ---
+  duration_ms: 0.324625
+  type: 'test'
+  ...
+# Subtest: runner never merges to main
+ok 29 - runner never merges to main
+  ---
+  duration_ms: 418.276042
+  type: 'test'
+  ...
+# Subtest: defaultCursorInvoker uses native headless agent flags with no secret env
+ok 30 - defaultCursorInvoker uses native headless agent flags with no secret env
+  ---
+  duration_ms: 0.223209
+  type: 'test'
+  ...
+# Subtest: defaultCodexInvoker uses read-only never-approval ephemeral json form
+ok 31 - defaultCodexInvoker uses read-only never-approval ephemeral json form
+  ---
+  duration_ms: 1.304125
+  type: 'test'
+  ...
+# Subtest: parseVerdict recognizes exact tokens
+ok 32 - parseVerdict recognizes exact tokens
+  ---
+  duration_ms: 0.381125
+  type: 'test'
+  ...
+# Subtest: parseVerdict fails closed on zero or multiple authoritative tokens
+ok 33 - parseVerdict fails closed on zero or multiple authoritative tokens
+  ---
+  duration_ms: 0.064666
+  type: 'test'
+  ...
+# Subtest: structured review protocol parses PASS, PASS_WITH_FIXES, and FAIL
+ok 34 - structured review protocol parses PASS, PASS_WITH_FIXES, and FAIL
+  ---
+  duration_ms: 0.143583
+  type: 'test'
+  ...
+# Subtest: malformed review is REVIEW_PROTOCOL_ERROR and resumes without Cursor/build replay
+ok 35 - malformed review is REVIEW_PROTOCOL_ERROR and resumes without Cursor/build replay
+  ---
+  duration_ms: 440.659334
+  type: 'test'
+  ...
+# Subtest: successful review reconciliation clears stale failed acceptance state, then next invocation advances
+ok 36 - successful review reconciliation clears stale failed acceptance state, then next invocation advances
+  ---
+  duration_ms: 855.315
+  type: 'test'
+  ...
+# Subtest: completed phase remains safely stopped at READY in the accepting invocation
+ok 37 - completed phase remains safely stopped at READY in the accepting invocation
+  ---
+  duration_ms: 424.222625
+  type: 'test'
+  ...
+# Subtest: F-12 READY advances to SOT-derived F-13 without replaying F-12
+ok 38 - F-12 READY advances to SOT-derived F-13 without replaying F-12
+  ---
+  duration_ms: 344.43425
+  type: 'test'
+  ...
+# Subtest: READY advancement cannot skip a required SOT slice
+ok 39 - READY advancement cannot skip a required SOT slice
+  ---
+  duration_ms: 242.949792
+  type: 'test'
+  ...
+# Subtest: duplicate READY invocation cannot launch two next phases
+ok 40 - duplicate READY invocation cannot launch two next phases
+  ---
+  duration_ms: 180.553542
+  type: 'test'
+  ...
+# Subtest: READY transition preserves accepted SHA while carrying current clean controller HEAD
+ok 41 - READY transition preserves accepted SHA while carrying current clean controller HEAD
+  ---
+  duration_ms: 224.706458
+  type: 'test'
+  ...
+# Subtest: determineNextSlice returns first incomplete slice
+ok 42 - determineNextSlice returns first incomplete slice
+  ---
+  duration_ms: 87.409041
+  type: 'test'
+  ...
+# Subtest: determineNextSlice returns null when all markers present (V1_0_COMPLETE)
+ok 43 - determineNextSlice returns null when all markers present (V1_0_COMPLETE)
+  ---
+  duration_ms: 87.5635
+  type: 'test'
+  ...
+# Subtest: run reaches V1_0_COMPLETE when all slices already evidenced
+ok 44 - run reaches V1_0_COMPLETE when all slices already evidenced
+  ---
+  duration_ms: 121.041666
+  type: 'test'
+  ...
+# (node:31071) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 candidate registry + verifier (items 9–10)
+    # Subtest: A–E: binds branch/SHA/PR/CI and verification to exact SHA
+    ok 1 - A–E: binds branch/SHA/PR/CI and verification to exact SHA
+      ---
+      duration_ms: 23.014833
+      type: 'test'
+      ...
+    # Subtest: F: changing SHA invalidates old verification/approval
+    ok 2 - F: changing SHA invalidates old verification/approval
+      ---
+      duration_ms: 7.884458
+      type: 'test'
+      ...
+    # Subtest: G: stale/cancelled run cannot authorize candidate
+    ok 3 - G: stale/cancelled run cannot authorize candidate
+      ---
+      duration_ms: 2.361875
+      type: 'test'
+      ...
+    # Subtest: H: worker saying PASS cannot override failing verification
+    ok 4 - H: worker saying PASS cannot override failing verification
+      ---
+      duration_ms: 1.584125
+      type: 'test'
+      ...
+    # Subtest: missing GitHub landing evidence cannot PASS (Codex blocker)
+    ok 5 - missing GitHub landing evidence cannot PASS (Codex blocker)
+      ---
+      duration_ms: 3.609291
+      type: 'test'
+      ...
+    # Subtest: PR head_ref must equal candidate.branch (Codex blocker)
+    ok 6 - PR head_ref must equal candidate.branch (Codex blocker)
+      ---
+      duration_ms: 3.395708
+      type: 'test'
+      ...
+    # Subtest: re-verify FAIL invalidates prior PASS authority (Codex blocker)
+    ok 7 - re-verify FAIL invalidates prior PASS authority (Codex blocker)
+      ---
+      duration_ms: 5.54025
+      type: 'test'
+      ...
+    # Subtest: same-SHA CI change invalidates prior PASS authority (Codex blocker)
+    ok 8 - same-SHA CI change invalidates prior PASS authority (Codex blocker)
+      ---
+      duration_ms: 1.982166
+      type: 'test'
+      ...
+    # Subtest: verification for SHA A cannot authorize SHA B
+    ok 9 - verification for SHA A cannot authorize SHA B
+      ---
+      duration_ms: 1.2335
+      type: 'test'
+      ...
+    1..9
+ok 45 - Stage-1 candidate registry + verifier (items 9–10)
+  ---
+  duration_ms: 51.651583
+  type: 'suite'
+  ...
+# LIVE_CANDIDATE_SMOKE candidate_id=cand_e3f62854-2c9a-41f3-8c5b-490076e2ed41 commit_sha=bf77e0b616baa90bfd6e9acc7218d42b87b4e16b pr=54 ci=pending/null
+# Subtest: Stage-1 live GitHub candidate smoke (disposable PR)
+    # Subtest: captures branch/SHA/PR/CI for a disposable draft PR (no merge)
+    ok 1 - captures branch/SHA/PR/CI for a disposable draft PR (no merge)
+      ---
+      duration_ms: 14439.957708
+      type: 'test'
+      ...
+    1..1
+ok 46 - Stage-1 live GitHub candidate smoke (disposable PR)
+  ---
+  duration_ms: 14440.123
+  type: 'suite'
+  ...
+# (node:31072) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 exact CI wait (A–G)
+    # Subtest: A: pending → success continues (SUCCESS outcome + evidence)
+    ok 1 - A: pending → success continues (SUCCESS outcome + evidence)
+      ---
+      duration_ms: 28.322916
+      type: 'test'
+      ...
+    # Subtest: B: pending → failure fails (FAILURE outcome)
+    ok 2 - B: pending → failure fails (FAILURE outcome)
+      ---
+      duration_ms: 2.198042
+      type: 'test'
+      ...
+    # Subtest: C: pending → timeout BLOCKED
+    ok 3 - C: pending → timeout BLOCKED
+      ---
+      duration_ms: 4.892458
+      type: 'test'
+      ...
+    # Subtest: D: SHA change invalidates old CI evidence
+    ok 4 - D: SHA change invalidates old CI evidence
+      ---
+      duration_ms: 7.592625
+      type: 'test'
+      ...
+    # Subtest: E: wrong PR/branch fails closed
+    ok 5 - E: wrong PR/branch fails closed
+      ---
+      duration_ms: 3.391042
+      type: 'test'
+      ...
+    # Subtest: F: restart while waiting resumes safely without duplicate worker launch
+    ok 6 - F: restart while waiting resumes safely without duplicate worker launch
+      ---
+      duration_ms: 8.452708
+      type: 'test'
+      ...
+    # Subtest: G: no smoke-only CI bypass exists
+    ok 7 - G: no smoke-only CI bypass exists
+      ---
+      duration_ms: 1.644834
+      type: 'test'
+      ...
+    # Subtest: emits CI wait lifecycle events with evidence
+    ok 8 - emits CI wait lifecycle events with evidence
+      ---
+      duration_ms: 2.801625
+      type: 'test'
+      ...
+    1..8
+ok 47 - Stage-1 exact CI wait (A–G)
+  ---
+  duration_ms: 60.862875
+  type: 'suite'
+  ...
+# (node:31073) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 Builder Core (items 2–5)
+    # Subtest: boundary: Jarvis Interface vs Builder Core
+        # Subtest: keeps distinct trust domains and refuses business-core authority
+        ok 1 - keeps distinct trust domains and refuses business-core authority
+          ---
+          duration_ms: 19.498542
+          type: 'test'
+          ...
+        # Subtest: delegates typed commands to Builder Core
+        ok 2 - delegates typed commands to Builder Core
+          ---
+          duration_ms: 11.201709
+          type: 'test'
+          ...
+        # Subtest: fails closed on unknown commands
+        ok 3 - fails closed on unknown commands
+          ---
+          duration_ms: 1.411917
+          type: 'test'
+          ...
+        1..3
+    ok 1 - boundary: Jarvis Interface vs Builder Core
+      ---
+      duration_ms: 32.568125
+      type: 'suite'
+      ...
+    # Subtest: Stage-1 IDs and contracts
+        # Subtest: mints distinct prefixed IDs
+        ok 1 - mints distinct prefixed IDs
+          ---
+          duration_ms: 0.579041
+          type: 'test'
+          ...
+        # Subtest: validates enums and stable content hashes
+        ok 2 - validates enums and stable content hashes
+          ---
+          duration_ms: 0.417167
+          type: 'test'
+          ...
+        1..2
+    ok 2 - Stage-1 IDs and contracts
+      ---
+      duration_ms: 1.148584
+      type: 'suite'
+      ...
+    # Subtest: durable task/run/candidate/approval/event state
+        # Subtest: persists and reconstructs nonterminal state across reopen
+        ok 1 - persists and reconstructs nonterminal state across reopen
+          ---
+          duration_ms: 24.549583
+          type: 'test'
+          ...
+        # Subtest: stores events and rejects invalid failure classes at the store layer
+        ok 2 - stores events and rejects invalid failure classes at the store layer
+          ---
+          duration_ms: 0.748
+          type: 'test'
+          ...
+        1..2
+    ok 3 - durable task/run/candidate/approval/event state
+      ---
+      duration_ms: 26.653166
+      type: 'suite'
+      ...
+    # Subtest: task locking and immutable acceptance/hash binding
+        # Subtest: locks owner intent into immutable proposal_id + content_hash
+        ok 1 - locks owner intent into immutable proposal_id + content_hash
+          ---
+          duration_ms: 0.732042
+          type: 'test'
+          ...
+        # Subtest: rejects mutation of locked acceptance / paths / tools / intent
+        ok 2 - rejects mutation of locked acceptance / paths / tools / intent
+          ---
+          duration_ms: 0.906709
+          type: 'test'
+          ...
+        # Subtest: detects tampered locked finish-line fields via hash verification
+        ok 3 - detects tampered locked finish-line fields via hash verification
+          ---
+          duration_ms: 2.066292
+          type: 'test'
+          ...
+        # Subtest: requires lock before run creation
+        ok 4 - requires lock before run creation
+          ---
+          duration_ms: 1.398625
+          type: 'test'
+          ...
+        # Subtest: binds approvals to exact proposal_id + content_hash
+        ok 5 - binds approvals to exact proposal_id + content_hash
+          ---
+          duration_ms: 3.017709
+          type: 'test'
+          ...
+        1..5
+    ok 4 - task locking and immutable acceptance/hash binding
+      ---
+      duration_ms: 8.469125
+      type: 'suite'
+      ...
+    1..4
+ok 48 - Stage-1 Builder Core (items 2–5)
+  ---
+  duration_ms: 69.35675
+  type: 'suite'
+  ...
+# FAILURE_BATTERY {"test_id":"FB-01","initial_state":{"task_id":"task_463361b1-dee4-434d-a51c-158475dcbcd1","factory_run_id":"run_b0b355b4-2ecc-47e0-96c4-4b5cc4685751","status":"RUNNING"},"injected_failure":"worker ERROR mid-run via status()","expected_result":"task durable; evidence preserved; retry allowed with fresh factory_run_id","actual_result":{"task_status":"RUNNING","crashed_run_status":"FAILED","failure_class":"PROVIDER_ERROR","evidence_preserved":true,"fresh_factory_run_id":"run_22349b2f-37f8-4f8e-9811-b591f5785796","same_as_old":false},"evidence":{"events":["WORKER_LAUNCHED","WORKER_STATUS","RETRY_STARTED"],"crashed_evidence":{"launched":true,"crash_mode":"crash-on-status","crashed":true,"at":"mid-run","last_provider_status":"ERROR","last_provider_error":{"code":"WORKER_CRASH","message":"worker terminated mid-run","retryable":true}}},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-02","initial_state":{"old_factory_run_id":"run_878695de-bdfe-4fe1-b0a1-9d90a186ed51","new_factory_run_id":"run_295bd605-f401-41a6-a796-34c23df71e33"},"injected_failure":"stale/old run returns FINISHED after newer run is current","expected_result":"old run cannot register candidate / apply result / change task authority","actual_result":{"staleCandidateBlocked":true,"staleApplyBlocked":true,"task_status":"RUNNING","current":"run_295bd605-f401-41a6-a796-34c23df71e33"},"evidence":{"stale_events":[{"rejected_factory_run_id":"run_878695de-bdfe-4fe1-b0a1-9d90a186ed51","run_status":"STALE","provider_status":"FINISHED"},{"reason":"candidate_from_cancelled_or_stale_run","status":"STALE","code":"STALE_RUN"}],"old_run_status":"STALE"},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-03","initial_state":{"candidate_id":"cand_faf7e4a2-ff6a-4f68-b657-01b777d174f6","task_status":"LOCKED"},"injected_failure":"worker_claim=PASS with failing tests + failing CI","expected_result":"verification FAIL/BLOCKED; not authoritative; worker claim ignored","actual_result":{"result":"FAIL","authoritative":false,"candidate_status":"REJECTED","worker_claim_recorded":"PASS"},"evidence":{"checks":[{"name":"worker_self_certification","ok":null},{"name":"task_tests","ok":false},{"name":"github_landing","ok":true},{"name":"github_ci","ok":false},{"name":"landing_evidence_snapshot","ok":false}],"failure_class":"CI_FAIL"},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-04","initial_state":{"acceptance_ref":"tests/builder-stage1-failure-battery.test.mjs","allowed_paths":["src/builder/","tests/builder-stage1-failure-battery.test.mjs"],"content_hash":"bbbc9d1178f5501a7fe97055952db19a6546f0bc6dbb036d30346dc7b43aab5a","proposal_id":"prop_2befbb42-b31c-4daf-aee6-5c75eb371b8b"},"injected_failure":"mutate acceptance_ref + allowed_paths after lock","expected_result":"mutation rejected; lock hash unchanged","actual_result":{"rejected":true,"acceptance_ref":"tests/builder-stage1-failure-battery.test.mjs","allowed_paths":["src/builder/","tests/builder-stage1-failure-battery.test.mjs"],"content_hash":"bbbc9d1178f5501a7fe97055952db19a6546f0bc6dbb036d30346dc7b43aab5a"},"evidence":{"proposal_id":"prop_2befbb42-b31c-4daf-aee6-5c75eb371b8b","hash_unchanged":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-05","initial_state":{"candA":"cand_e124c285-8078-4c3a-9a00-e350982c5fee","shaA":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"injected_failure":"CI failure on SHA A; then new SHA B candidate","expected_result":"A cannot PASS; A verification not authoritative for B; B needs its own evidence","actual_result":{"a_result":"FAIL","a_authoritative":false,"a_status_after_b":"SUPERSEDED","b_result":"PASS","b_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"evidence":{"a_ci":{"name":"github_ci","ok":false,"authoritative":true,"detail":"{\\"ci_status\\":\\"completed\\",\\"ci_conclusion\\":\\"failure\\",\\"combined_state\\":\\"failure\\"}"},"a_superseded":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-06","initial_state":{"approval_id":"appr_f3986890-4452-4b49-a726-617e74540050","candidate_a":"cand_5d7f7da5-da2d-4b12-b82c-be5b3070ceb5","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"injected_failure":"new candidate B with different SHA","expected_result":"approval A invalidated; cannot authorize B","actual_result":{"approval_status":"INVALIDATED","candidate_b":"cand_7c2fff2e-bc03-4a3b-8494-4584ca0bb840","binds_b":false},"evidence":{"invalidation_events":[{"approval_id":"appr_f3986890-4452-4b49-a726-617e74540050","reason":"candidate_commit_sha_changed","old_commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","new_commit_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-07","initial_state":{"review_id":"rev_b384292d-2264-4270-a3d9-b29fb7062583","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"injected_failure":"candidate SHA changes A -> B after Codex PASS","expected_result":"old review invalidated / not authoritative for B","actual_result":{"review_invalidated":true,"review_authoritative":false,"candidate_b":"cand_5338d586-7f6a-4fcc-91ee-f43d12ae95bf","review_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"evidence":{"review_status":"PASS","a_superseded":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-08","initial_state":{"providers":["cursor","github","web_search"]},"injected_failure":"github unavailable; attempt auto-widen shell","expected_result":"permitted fallback only; else BLOCKED; no permission widening","actual_result":{"fallback_provider":"web_search","fallback_flag":true,"unavailableBlocked":true,"widenRejected":true,"task2_status":"BLOCKED"},"evidence":{"fallback_evidence_id":"trev_59082862-6263-43c7-bd56-2530edd47a05","denied_events":["PROVIDER_UNAVAILABLE"]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-09","initial_state":{"task_id":"task_cfe5c93e-c5d8-419d-8e6c-75c70967ca9e","active_runs":2},"injected_failure":"two durable RUNNING runs after restart","expected_result":"recovery BLOCKED; no guessed current_factory_run_id","actual_result":{"recovery_status":"BLOCKED","reason":"MULTIPLE_ACTIVE_RUNS","current_factory_run_id":null,"pointer":null},"evidence":{"events":["TASK_CREATED","TASK_LOCKED","RUN_CREATED","RECOVERY_BLOCKED"]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-10","initial_state":{"factory_run_id":"run_45e39b6f-a45f-43ba-b49c-df2d20a6843f","launches_before_restart":1},"injected_failure":"process restart while run RUNNING","expected_result":"reconstruct current run; no second launch","actual_result":{"recovery_status":"OK","current_factory_run_id":"run_45e39b6f-a45f-43ba-b49c-df2d20a6843f","launches_after":1,"duplicateBlocked":true},"evidence":{"provider_status":{"ok":true,"read_only":true,"factory_run_id":"run_45e39b6f-a45f-43ba-b49c-df2d20a6843f","provider_status":"RUNNING"},"duplicate_launch_prevented":true},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-11","initial_state":{"max_attempts":2,"first_run":"run_40356903-31d6-4a3d-88ba-aca6db1633d6"},"injected_failure":"repeated TEST_FAIL beyond max_attempts + POLICY_VIOLATION","expected_result":"NEEDS_OWNER/BLOCKED; no infinite retry; policy failures non-retryable","actual_result":{"first_retry_allowed":true,"exhausted_allowed":false,"exhausted_stop":"NEEDS_OWNER","policy_allowed":false,"policy_stop":"BLOCKED","final_status":"BLOCKED"},"evidence":{"events":["RETRY_DENIED","RETRY_STARTED","RETRY_EXHAUSTED"]},"result":"PASS"}
+# FAILURE_BATTERY {"test_id":"FB-12","initial_state":{"task_id":"task_f67a369b-e160-4642-b203-328c240eeccc","tool_manifest":{"providers":["cursor","github","web_search"],"tools":["coding_worker","repo_read","research"],"mode":"build"}},"injected_failure":"business credentials + unauthorized tool + research authority widen","expected_result":"fail closed; POLICY_VIOLATION not retry-weakened","actual_result":{"credBlocked":true,"toolBlocked":true,"researchAuthBlocked":true,"retry_allowed":false,"retry_stop":"BLOCKED"},"evidence":{"task_status":"BLOCKED","denied":["UNAUTHORIZED_TOOL","RESEARCH_AUTHORITY_VIOLATION"]},"result":"PASS"}
+# (node:31074) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 FULL FAILURE BATTERY (item 17)
+    # Subtest: FB-01 WORKER CRASH: mid-run terminate preserves task + evidence; retry fresh factory_run_id
+    ok 1 - FB-01 WORKER CRASH: mid-run terminate preserves task + evidence; retry fresh factory_run_id
+      ---
+      duration_ms: 30.87925
+      type: 'test'
+      ...
+    # Subtest: FB-02 STALE WORKER RETURN: old run cannot regain authority
+    ok 2 - FB-02 STALE WORKER RETURN: old run cannot regain authority
+      ---
+      duration_ms: 3.574084
+      type: 'test'
+      ...
+    # Subtest: FB-03 FALSE WORKER PASS: worker claim ignored when verification fails
+    ok 3 - FB-03 FALSE WORKER PASS: worker claim ignored when verification fails
+      ---
+      duration_ms: 1.790667
+      type: 'test'
+      ...
+    # Subtest: FB-04 FINISH-LINE TAMPERING: acceptance/path mutation rejected
+    ok 4 - FB-04 FINISH-LINE TAMPERING: acceptance/path mutation rejected
+      ---
+      duration_ms: 2.290167
+      type: 'test'
+      ...
+    # Subtest: FB-05 CI FAILURE: failing CI cannot PASS; old CI cannot authorize new SHA
+    ok 5 - FB-05 CI FAILURE: failing CI cannot PASS; old CI cannot authorize new SHA
+      ---
+      duration_ms: 6.086583
+      type: 'test'
+      ...
+    # Subtest: FB-06 APPROVAL INVALIDATION: approval for A invalid for B
+    ok 6 - FB-06 APPROVAL INVALIDATION: approval for A invalid for B
+      ---
+      duration_ms: 8.704042
+      type: 'test'
+      ...
+    # Subtest: FB-07 REVIEW INVALIDATION: review PASS for A cannot authorize B
+    ok 7 - FB-07 REVIEW INVALIDATION: review PASS for A cannot authorize B
+      ---
+      duration_ms: 10.080834
+      type: 'test'
+      ...
+    # Subtest: FB-08 RESEARCH/TOOL PROVIDER FAILURE: fallback only if already permitted else BLOCKED
+    ok 8 - FB-08 RESEARCH/TOOL PROVIDER FAILURE: fallback only if already permitted else BLOCKED
+      ---
+      duration_ms: 3.179667
+      type: 'test'
+      ...
+    # Subtest: FB-09 AUTHORITY/STATE CORRUPTION: ambiguous bindings fail closed
+    ok 9 - FB-09 AUTHORITY/STATE CORRUPTION: ambiguous bindings fail closed
+      ---
+      duration_ms: 10.115583
+      type: 'test'
+      ...
+    # Subtest: FB-10 RESTART DURING ACTIVE WORK: reconstruct; no duplicate launch
+    ok 10 - FB-10 RESTART DURING ACTIVE WORK: reconstruct; no duplicate launch
+      ---
+      duration_ms: 20.586666
+      type: 'test'
+      ...
+    # Subtest: FB-11 RETRY EXHAUSTION: stops at caps; never infinite retry
+    ok 11 - FB-11 RETRY EXHAUSTION: stops at caps; never infinite retry
+      ---
+      duration_ms: 2.181666
+      type: 'test'
+      ...
+    # Subtest: FB-12 SECURITY POLICY FAILURE: credentials/tools/paths fail closed; no weaken-retry
+    ok 12 - FB-12 SECURITY POLICY FAILURE: credentials/tools/paths fail closed; no weaken-retry
+      ---
+      duration_ms: 2.956792
+      type: 'test'
+      ...
+    1..12
+ok 49 - Stage-1 FULL FAILURE BATTERY (item 17)
+  ---
+  duration_ms: 104.601667
+  type: 'suite'
+  ...
+# (node:31075) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 end-to-end orchestration
+    # Subtest: A/B/C/D/E/F/H/L: one owner submit runs pipeline to DONE
+    ok 1 - A/B/C/D/E/F/H/L: one owner submit runs pipeline to DONE
+      ---
+      duration_ms: 34.802917
+      type: 'test'
+      ...
+    # Subtest: G: REQUEST_CHANGES enters bounded repair/retry with fresh factory_run_id
+    ok 2 - G: REQUEST_CHANGES enters bounded repair/retry with fresh factory_run_id
+      ---
+      duration_ms: 13.493333
+      type: 'test'
+      ...
+    # Subtest: I: exhausted retry becomes NEEDS_OWNER/BLOCKED
+    ok 3 - I: exhausted retry becomes NEEDS_OWNER/BLOCKED
+      ---
+      duration_ms: 13.858959
+      type: 'test'
+      ...
+    # Subtest: J: restart during orchestration reconstructs safely
+    ok 4 - J: restart during orchestration reconstructs safely
+      ---
+      duration_ms: 18.141791
+      type: 'test'
+      ...
+    # Subtest: K: stale run cannot complete task
+    ok 5 - K: stale run cannot complete task
+      ---
+      duration_ms: 2.156
+      type: 'test'
+      ...
+    1..5
+ok 50 - Stage-1 end-to-end orchestration
+  ---
+  duration_ms: 83.774208
+  type: 'suite'
+  ...
+# LIVE_ORCH_SMOKE decision=DONE reason=verified_and_reviewed task=task_eeca00de-2225-476d-867a-1ce8ac99bfa6 run=run_8d5b63e7-be22-48cc-8d97-0d914a9bc5d0 provider=run-d373f7fb-96aa-414f-82d2-9e53d2b702c7 candidate=cand_f6e24309-262c-4c69-bf34-e906b5cd3519 sha=956a222fbc70220edc639530712ca3b8d9ca2a0e pr=https://github.com/mac313248/jarvis-agencyos/pull/55 ci=completed/success verify=PASS review=PASS primary_model=gpt-5.6-luna fallback_model=null fallback_used=false model_used=gpt-5.6-luna owner_interventions=0 missing=[]
+# Subtest: Stage-1 live disposable orchestration smoke
+    # Subtest: owner command path with real Cursor + verify + Codex when available
+    ok 1 - owner command path with real Cursor + verify + Codex when available
+      ---
+      duration_ms: 112632.647625
+      type: 'test'
+      ...
+    1..1
+ok 51 - Stage-1 live disposable orchestration smoke
+  ---
+  duration_ms: 112632.892333
+  type: 'suite'
+  ...
+# (node:31076) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 WorkerProvider + CursorProvider (items 6–8)
+    # Subtest: WorkerProvider interface
+        # Subtest: requires launch/status/cancel/collect
+        ok 1 - requires launch/status/cancel/collect
+          ---
+          duration_ms: 5.070708
+          type: 'test'
+          ...
+        # Subtest: rejects provider results that claim task DONE
+        ok 2 - rejects provider results that claim task DONE
+          ---
+          duration_ms: 0.289417
+          type: 'test'
+          ...
+        # Subtest: abstract WorkerProvider methods fail closed
+        ok 3 - abstract WorkerProvider methods fail closed
+          ---
+          duration_ms: 0.831209
+          type: 'test'
+          ...
+        1..3
+    ok 1 - WorkerProvider interface
+      ---
+      duration_ms: 6.83975
+      type: 'suite'
+      ...
+    # Subtest: CursorProvider security + mapping
+        # Subtest: maps cursor statuses and forbids business credentials
+        ok 1 - maps cursor statuses and forbids business credentials
+          ---
+          duration_ms: 1.666917
+          type: 'test'
+          ...
+        # Subtest: launch/status/cancel/collect with fake SDK and maps factory_run_id
+        ok 2 - launch/status/cancel/collect with fake SDK and maps factory_run_id
+          ---
+          duration_ms: 2.329792
+          type: 'test'
+          ...
+        # Subtest: status trusts API getRun over stale in-memory handle error
+        ok 3 - status trusts API getRun over stale in-memory handle error
+          ---
+          duration_ms: 0.398208
+          type: 'test'
+          ...
+        # Subtest: preserves truthful auth/launch errors
+        ok 4 - preserves truthful auth/launch errors
+          ---
+          duration_ms: 0.227917
+          type: 'test'
+          ...
+        # Subtest: createCursorSdkAdapter exposes official Agent/Cursor surface
+        ok 5 - createCursorSdkAdapter exposes official Agent/Cursor surface
+          ---
+          duration_ms: 0.227792
+          type: 'test'
+          ...
+        1..5
+    ok 2 - CursorProvider security + mapping
+      ---
+      duration_ms: 5.219333
+      type: 'suite'
+      ...
+    # Subtest: Builder Core fencing around CursorProvider
+        # Subtest: A–F: launch/status/cancel/collect + factory↔provider mapping + timeout/error
+        ok 1 - A–F: launch/status/cancel/collect + factory↔provider mapping + timeout/error
+          ---
+          duration_ms: 8.975292
+          type: 'test'
+          ...
+        # Subtest: G: cancelled/stale run cannot become authoritative later
+        ok 2 - G: cancelled/stale run cannot become authoritative later
+          ---
+          duration_ms: 7.132875
+          type: 'test'
+          ...
+        # Subtest: collect after cancel cannot revive a cancelled run
+        ok 3 - collect after cancel cannot revive a cancelled run
+          ---
+          duration_ms: 2.005583
+          type: 'test'
+          ...
+        # Subtest: H: only one coding worker can be active
+        ok 4 - H: only one coding worker can be active
+          ---
+          duration_ms: 2.44825
+          type: 'test'
+          ...
+        1..4
+    ok 3 - Builder Core fencing around CursorProvider
+      ---
+      duration_ms: 20.694584
+      type: 'suite'
+      ...
+# LIVE_SMOKE factory_run_id=run_92d15873-617b-4d6c-8bac-89349ce9c139 provider_run_id=run-89562f05-2c17-46d3-a244-776c8004a390 provider_agent_id=bc-fc15366b-3a26-4bb9-a404-cc50dbf8a29a
+    # Subtest: Live Cursor smoke (environment-limited)
+        # Subtest: probes official SDK auth and does not invent success on invalid key
+        ok 1 - probes official SDK auth and does not invent success on invalid key
+          ---
+          duration_ms: 6714.269666
+          type: 'test'
+          ...
+        1..1
+    ok 4 - Live Cursor smoke (environment-limited)
+      ---
+      duration_ms: 6714.640666
+      type: 'suite'
+      ...
+    1..4
+ok 52 - Stage-1 WorkerProvider + CursorProvider (items 6–8)
+  ---
+  duration_ms: 6748.10375
+  type: 'suite'
+  ...
+# LIVE_CODEX_REVIEW review_id=rev_fc73a82f-a020-40b3-85b6-d9b902a03b95 candidate_id=cand_a29b5049-8a0a-4569-8663-659056ab71de commit_sha=54b038ebcabc6ef6f40a1bcab5838abef4119213 review_status=REQUEST_CHANGES gate=FAIL
+# (node:31194) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 Codex review (item 11)
+    # Subtest: defaults review_required=true and requires verifier before Codex
+    ok 1 - defaults review_required=true and requires verifier before Codex
+      ---
+      duration_ms: 6.649917
+      type: 'test'
+      ...
+    # Subtest: A–C: stores Codex review bound to exact candidate/SHA
+    ok 2 - A–C: stores Codex review bound to exact candidate/SHA
+      ---
+      duration_ms: 6.136958
+      type: 'test'
+      ...
+    # Subtest: D: SHA change invalidates old review
+    ok 3 - D: SHA change invalidates old review
+      ---
+      duration_ms: 2.92375
+      type: 'test'
+      ...
+    # Subtest: re-verify invalidates prior PASS review authority
+    ok 4 - re-verify invalidates prior PASS review authority
+      ---
+      duration_ms: 5.387
+      type: 'test'
+      ...
+    # Subtest: stale caller-supplied verification cannot authorize Codex review
+    ok 5 - stale caller-supplied verification cannot authorize Codex review
+      ---
+      duration_ms: 23.06425
+      type: 'test'
+      ...
+    # Subtest: E: REQUEST_CHANGES prevents acceptance gate
+    ok 6 - E: REQUEST_CHANGES prevents acceptance gate
+      ---
+      duration_ms: 4.554042
+      type: 'test'
+      ...
+    # Subtest: F: Codex failure when review_required=true => BLOCKED
+    ok 7 - F: Codex failure when review_required=true => BLOCKED
+      ---
+      duration_ms: 2.464375
+      type: 'test'
+      ...
+    # Subtest: G: review_required=false bypasses Codex only, not deterministic verification
+    ok 8 - G: review_required=false bypasses Codex only, not deterministic verification
+      ---
+      duration_ms: 6.110166
+      type: 'test'
+      ...
+    # Subtest: H: reviewer cannot modify candidate/task/acceptance
+    ok 9 - H: reviewer cannot modify candidate/task/acceptance
+      ---
+      duration_ms: 15.957666
+      type: 'test'
+      ...
+    # Subtest: parses Codex JSONL/agent_message protocol
+    ok 10 - parses Codex JSONL/agent_message protocol
+      ---
+      duration_ms: 1.397875
+      type: 'test'
+      ...
+    1..10
+ok 53 - Stage-1 Codex review (item 11)
+  ---
+  duration_ms: 76.356125
+  type: 'suite'
+  ...
+# Subtest: Stage-1 approval binding (item 12) + stale-run fencing (item 13)
+    # Subtest: approval binds proposal_id + content_hash + candidate/commit and invalidates on SHA change
+    ok 1 - approval binds proposal_id + content_hash + candidate/commit and invalidates on SHA change
+      ---
+      duration_ms: 21.285709
+      type: 'test'
+      ...
+    # Subtest: stale/cancelled run cannot produce authoritative candidate/review
+    ok 2 - stale/cancelled run cannot produce authoritative candidate/review
+      ---
+      duration_ms: 103.215166
+      type: 'test'
+      ...
+    1..2
+ok 54 - Stage-1 approval binding (item 12) + stale-run fencing (item 13)
+  ---
+  duration_ms: 124.926916
+  type: 'suite'
+  ...
+# Subtest: Stage-1 bounded retry/repair (item 14)
+    # Subtest: mints fresh factory_run_id, enforces caps, denies hard policy failures
+    ok 1 - mints fresh factory_run_id, enforces caps, denies hard policy failures
+      ---
+      duration_ms: 5.490625
+      type: 'test'
+      ...
+    1..1
+ok 55 - Stage-1 bounded retry/repair (item 14)
+  ---
+  duration_ms: 5.655
+  type: 'suite'
+  ...
+# Subtest: Stage-1 Codex capacity-only model fallback
+    # Subtest: retries once on capacity with same prompt; never on auth/policy
+    ok 1 - retries once on capacity with same prompt; never on auth/policy
+      ---
+      duration_ms: 3.188459
+      type: 'test'
+      ...
+    1..1
+ok 56 - Stage-1 Codex capacity-only model fallback
+  ---
+  duration_ms: 3.330709
+  type: 'suite'
+  ...
+# Subtest: Stage-1 live Codex review smoke
+    # Subtest: A–C live: Codex read-only review of exact candidate SHA
+    ok 1 - A–C live: Codex read-only review of exact candidate SHA
+      ---
+      duration_ms: 9737.346125
+      type: 'test'
+      ...
+    1..1
+ok 57 - Stage-1 live Codex review smoke
+  ---
+  duration_ms: 9737.459
+  type: 'suite'
+  ...
+# (node:31204) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 secret redaction
+    # Subtest: redacts sensitive keys and known secret value shapes
+    ok 1 - redacts sensitive keys and known secret value shapes
+      ---
+      duration_ms: 1.0075
+      type: 'test'
+      ...
+    # Subtest: CursorProvider never exposes key via JSON/inspect/errors/evidence
+    ok 2 - CursorProvider never exposes key via JSON/inspect/errors/evidence
+      ---
+      duration_ms: 2.073166
+      type: 'test'
+      ...
+    # Subtest: durable store + trajectory redacts secrets from evidence/events/errors
+    ok 3 - durable store + trajectory redacts secrets from evidence/events/errors
+      ---
+      duration_ms: 3.5055
+      type: 'test'
+      ...
+    # Subtest: loadCursorApiKey errors never embed key material
+    ok 4 - loadCursorApiKey errors never embed key material
+      ---
+      duration_ms: 0.34575
+      type: 'test'
+      ...
+    1..4
+ok 58 - Stage-1 secret redaction
+  ---
+  duration_ms: 7.412875
+  type: 'suite'
+  ...
+# (node:31216) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: Stage-1 tool manifest / research policy (item 15)
+    # Subtest: A: allowed tool works and preserves provenance
+    ok 1 - A: allowed tool works and preserves provenance
+      ---
+      duration_ms: 4.975583
+      type: 'test'
+      ...
+    # Subtest: B: unauthorized tool is blocked
+    ok 2 - B: unauthorized tool is blocked
+      ---
+      duration_ms: 1.068166
+      type: 'test'
+      ...
+    # Subtest: C: research content attempts to change authority and fails
+    ok 3 - C: research content attempts to change authority and fails
+      ---
+      duration_ms: 1.406792
+      type: 'test'
+      ...
+    # Subtest: D: unavailable permitted provider gives truthful fallback or BLOCKED
+    ok 4 - D: unavailable permitted provider gives truthful fallback or BLOCKED
+      ---
+      duration_ms: 4.813208
+      type: 'test'
+      ...
+    # Subtest: tool_manifest is immutable after lock (no automatic widening)
+    ok 5 - tool_manifest is immutable after lock (no automatic widening)
+      ---
+      duration_ms: 1.941833
+      type: 'test'
+      ...
+    1..5
+ok 59 - Stage-1 tool manifest / research policy (item 15)
+  ---
+  duration_ms: 14.872375
+  type: 'suite'
+  ...
+# Subtest: Stage-1 restart / recovery reconciliation (item 16)
+    # Subtest: E/H: restart reconstructs nonterminal task + candidate/verification/review bindings
+    ok 1 - E/H: restart reconstructs nonterminal task + candidate/verification/review bindings
+      ---
+      duration_ms: 25.460833
+      type: 'test'
+      ...
+    # Subtest: F: restart does not duplicate active worker launch
+    ok 2 - F: restart does not duplicate active worker launch
+      ---
+      duration_ms: 16.448208
+      type: 'test'
+      ...
+    # Subtest: G: cancelled/stale run stays non-authoritative after restart
+    ok 3 - G: cancelled/stale run stays non-authoritative after restart
+      ---
+      duration_ms: 10.411
+      type: 'test'
+      ...
+    # Subtest: I: corrupted/ambiguous recovery state fails closed
+    ok 4 - I: corrupted/ambiguous recovery state fails closed
+      ---
+      duration_ms: 49.885584
+      type: 'test'
+      ...
+    # Subtest: old verification cannot regain authority after SHA change + restart
+    ok 5 - old verification cannot regain authority after SHA change + restart
+      ---
+      duration_ms: 61.909708
+      type: 'test'
+      ...
+    1..5
+ok 60 - Stage-1 restart / recovery reconciliation (item 16)
+  ---
+  duration_ms: 165.639334
+  type: 'suite'
+  ...
+# Subtest: P2-1 capability contract fields
+    # Subtest: P2-1 validated object matches canonical 06 field set
+    ok 1 - P2-1 validated object matches canonical 06 field set
+      ---
+      duration_ms: 0.801375
+      type: 'test'
+      ...
+    # Subtest: P2-1 persisted row round-trips all canonical fields
+    ok 2 - P2-1 persisted row round-trips all canonical fields
+      ---
+      duration_ms: 9.677333
+      type: 'test'
+      ...
+    # Subtest: P2-1 contract_metadata records Capability v1
+    ok 3 - P2-1 contract_metadata records Capability v1
+      ---
+      duration_ms: 1.012958
+      type: 'test'
+      ...
+    1..3
+ok 61 - P2-1 capability contract fields
+  ---
+  duration_ms: 2497.347625
+  type: 'suite'
+  ...
+# Subtest: P2-2..P2-6 capability RLS / tenant isolation
+    # Subtest: seed Tenant B capability as bootstrap, invisible to A
+    ok 1 - seed Tenant B capability as bootstrap, invisible to A
+      ---
+      duration_ms: 1.041292
+      type: 'test'
+      ...
+    # Subtest: P2-2 Tenant A cannot enumerate/read Tenant B capability rows
+    ok 2 - P2-2 Tenant A cannot enumerate/read Tenant B capability rows
+      ---
+      duration_ms: 4.147458
+      type: 'test'
+      ...
+    # Subtest: P2-3 Tenant A cannot INSERT/UPDATE/DELETE Tenant B capability rows
+    ok 3 - P2-3 Tenant A cannot INSERT/UPDATE/DELETE Tenant B capability rows
+      ---
+      duration_ms: 19.860833
+      type: 'test'
+      ...
+    # Subtest: P2-4 missing tenant context fails closed for capabilities
+    ok 4 - P2-4 missing tenant context fails closed for capabilities
+      ---
+      duration_ms: 5.227583
+      type: 'test'
+      ...
+    # Subtest: P2-5 runtime role non-superuser / no BYPASSRLS / not capabilities owner
+    ok 5 - P2-5 runtime role non-superuser / no BYPASSRLS / not capabilities owner
+      ---
+      duration_ms: 2.378333
+      type: 'test'
+      ...
+    # Subtest: P2-6 cross-tenant capability fallback reference rejected
+    ok 6 - P2-6 cross-tenant capability fallback reference rejected
+      ---
+      duration_ms: 21.764791
+      type: 'test'
+      ...
+    1..6
+ok 62 - P2-2..P2-6 capability RLS / tenant isolation
+  ---
+  duration_ms: 54.93125
+  type: 'suite'
+  ...
+# Subtest: P2-7..P2-9 / P2-16 resolver lifecycle + tenant binding
+    # Subtest: P2-7 unknown capability fails closed
+    ok 1 - P2-7 unknown capability fails closed
+      ---
+      duration_ms: 9.625875
+      type: 'test'
+      ...
+    # Subtest: P2-8 status=disabled cannot resolve as executable
+    ok 2 - P2-8 status=disabled cannot resolve as executable
+      ---
+      duration_ms: 9.595042
+      type: 'test'
+      ...
+    # Subtest: P2-9 status=degraded is not silently treated as active
+    ok 3 - P2-9 status=degraded is not silently treated as active
+      ---
+      duration_ms: 7.886167
+      type: 'test'
+      ...
+    # Subtest: P2-16 resolution bound to trusted tenant; caller cannot select another tenant
+    ok 4 - P2-16 resolution bound to trusted tenant; caller cannot select another tenant
+      ---
+      duration_ms: 8.1245
+      type: 'test'
+      ...
+    1..4
+ok 63 - P2-7..P2-9 / P2-16 resolver lifecycle + tenant binding
+  ---
+  duration_ms: 35.468792
+  type: 'suite'
+  ...
+# Subtest: P2-10..P2-15 enums, secrets, ambiguity classification
+    # Subtest: P2-10 credential_ref opaque; raw secret fields rejected; no secret columns
+    ok 1 - P2-10 credential_ref opaque; raw secret fields rejected; no secret columns
+      ---
+      duration_ms: 6.983417
+      type: 'test'
+      ...
+    # Subtest: P2-11 unsafe idempotency/postcondition never autonomously retryable after ambiguity
+    ok 2 - P2-11 unsafe idempotency/postcondition never autonomously retryable after ambiguity
+      ---
+      duration_ms: 0.102167
+      type: 'test'
+      ...
+    # Subtest: P2-11 resolver surfaces the same classification
+    ok 3 - P2-11 resolver surfaces the same classification
+      ---
+      duration_ms: 9.392083
+      type: 'test'
+      ...
+    # Subtest: P2-12 control_surface enum enforced
+    ok 4 - P2-12 control_surface enum enforced
+      ---
+      duration_ms: 0.326
+      type: 'test'
+      ...
+    # Subtest: P2-13 reversibility enum enforced
+    ok 5 - P2-13 reversibility enum enforced
+      ---
+      duration_ms: 0.221167
+      type: 'test'
+      ...
+    # Subtest: P2-14 provider_idempotency enum enforced
+    ok 6 - P2-14 provider_idempotency enum enforced
+      ---
+      duration_ms: 0.148625
+      type: 'test'
+      ...
+    # Subtest: P2-15 status enum enforced (DB + validation)
+    ok 7 - P2-15 status enum enforced (DB + validation)
+      ---
+      duration_ms: 5.122083
+      type: 'test'
+      ...
+    1..7
+ok 64 - P2-10..P2-15 enums, secrets, ambiguity classification
+  ---
+  duration_ms: 22.509625
+  type: 'suite'
+  ...
+# Subtest: Master \#14 / \#21 capability non-circumvention + identity
+    # Subtest: \#14 resolution cannot revive or circumvent revoked grant / authority
+    ok 1 - \#14 resolution cannot revive or circumvent revoked grant / authority
+      ---
+      duration_ms: 9.308708
+      type: 'test'
+      ...
+    # Subtest: \#21 capability_id identity stable in idempotency key (no alias mutation)
+    ok 2 - \#21 capability_id identity stable in idempotency key (no alias mutation)
+      ---
+      duration_ms: 5.265833
+      type: 'test'
+      ...
+    1..2
+ok 65 - Master \#14 / \#21 capability non-circumvention + identity
+  ---
+  duration_ms: 14.651375
+  type: 'suite'
+  ...
+# Subtest: P2-17 / P2-18 regression posture + autonomy
+    # Subtest: P2-18 business-write autonomy DISABLED; no forbidden execution surfaces introduced
+    ok 1 - P2-18 business-write autonomy DISABLED; no forbidden execution surfaces introduced
+      ---
+      duration_ms: 0.748417
+      type: 'test'
+      ...
+    # Subtest: P2-17 migration 0011 applied; Phase 1 tables still present
+    ok 2 - P2-17 migration 0011 applied; Phase 1 tables still present
+      ---
+      duration_ms: 6.188375
+      type: 'test'
+      ...
+    1..2
+ok 66 - P2-17 / P2-18 regression posture + autonomy
+  ---
+  duration_ms: 7.017625
+  type: 'suite'
+  ...
+# Subtest: F-11 connector contract + registry
+    # Subtest: validated connector matches F-11 field set (Capability-bound)
+    ok 1 - validated connector matches F-11 field set (Capability-bound)
+      ---
+      duration_ms: 0.931834
+      type: 'test'
+      ...
+    # Subtest: contract_metadata records Connector v1 bound to Capability+Credential architecture
+    ok 2 - contract_metadata records Connector v1 bound to Capability+Credential architecture
+      ---
+      duration_ms: 1.635083
+      type: 'test'
+      ...
+    # Subtest: persisted connector round-trips under trusted tenant
+    ok 3 - persisted connector round-trips under trusted tenant
+      ---
+      duration_ms: 11.563417
+      type: 'test'
+      ...
+    # Subtest: writer access_mode rejected by contract + DB CHECK
+    ok 4 - writer access_mode rejected by contract + DB CHECK
+      ---
+      duration_ms: 3.721958
+      type: 'test'
+      ...
+    # Subtest: opaque credential_broker_ref; raw secret fields rejected; no secret columns
+    ok 5 - opaque credential_broker_ref; raw secret fields rejected; no secret columns
+      ---
+      duration_ms: 3.779208
+      type: 'test'
+      ...
+    # Subtest: nested secret keys/values in auth_scope/network_scope rejected by validateConnectorContract
+    ok 6 - nested secret keys/values in auth_scope/network_scope rejected by validateConnectorContract
+      ---
+      duration_ms: 0.29425
+      type: 'test'
+      ...
+    # Subtest: direct SQL nested secret metadata in auth_scope/network_scope rejected by DB
+    ok 7 - direct SQL nested secret metadata in auth_scope/network_scope rejected by DB
+      ---
+      duration_ms: 14.697
+      type: 'test'
+      ...
+    1..7
+ok 67 - F-11 connector contract + registry
+  ---
+  duration_ms: 2302.999542
+  type: 'suite'
+  ...
+# Subtest: F-11 connector RLS / tenant isolation
+    # Subtest: seed Tenant B connector; invisible to A
+    ok 1 - seed Tenant B connector; invisible to A
+      ---
+      duration_ms: 8.733959
+      type: 'test'
+      ...
+    # Subtest: Tenant A cannot INSERT/UPDATE/DELETE Tenant B connectors
+    ok 2 - Tenant A cannot INSERT/UPDATE/DELETE Tenant B connectors
+      ---
+      duration_ms: 12.934541
+      type: 'test'
+      ...
+    # Subtest: missing tenant context fails closed for connectors
+    ok 3 - missing tenant context fails closed for connectors
+      ---
+      duration_ms: 5.72225
+      type: 'test'
+      ...
+    # Subtest: runtime role non-superuser / no BYPASSRLS / not connectors owner
+    ok 4 - runtime role non-superuser / no BYPASSRLS / not connectors owner
+      ---
+      duration_ms: 2.432666
+      type: 'test'
+      ...
+    1..4
+ok 68 - F-11 connector RLS / tenant isolation
+  ---
+  duration_ms: 30.180125
+  type: 'suite'
+  ...
+# Subtest: F-11 opaque credential broker + worker messages
+    # Subtest: worker message carries opaque ref only; raw secret refused
+    ok 1 - worker message carries opaque ref only; raw secret refused
+      ---
+      duration_ms: 0.49775
+      type: 'test'
+      ...
+    # Subtest: reader workloads do not inherit writer credentials
+    ok 2 - reader workloads do not inherit writer credentials
+      ---
+      duration_ms: 0.054708
+      type: 'test'
+      ...
+    1..2
+ok 69 - F-11 opaque credential broker + worker messages
+  ---
+  duration_ms: 0.6725
+  type: 'suite'
+  ...
+# Subtest: F-11 read-only adapters
+    # Subtest: read-only adapter returns fixture data without secrets
+    ok 1 - read-only adapter returns fixture data without secrets
+      ---
+      duration_ms: 0.166041
+      type: 'test'
+      ...
+    # Subtest: write operation and writer connector are stopped
+    ok 2 - write operation and writer connector are stopped
+      ---
+      duration_ms: 0.150375
+      type: 'test'
+      ...
+    1..2
+ok 70 - F-11 read-only adapters
+  ---
+  duration_ms: 0.344667
+  type: 'suite'
+  ...
+# Subtest: Master \#44 third-party tenant data never becomes global raw durable memory
+    # Subtest: \#44 policy classifies third-party raw connector reads as forbidden
+    ok 1 - \#44 policy classifies third-party raw connector reads as forbidden
+      ---
+      duration_ms: 0.087083
+      type: 'test'
+      ...
+    # Subtest: \#44 promoteConnectorReadToGlobalMemory refuses third-party raw read
+    ok 2 - \#44 promoteConnectorReadToGlobalMemory refuses third-party raw read
+      ---
+      duration_ms: 0.111042
+      type: 'test'
+      ...
+    # Subtest: \#44 permitted de-identified third-party aggregate may enter global memory
+    ok 3 - \#44 permitted de-identified third-party aggregate may enter global memory
+      ---
+      duration_ms: 6.109875
+      type: 'test'
+      ...
+    # Subtest: \#44 SQL CHECK rejects raw_tenant_data=true payload
+    ok 4 - \#44 SQL CHECK rejects raw_tenant_data=true payload
+      ---
+      duration_ms: 3.060375
+      type: 'test'
+      ...
+    # Subtest: \#44 direct SQL INSERT as app_runtime cannot bypass policy with raw payload omitting raw_tenant_data
+    ok 5 - \#44 direct SQL INSERT as app_runtime cannot bypass policy with raw payload omitting raw_tenant_data
+      ---
+      duration_ms: 17.163625
+      type: 'test'
+      ...
+    # Subtest: \#44 permitted de-identified third-party aggregate still works through controlled path
+    ok 6 - \#44 permitted de-identified third-party aggregate still works through controlled path
+      ---
+      duration_ms: 4.426458
+      type: 'test'
+      ...
+    # Subtest: \#44 end-to-end: third-party read stays out of global raw memory
+    ok 7 - \#44 end-to-end: third-party read stays out of global raw memory
+      ---
+      duration_ms: 9.105958
+      type: 'test'
+      ...
+    1..7
+ok 71 - Master \#44 third-party tenant data never becomes global raw durable memory
+  ---
+  duration_ms: 40.229042
+  type: 'suite'
+  ...
+# Subtest: F-11 autonomy + stop conditions
+    # Subtest: business-write autonomy DISABLED; writer connectors DISABLED
+    ok 1 - business-write autonomy DISABLED; writer connectors DISABLED
+      ---
+      duration_ms: 0.051541
+      type: 'test'
+      ...
+    # Subtest: F-11 sources contain no inline raw provider secrets / writer enablement
+    ok 2 - F-11 sources contain no inline raw provider secrets / writer enablement
+      ---
+      duration_ms: 0.473333
+      type: 'test'
+      ...
+    # Subtest: migration 0015 and 0016 applied; app_runtime has no direct INSERT on global memory
+    ok 3 - migration 0015 and 0016 applied; app_runtime has no direct INSERT on global memory
+      ---
+      duration_ms: 1.747625
+      type: 'test'
+      ...
+    1..3
+ok 72 - F-11 autonomy + stop conditions
+  ---
+  duration_ms: 2.330667
+  type: 'suite'
+  ...
+# Subtest: approval / auth binding
+    # Subtest: 13. High-risk approval rejects absent/stale step-up MFA
+    ok 1 - 13. High-risk approval rejects absent/stale step-up MFA
+      ---
+      duration_ms: 1.112916
+      type: 'test'
+      ...
+    # Subtest: 14. Approval rejects mismatched proposal_id or request_hash
+    ok 2 - 14. Approval rejects mismatched proposal_id or request_hash
+      ---
+      duration_ms: 0.226083
+      type: 'test'
+      ...
+    # Subtest: 14a. A different valid step-up session_id cannot validate the approval
+    ok 3 - 14a. A different valid step-up session_id cannot validate the approval
+      ---
+      duration_ms: 0.208333
+      type: 'test'
+      ...
+    # Subtest: 14b. A different owner_principal_id cannot validate the approval
+    ok 4 - 14b. A different owner_principal_id cannot validate the approval
+      ---
+      duration_ms: 0.102209
+      type: 'test'
+      ...
+    # Subtest: 14c. The correctly bound session still validates
+    ok 5 - 14c. The correctly bound session still validates
+      ---
+      duration_ms: 0.060459
+      type: 'test'
+      ...
+    # Subtest: 14d. Exact session binding succeeds with a NON-UUID canonical string session id
+    ok 6 - 14d. Exact session binding succeeds with a NON-UUID canonical string session id
+      ---
+      duration_ms: 0.0955
+      type: 'test'
+      ...
+    # Subtest: 15. Mutation of binding/state invalidates an old approval
+    ok 7 - 15. Mutation of binding/state invalidates an old approval
+      ---
+      duration_ms: 0.161083
+      type: 'test'
+      ...
+    # Subtest: 16. Raw text claiming approval grants nothing
+    ok 8 - 16. Raw text claiming approval grants nothing
+      ---
+      duration_ms: 0.106958
+      type: 'test'
+      ...
+    1..8
+ok 73 - approval / auth binding
+  ---
+  duration_ms: 2119.199375
+  type: 'suite'
+  ...
+# Subtest: inbound authenticity boundary
+    # Subtest: 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
+    ok 1 - 17. FAILED/UNKNOWN auth-required event cannot materialize canonical state
+      ---
+      duration_ms: 0.180583
+      type: 'test'
+      ...
+    # Subtest: 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
+    ok 2 - 17b. FAILED/UNKNOWN event persists only as security/source-health record (no canonical state)
+      ---
+      duration_ms: 13.593417
+      type: 'test'
+      ...
+    1..2
+ok 74 - inbound authenticity boundary
+  ---
+  duration_ms: 13.897416
+  type: 'suite'
+  ...
+# Subtest: receipts / PII
+    # Subtest: 18. Immutable receipt storage does not require raw customer PII
+    ok 1 - 18. Immutable receipt storage does not require raw customer PII
+      ---
+      duration_ms: 31.786292
+      type: 'test'
+      ...
+    1..1
+ok 75 - receipts / PII
+  ---
+  duration_ms: 31.902875
+  type: 'suite'
+  ...
+# Subtest: deterministic idempotency
+    # Subtest: 19. Idempotency key stable across restart/re-instantiation
+    ok 1 - 19. Idempotency key stable across restart/re-instantiation
+      ---
+      duration_ms: 0.521792
+      type: 'test'
+      ...
+    1..1
+ok 76 - deterministic idempotency
+  ---
+  duration_ms: 0.61575
+  type: 'suite'
+  ...
+# Subtest: SOT mismatch guard
+    # Subtest: 20. SOT mismatch guard refuses continuation on mismatch
+    ok 1 - 20. SOT mismatch guard refuses continuation on mismatch
+      ---
+      duration_ms: 46.372625
+      type: 'test'
+      ...
+    1..1
+ok 77 - SOT mismatch guard
+  ---
+  duration_ms: 46.471833
+  type: 'suite'
+  ...
+# Subtest: DB-backed approval state binding + canonical string session id
+    # Subtest: 1DB. Persisted proposal+approval+session validate via real loaders, then state mutation invalidates
+    ok 1 - 1DB. Persisted proposal+approval+session validate via real loaders, then state mutation invalidates
+      ---
+      duration_ms: 68.046291
+      type: 'test'
+      ...
+    1..1
+ok 78 - DB-backed approval state binding + canonical string session id
+  ---
+  duration_ms: 68.128625
+  type: 'suite'
+  ...
+# Subtest: inbound authenticity DB enforcement
+    # Subtest: 2DBa. FAILED + materialized_state=true is rejected by the DB
+    ok 1 - 2DBa. FAILED + materialized_state=true is rejected by the DB
+      ---
+      duration_ms: 26.392042
+      type: 'test'
+      ...
+    # Subtest: 2DBb. UNKNOWN + materialized_state=true is rejected by the DB
+    ok 2 - 2DBb. UNKNOWN + materialized_state=true is rejected by the DB
+      ---
+      duration_ms: 9.637916
+      type: 'test'
+      ...
+    # Subtest: 2DBc. VERIFIED + materialized_state=true is allowed; NOT_APPLICABLE + materialized_state=true is allowed
+    ok 3 - 2DBc. VERIFIED + materialized_state=true is allowed; NOT_APPLICABLE + materialized_state=true is allowed
+      ---
+      duration_ms: 13.877292
+      type: 'test'
+      ...
+    # Subtest: 2DBd. FAILED/UNKNOWN with materialized_state=false is allowed (security/source-health record only)
+    ok 4 - 2DBd. FAILED/UNKNOWN with materialized_state=false is allowed (security/source-health record only)
+      ---
+      duration_ms: 8.511792
+      type: 'test'
+      ...
+    1..4
+ok 79 - inbound authenticity DB enforcement
+  ---
+  duration_ms: 58.583625
+  type: 'suite'
+  ...
+# Subtest: F-09 autonomy posture
+    # Subtest: business-write autonomy remains DISABLED while DBOS workflows are enabled
+    ok 1 - business-write autonomy remains DISABLED while DBOS workflows are enabled
+      ---
+      duration_ms: 0.618166
+      type: 'test'
+      ...
+    # Subtest: dbos schema/role separation exists
+    ok 2 - dbos schema/role separation exists
+      ---
+      duration_ms: 3.970792
+      type: 'test'
+      ...
+    # Subtest: createDbosRuntime requires trusted tenant context (fail-closed)
+    ok 3 - createDbosRuntime requires trusted tenant context (fail-closed)
+      ---
+      duration_ms: 0.68
+      type: 'test'
+      ...
+    1..3
+ok 80 - F-09 autonomy posture
+  ---
+  duration_ms: 2331.681583
+  type: 'suite'
+  ...
+# Subtest: F-09 \#50 completed step survives restart without duplicate execution
+    # Subtest: replay after process restart returns checkpointed outputs and does not re-run steps
+    ok 1 - replay after process restart returns checkpointed outputs and does not re-run steps
+      ---
+      duration_ms: 75.210791
+      type: 'test'
+      ...
+    # Subtest: partial completion: completed step not re-executed; remaining step runs once
+    ok 2 - partial completion: completed step not re-executed; remaining step runs once
+      ---
+      duration_ms: 90.938417
+      type: 'test'
+      ...
+    1..2
+ok 81 - F-09 \#50 completed step survives restart without duplicate execution
+  ---
+  duration_ms: 166.353542
+  type: 'suite'
+  ...
+# Subtest: F-09 \#51 approval wait survives restart
+    # Subtest: WAITING approval persists across restart; signal then resume completes once
+    ok 1 - WAITING approval persists across restart; signal then resume completes once
+      ---
+      duration_ms: 244.732125
+      type: 'test'
+      ...
+    1..1
+ok 82 - F-09 \#51 approval wait survives restart
+  ---
+  duration_ms: 245.331708
+  type: 'suite'
+  ...
+# Subtest: F-09 \#52 restore freezes writers until reconcile
+    # Subtest: writers stay frozen until Postgres/DBOS/providers reconcile; premature thaw refused
+    ok 1 - writers stay frozen until Postgres/DBOS/providers reconcile; premature thaw refused
+      ---
+      duration_ms: 94.541
+      type: 'test'
+      ...
+    1..1
+ok 83 - F-09 \#52 restore freezes writers until reconcile
+  ---
+  duration_ms: 94.818666
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: RLS tenant isolation
+    # Subtest: FORCE RLS on dbos workflows/operation_outputs/approval_waits; cross-tenant invisible
+    ok 1 - FORCE RLS on dbos workflows/operation_outputs/approval_waits; cross-tenant invisible
+      ---
+      duration_ms: 97.395083
+      type: 'test'
+      ...
+    1..1
+ok 84 - F-09 repair: RLS tenant isolation
+  ---
+  duration_ms: 97.777042
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: startWorkflow trusted tenant only
+    # Subtest: caller-selected tenantId option is rejected; tenant comes from trusted runtime context
+    ok 1 - caller-selected tenantId option is rejected; tenant comes from trusted runtime context
+      ---
+      duration_ms: 70.119375
+      type: 'test'
+      ...
+    1..1
+ok 85 - F-09 repair: startWorkflow trusted tenant only
+  ---
+  duration_ms: 70.205917
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: writer-freeze gates mutating DBOS ops
+    # Subtest: start, step checkpoint, approval signal blocked while writers frozen
+    ok 1 - start, step checkpoint, approval signal blocked while writers frozen
+      ---
+      duration_ms: 81.785125
+      type: 'test'
+      ...
+    1..1
+ok 86 - F-09 repair: writer-freeze gates mutating DBOS ops
+  ---
+  duration_ms: 81.846875
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: effect-bound EXTERNAL/TOOL steps
+    # Subtest: EXTERNAL/TOOL/LLM without effect binding fails closed
+    ok 1 - EXTERNAL/TOOL/LLM without effect binding fails closed
+      ---
+      duration_ms: 19.9605
+      type: 'test'
+      ...
+    # Subtest: effect-bound TOOL step uses deterministic idempotency key; crash-after-commit does not duplicate
+    ok 2 - effect-bound TOOL step uses deterministic idempotency key; crash-after-commit does not duplicate
+      ---
+      duration_ms: 45.537375
+      type: 'test'
+      ...
+    # Subtest: non-local_fake adapter is refused even when LIVE_EXTERNAL_SIDE_EFFECTS constant is false
+    ok 3 - non-local_fake adapter is refused even when LIVE_EXTERNAL_SIDE_EFFECTS constant is false
+      ---
+      duration_ms: 13.845792
+      type: 'test'
+      ...
+    # Subtest: adapter missing local_fake surface is refused (constant alone is insufficient)
+    ok 4 - adapter missing local_fake surface is refused (constant alone is insufficient)
+      ---
+      duration_ms: 15.273042
+      type: 'test'
+      ...
+    # Subtest: UNKNOWN postcondition checkpoints as UNKNOWN and stays recoverable (not terminal ERROR)
+    ok 5 - UNKNOWN postcondition checkpoints as UNKNOWN and stays recoverable (not terminal ERROR)
+      ---
+      duration_ms: 68.09075
+      type: 'test'
+      ...
+    # Subtest: AMBIGUOUS postcondition never claims success and is not terminal ERROR
+    ok 6 - AMBIGUOUS postcondition never claims success and is not terminal ERROR
+      ---
+      duration_ms: 38.161958
+      type: 'test'
+      ...
+    1..6
+ok 87 - F-09 repair: effect-bound EXTERNAL/TOOL steps
+  ---
+  duration_ms: 201.173583
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: allocateFunctionId writer-freeze before mutation
+    # Subtest: mid-flight freeze blocks next_function_id allocation; workflow stays non-terminal
+    ok 1 - mid-flight freeze blocks next_function_id allocation; workflow stays non-terminal
+      ---
+      duration_ms: 98.949458
+      type: 'test'
+      ...
+    1..1
+ok 88 - F-09 repair: allocateFunctionId writer-freeze before mutation
+  ---
+  duration_ms: 99.02525
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: next_function_id allocation atomic with recovery freeze
+    # Subtest: Scenario A: allocation completes before freeze; next_function_id does not change after writers_frozen commits
+    ok 1 - Scenario A: allocation completes before freeze; next_function_id does not change after writers_frozen commits
+      ---
+      duration_ms: 82.208209
+      type: 'test'
+      ...
+    # Subtest: Scenario B: freeze wins first; allocation fails closed without changing next_function_id
+    ok 2 - Scenario B: freeze wins first; allocation fails closed without changing next_function_id
+      ---
+      duration_ms: 175.349291
+      type: 'test'
+      ...
+    1..2
+ok 89 - F-09 repair: next_function_id allocation atomic with recovery freeze
+  ---
+  duration_ms: 257.678875
+  type: 'suite'
+  ...
+# Subtest: F-09 repair: forward migration 0014 for existing 0013 DBs
+    # Subtest: 0014 brings pre-RLS 0013 databases to tenant columns/RLS/policies without reset
+    ok 1 - 0014 brings pre-RLS 0013 databases to tenant columns/RLS/policies without reset
+      ---
+      duration_ms: 1836.16475
+      type: 'test'
+      ...
+    1..1
+ok 90 - F-09 repair: forward migration 0014 for existing 0013 DBs
+  ---
+  duration_ms: 1836.348916
+  type: 'suite'
+  ...
+# Subtest: inbound authenticity gate — explicit gate before materialization
+    # Subtest: A. verified inbound event is accepted and materializes canonical state
+    ok 1 - A. verified inbound event is accepted and materializes canonical state
+      ---
+      duration_ms: 38.322708
+      type: 'test'
+      ...
+    # Subtest: B. unsigned/missing signature is rejected (UNKNOWN)
+    ok 2 - B. unsigned/missing signature is rejected (UNKNOWN)
+      ---
+      duration_ms: 21.873084
+      type: 'test'
+      ...
+    # Subtest: C. failed signature verification is rejected (FAILED)
+    ok 3 - C. failed signature verification is rejected (FAILED)
+      ---
+      duration_ms: 13.495458
+      type: 'test'
+      ...
+    # Subtest: D. unknown source / unregistered connector is rejected
+    ok 4 - D. unknown source / unregistered connector is rejected
+      ---
+      duration_ms: 19.893875
+      type: 'test'
+      ...
+    # Subtest: E. rejected events never reach canonical state materialization
+    ok 5 - E. rejected events never reach canonical state materialization
+      ---
+      duration_ms: 72.127334
+      type: 'test'
+      ...
+    # Subtest: F. existing contracts-auth authenticity behavior remains passing
+    ok 6 - F. existing contracts-auth authenticity behavior remains passing
+      ---
+      duration_ms: 0.128583
+      type: 'test'
+      ...
+    # Subtest: G. unknown/unlisted external event_type is rejected (no NOT_APPLICABLE passthrough)
+    ok 7 - G. unknown/unlisted external event_type is rejected (no NOT_APPLICABLE passthrough)
+      ---
+      duration_ms: 11.948875
+      type: 'test'
+      ...
+    # Subtest: H. caller-spoofed internal/trusted labels are rejected
+    ok 8 - H. caller-spoofed internal/trusted labels are rejected
+      ---
+      duration_ms: 64.0705
+      type: 'test'
+      ...
+    # Subtest: I. only positively classified trusted-internal provenance may bypass external auth
+    ok 9 - I. only positively classified trusted-internal provenance may bypass external auth
+      ---
+      duration_ms: 83.579125
+      type: 'test'
+      ...
+    # Subtest: caller-supplied connector object cannot bypass registry (review finding 1)
+    ok 10 - caller-supplied connector object cannot bypass registry (review finding 1)
+      ---
+      duration_ms: 10.384833
+      type: 'test'
+      ...
+    # Subtest: real authver://hmac/* refs fail closed without fake-HMAC passthrough
+    ok 11 - real authver://hmac/* refs fail closed without fake-HMAC passthrough
+      ---
+      duration_ms: 47.475875
+      type: 'test'
+      ...
+    # Subtest: deterministic replay returns existing event without second state transition
+    ok 12 - deterministic replay returns existing event without second state transition
+      ---
+      duration_ms: 78.738166
+      type: 'test'
+      ...
+    1..12
+ok 91 - inbound authenticity gate — explicit gate before materialization
+  ---
+  duration_ms: 2692.086917
+  type: 'suite'
+  ...
+# Subtest: F-12 autonomy + contract surface
+    # Subtest: acceptance harness initialized (cancelled suite is not a pass)
+    ok 1 - acceptance harness initialized (cancelled suite is not a pass)
+      ---
+      duration_ms: 0.361667
+      type: 'test'
+      ...
+    # Subtest: business-write autonomy remains DISABLED
+    ok 2 - business-write autonomy remains DISABLED
+      ---
+      duration_ms: 0.122625
+      type: 'test'
+      ...
+    # Subtest: contract_metadata records AttentionItem v1
+    ok 3 - contract_metadata records AttentionItem v1
+      ---
+      duration_ms: 4.163041
+      type: 'test'
+      ...
+    # Subtest: materiality action vocabulary is locked
+    ok 4 - materiality action vocabulary is locked
+      ---
+      duration_ms: 0.44275
+      type: 'test'
+      ...
+    1..4
+ok 92 - F-12 autonomy + contract surface
+  ---
+  duration_ms: 2249.659083
+  type: 'suite'
+  ...
+# Subtest: F-12 \#18 non-silenceable classes cannot be SILENCED
+    # Subtest: registry covers security/credential/authority/financial/privacy/fault classes
+    ok 1 - registry covers security/credential/authority/financial/privacy/fault classes
+      ---
+      duration_ms: 0.186375
+      type: 'test'
+      ...
+    # Subtest: tenant_isolation_security: deterministic policy never returns SILENCE
+    ok 2 - tenant_isolation_security: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.24175
+      type: 'test'
+      ...
+    # Subtest: tenant_isolation_security: LLM SILENCE suggestion is blocked
+    ok 3 - tenant_isolation_security: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.140667
+      type: 'test'
+      ...
+    # Subtest: tenant_isolation_security: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 4 - tenant_isolation_security: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.30775
+      type: 'test'
+      ...
+    # Subtest: credential_authentication_anomaly: deterministic policy never returns SILENCE
+    ok 5 - credential_authentication_anomaly: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.17125
+      type: 'test'
+      ...
+    # Subtest: credential_authentication_anomaly: LLM SILENCE suggestion is blocked
+    ok 6 - credential_authentication_anomaly: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.091417
+      type: 'test'
+      ...
+    # Subtest: credential_authentication_anomaly: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 7 - credential_authentication_anomaly: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.039709
+      type: 'test'
+      ...
+    # Subtest: authority_permission_change: deterministic policy never returns SILENCE
+    ok 8 - authority_permission_change: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.024125
+      type: 'test'
+      ...
+    # Subtest: authority_permission_change: LLM SILENCE suggestion is blocked
+    ok 9 - authority_permission_change: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.020209
+      type: 'test'
+      ...
+    # Subtest: authority_permission_change: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 10 - authority_permission_change: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.022667
+      type: 'test'
+      ...
+    # Subtest: kill_switch_fail_closed: deterministic policy never returns SILENCE
+    ok 11 - kill_switch_fail_closed: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.01675
+      type: 'test'
+      ...
+    # Subtest: kill_switch_fail_closed: LLM SILENCE suggestion is blocked
+    ok 12 - kill_switch_fail_closed: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.015583
+      type: 'test'
+      ...
+    # Subtest: kill_switch_fail_closed: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 13 - kill_switch_fail_closed: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.018084
+      type: 'test'
+      ...
+    # Subtest: material_financial: deterministic policy never returns SILENCE
+    ok 14 - material_financial: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.059167
+      type: 'test'
+      ...
+    # Subtest: material_financial: LLM SILENCE suggestion is blocked
+    ok 15 - material_financial: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.018584
+      type: 'test'
+      ...
+    # Subtest: material_financial: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 16 - material_financial: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.0215
+      type: 'test'
+      ...
+    # Subtest: privacy_legal_opt_out: deterministic policy never returns SILENCE
+    ok 17 - privacy_legal_opt_out: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.015041
+      type: 'test'
+      ...
+    # Subtest: privacy_legal_opt_out: LLM SILENCE suggestion is blocked
+    ok 18 - privacy_legal_opt_out: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.013875
+      type: 'test'
+      ...
+    # Subtest: privacy_legal_opt_out: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 19 - privacy_legal_opt_out: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.017625
+      type: 'test'
+      ...
+    # Subtest: unknown_ambiguous_customer_effect: deterministic policy never returns SILENCE
+    ok 20 - unknown_ambiguous_customer_effect: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.031667
+      type: 'test'
+      ...
+    # Subtest: unknown_ambiguous_customer_effect: LLM SILENCE suggestion is blocked
+    ok 21 - unknown_ambiguous_customer_effect: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.013959
+      type: 'test'
+      ...
+    # Subtest: unknown_ambiguous_customer_effect: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 22 - unknown_ambiguous_customer_effect: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.018375
+      type: 'test'
+      ...
+    # Subtest: control_store_outage: deterministic policy never returns SILENCE
+    ok 23 - control_store_outage: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.012458
+      type: 'test'
+      ...
+    # Subtest: control_store_outage: LLM SILENCE suggestion is blocked
+    ok 24 - control_store_outage: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.014125
+      type: 'test'
+      ...
+    # Subtest: control_store_outage: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 25 - control_store_outage: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.017958
+      type: 'test'
+      ...
+    # Subtest: severe_production_fault: deterministic policy never returns SILENCE
+    ok 26 - severe_production_fault: deterministic policy never returns SILENCE
+      ---
+      duration_ms: 0.012833
+      type: 'test'
+      ...
+    # Subtest: severe_production_fault: LLM SILENCE suggestion is blocked
+    ok 27 - severe_production_fault: LLM SILENCE suggestion is blocked
+      ---
+      duration_ms: 0.013166
+      type: 'test'
+      ...
+    # Subtest: severe_production_fault: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+    ok 28 - severe_production_fault: forceSilence throws NON_SILENCEABLE_SILENCED (stop)
+      ---
+      duration_ms: 0.110667
+      type: 'test'
+      ...
+    # Subtest: caller cannot demote non_silenceable or owner visibility on open
+    ok 29 - caller cannot demote non_silenceable or owner visibility on open
+      ---
+      duration_ms: 4.634875
+      type: 'test'
+      ...
+    # Subtest: DB rejects silenced non-silenceable attention rows
+    ok 30 - DB rejects silenced non-silenceable attention rows
+      ---
+      duration_ms: 8.270333
+      type: 'test'
+      ...
+    # Subtest: non-silenceable events open owner-visible attention items
+    ok 31 - non-silenceable events open owner-visible attention items
+      ---
+      duration_ms: 16.665209
+      type: 'test'
+      ...
+    1..31
+ok 93 - F-12 \#18 non-silenceable classes cannot be SILENCED
+  ---
+  duration_ms: 31.670083
+  type: 'suite'
+  ...
+# Subtest: F-12 \#19 10k healthy/no-op events → zero strong-model wakes
+    # Subtest: healthy/no-op classes are recognized
+    ok 1 - healthy/no-op classes are recognized
+      ---
+      duration_ms: 0.140708
+      type: 'test'
+      ...
+    # Subtest: 10,000 healthy/no-op events produce zero strong-model wakes
+    ok 2 - 10,000 healthy/no-op events produce zero strong-model wakes
+      ---
+      duration_ms: 7.618833
+      type: 'test'
+      ...
+    # Subtest: LLM cannot escalate healthy/no-op events to WAKE
+    ok 3 - LLM cannot escalate healthy/no-op events to WAKE
+      ---
+      duration_ms: 0.129875
+      type: 'test'
+      ...
+    # Subtest: mixed batch: only non-noop material classes may wake
+    ok 4 - mixed batch: only non-noop material classes may wake
+      ---
+      duration_ms: 0.219416
+      type: 'test'
+      ...
+    1..4
+ok 94 - F-12 \#19 10k healthy/no-op events → zero strong-model wakes
+  ---
+  duration_ms: 8.447458
+  type: 'suite'
+  ...
+# Subtest: F-12 \#20 same unresolved state hash does not repeatedly notify
+    # Subtest: state hash is deterministic for identical unresolved payload
+    ok 1 - state hash is deterministic for identical unresolved payload
+      ---
+      duration_ms: 0.08675
+      type: 'test'
+      ...
+    # Subtest: repeat open with same state_hash suppresses notification
+    ok 2 - repeat open with same state_hash suppresses notification
+      ---
+      duration_ms: 13.453333
+      type: 'test'
+      ...
+    # Subtest: changed state_hash on unresolved item re-notifies once
+    ok 3 - changed state_hash on unresolved item re-notifies once
+      ---
+      duration_ms: 15.238084
+      type: 'test'
+      ...
+    1..3
+ok 95 - F-12 \#20 same unresolved state hash does not repeatedly notify
+  ---
+  duration_ms: 28.847208
+  type: 'suite'
+  ...
+# Subtest: F-12 receipts/trace linkage
+    # Subtest: create trace, link receipt, resolve joined view
+    ok 1 - create trace, link receipt, resolve joined view
+      ---
+      duration_ms: 15.379417
+      type: 'test'
+      ...
+    # Subtest: tenant B cannot resolve tenant A receipt/trace
+    ok 2 - tenant B cannot resolve tenant A receipt/trace
+      ---
+      duration_ms: 25.150958
+      type: 'test'
+      ...
+    # Subtest: DB rejects dangling execution_receipts.trace_id
+    ok 3 - DB rejects dangling execution_receipts.trace_id
+      ---
+      duration_ms: 7.506959
+      type: 'test'
+      ...
+    # Subtest: DB rejects dangling attention_items.trace_id
+    ok 4 - DB rejects dangling attention_items.trace_id
+      ---
+      duration_ms: 12.872041
+      type: 'test'
+      ...
+    # Subtest: DB rejects dangling attention_items.receipt_id
+    ok 5 - DB rejects dangling attention_items.receipt_id
+      ---
+      duration_ms: 8.722542
+      type: 'test'
+      ...
+    # Subtest: DB rejects cross-tenant receipt→trace link
+    ok 6 - DB rejects cross-tenant receipt→trace link
+      ---
+      duration_ms: 9.803583
+      type: 'test'
+      ...
+    # Subtest: DB rejects cross-tenant attention→receipt link
+    ok 7 - DB rejects cross-tenant attention→receipt link
+      ---
+      duration_ms: 10.680459
+      type: 'test'
+      ...
+    1..7
+ok 96 - F-12 receipts/trace linkage
+  ---
+  duration_ms: 90.376708
+  type: 'suite'
+  ...
+# Subtest: F-10 autonomy posture
+    # Subtest: business-write autonomy remains DISABLED
+    ok 1 - business-write autonomy remains DISABLED
+      ---
+      duration_ms: 1.207041
+      type: 'test'
+      ...
+    # Subtest: CurrentStateRecord freshness/conflict enums match contract
+    ok 2 - CurrentStateRecord freshness/conflict enums match contract
+      ---
+      duration_ms: 0.992792
+      type: 'test'
+      ...
+    # Subtest: createReconciliationRuntime requires trusted tenant (fail-closed)
+    ok 3 - createReconciliationRuntime requires trusted tenant (fail-closed)
+      ---
+      duration_ms: 0.215292
+      type: 'test'
+      ...
+    1..3
+ok 97 - F-10 autonomy posture
+  ---
+  duration_ms: 2133.420084
+  type: 'suite'
+  ...
+# Subtest: F-10 freshness engine
+    # Subtest: FRESH → AGING → STALE by age vs max_age_seconds
+    ok 1 - FRESH → AGING → STALE by age vs max_age_seconds
+      ---
+      duration_ms: 0.124375
+      type: 'test'
+      ...
+    # Subtest: OFFLINE / CONFLICTED / UNKNOWN precedence
+    ok 2 - OFFLINE / CONFLICTED / UNKNOWN precedence
+      ---
+      duration_ms: 0.045875
+      type: 'test'
+      ...
+    # Subtest: force_freshness cannot override OFFLINE/CONFLICTED/UNKNOWN/STALE to FRESH
+    ok 3 - force_freshness cannot override OFFLINE/CONFLICTED/UNKNOWN/STALE to FRESH
+      ---
+      duration_ms: 0.175208
+      type: 'test'
+      ...
+    1..3
+ok 98 - F-10 freshness engine
+  ---
+  duration_ms: 0.553042
+  type: 'suite'
+  ...
+# Subtest: F-10 fail-closed missing provider freshness metadata
+    # Subtest: hasReliableObservationFreshness requires observed_at and max_age
+    ok 1 - hasReliableObservationFreshness requires observed_at and max_age
+      ---
+      duration_ms: 0.126167
+      type: 'test'
+      ...
+    # Subtest: missing observed_at refuses REPAIR and does not overwrite local value
+    ok 2 - missing observed_at refuses REPAIR and does not overwrite local value
+      ---
+      duration_ms: 0.291209
+      type: 'test'
+      ...
+    # Subtest: missing observed_at with matching value still MARK_UNKNOWN without materializing as FRESH
+    ok 3 - missing observed_at with matching value still MARK_UNKNOWN without materializing as FRESH
+      ---
+      duration_ms: 0.692625
+      type: 'test'
+      ...
+    # Subtest: null observed_at cannot silently repair provider value
+    ok 4 - null observed_at cannot silently repair provider value
+      ---
+      duration_ms: 0.125375
+      type: 'test'
+      ...
+    1..4
+ok 99 - F-10 fail-closed missing provider freshness metadata
+  ---
+  duration_ms: 1.367625
+  type: 'suite'
+  ...
+# Subtest: F-10 \#36 provider mismatch with no local pending effect safely repairs or escalates
+    # Subtest: safe repair updates projection when no pending local effect
+    ok 1 - safe repair updates projection when no pending local effect
+      ---
+      duration_ms: 28.607708
+      type: 'test'
+      ...
+    # Subtest: escalate path refuses overwrite when observation incomplete
+    ok 2 - escalate path refuses overwrite when observation incomplete
+      ---
+      duration_ms: 0.471416
+      type: 'test'
+      ...
+    # Subtest: escalateOnMismatch keeps local value
+    ok 3 - escalateOnMismatch keeps local value
+      ---
+      duration_ms: 0.096042
+      type: 'test'
+      ...
+    1..3
+ok 100 - F-10 \#36 provider mismatch with no local pending effect safely repairs or escalates
+  ---
+  duration_ms: 29.269583
+  type: 'suite'
+  ...
+# Subtest: F-10 \#37 pending/ambiguous local effect is never auto-overwritten as drift
+    # Subtest: pending local effect marks CONFLICTED and preserves value
+    ok 1 - pending local effect marks CONFLICTED and preserves value
+      ---
+      duration_ms: 2.094208
+      type: 'test'
+      ...
+    # Subtest: ambiguous postcondition never overwritten as drift (persisted)
+    ok 2 - ambiguous postcondition never overwritten as drift (persisted)
+      ---
+      duration_ms: 20.777625
+      type: 'test'
+      ...
+    # Subtest: applyReconciliation stop-condition rejects HOLD that would overwrite value
+    ok 3 - applyReconciliation stop-condition rejects HOLD that would overwrite value
+      ---
+      duration_ms: 14.251041
+      type: 'test'
+      ...
+    # Subtest: REPAIR decided before pending effect appears is refused at apply; value preserved
+    ok 4 - REPAIR decided before pending effect appears is refused at apply; value preserved
+      ---
+      duration_ms: 29.049292
+      type: 'test'
+      ...
+    # Subtest: REPAIR decided before ambiguous effect appears is refused at apply; value preserved
+    ok 5 - REPAIR decided before ambiguous effect appears is refused at apply; value preserved
+      ---
+      duration_ms: 27.539042
+      type: 'test'
+      ...
+    # Subtest: REPAIR and pending effect writes share tenant local-effect scope xact lock identity
+    ok 6 - REPAIR and pending effect writes share tenant local-effect scope xact lock identity
+      ---
+      duration_ms: 5.520958
+      type: 'test'
+      ...
+    # Subtest: REPAIR holds shared xact lock across mutation-time check→projection; phantom pending insert in window blocks overwrite
+    ok 7 - REPAIR holds shared xact lock across mutation-time check→projection; phantom pending insert in window blocks overwrite
+      ---
+      duration_ms: 31.700584
+      type: 'test'
+      ...
+    # Subtest: pending effect insert acquires scope lock before effect_ledger INSERT
+    ok 8 - pending effect insert acquires scope lock before effect_ledger INSERT
+      ---
+      duration_ms: 18.916708
+      type: 'test'
+      ...
+    1..8
+ok 101 - F-10 \#37 pending/ambiguous local effect is never auto-overwritten as drift
+  ---
+  duration_ms: 150.181167
+  type: 'suite'
+  ...
+# Subtest: F-10 \#38 stale source becomes STALE/UNKNOWN
+    # Subtest: age beyond max_age_seconds → STALE
+    ok 1 - age beyond max_age_seconds → STALE
+      ---
+      duration_ms: 0.560875
+      type: 'test'
+      ...
+    # Subtest: provider STALE observation → STALE without overwrite
+    ok 2 - provider STALE observation → STALE without overwrite
+      ---
+      duration_ms: 0.503375
+      type: 'test'
+      ...
+    # Subtest: UNKNOWN source → UNKNOWN
+    ok 3 - UNKNOWN source → UNKNOWN
+      ---
+      duration_ms: 0.180208
+      type: 'test'
+      ...
+    # Subtest: OFFLINE source → OFFLINE
+    ok 4 - OFFLINE source → OFFLINE
+      ---
+      duration_ms: 0.183791
+      type: 'test'
+      ...
+    # Subtest: OFFLINE then no-provider reconcile stays OFFLINE/UNKNOWN (never FRESH)
+    ok 5 - OFFLINE then no-provider reconcile stays OFFLINE/UNKNOWN (never FRESH)
+      ---
+      duration_ms: 0.1775
+      type: 'test'
+      ...
+    # Subtest: UNKNOWN then no-provider reconcile stays UNKNOWN/CONFLICTED (never FRESH)
+    ok 6 - UNKNOWN then no-provider reconcile stays UNKNOWN/CONFLICTED (never FRESH)
+      ---
+      duration_ms: 0.764625
+      type: 'test'
+      ...
+    1..6
+ok 102 - F-10 \#38 stale source becomes STALE/UNKNOWN
+  ---
+  duration_ms: 2.648334
+  type: 'suite'
+  ...
+# Subtest: F-10 \#39 conflicting authoritative evidence becomes CONFLICTED
+    # Subtest: detectSourceConflict on disagreeing authoritative evidence
+    ok 1 - detectSourceConflict on disagreeing authoritative evidence
+      ---
+      duration_ms: 0.195667
+      type: 'test'
+      ...
+    # Subtest: conflicting authoritative evidence → CONFLICTED / SOURCE_CONFLICT, value preserved
+    ok 2 - conflicting authoritative evidence → CONFLICTED / SOURCE_CONFLICT, value preserved
+      ---
+      duration_ms: 14.55825
+      type: 'test'
+      ...
+    1..2
+ok 103 - F-10 \#39 conflicting authoritative evidence becomes CONFLICTED
+  ---
+  duration_ms: 14.874625
+  type: 'suite'
+  ...
+# Subtest: RLS negative security tests
+    # Subtest: 1. Tenant A direct query cannot read Tenant B rows
+    ok 1 - 1. Tenant A direct query cannot read Tenant B rows
+      ---
+      duration_ms: 11.9775
+      type: 'test'
+      ...
+    # Subtest: 2. Tenant A cannot INSERT a row owned by Tenant B
+    ok 2 - 2. Tenant A cannot INSERT a row owned by Tenant B
+      ---
+      duration_ms: 7.056167
+      type: 'test'
+      ...
+    # Subtest: 3. Tenant A cannot UPDATE Tenant B rows
+    ok 3 - 3. Tenant A cannot UPDATE Tenant B rows
+      ---
+      duration_ms: 10.595458
+      type: 'test'
+      ...
+    # Subtest: 4. Tenant A cannot DELETE Tenant B rows
+    ok 4 - 4. Tenant A cannot DELETE Tenant B rows
+      ---
+      duration_ms: 11.776208
+      type: 'test'
+      ...
+    # Subtest: 5. Missing tenant context fails closed (no rows visible, no writes)
+    ok 5 - 5. Missing tenant context fails closed (no rows visible, no writes)
+      ---
+      duration_ms: 3.067292
+      type: 'test'
+      ...
+    # Subtest: 6. Runtime role cannot bypass RLS (cannot escalate privileges)
+    ok 6 - 6. Runtime role cannot bypass RLS (cannot escalate privileges)
+      ---
+      duration_ms: 6.908375
+      type: 'test'
+      ...
+    # Subtest: 7. Runtime role is not a protected-table owner
+    ok 7 - 7. Runtime role is not a protected-table owner
+      ---
+      duration_ms: 2.312958
+      type: 'test'
+      ...
+    # Subtest: 8. Runtime role is not a superuser
+    ok 8 - 8. Runtime role is not a superuser
+      ---
+      duration_ms: 1.572084
+      type: 'test'
+      ...
+    # Subtest: 9. Runtime role lacks BYPASSRLS
+    ok 9 - 9. Runtime role lacks BYPASSRLS
+      ---
+      duration_ms: 2.840958
+      type: 'test'
+      ...
+    # Subtest: 10. Pooled connection A->B cannot leak tenant context
+    ok 10 - 10. Pooled connection A->B cannot leak tenant context
+      ---
+      duration_ms: 14.951667
+      type: 'test'
+      ...
+    # Subtest: 11. Cross-tenant FK/reference is rejected
+    ok 11 - 11. Cross-tenant FK/reference is rejected
+      ---
+      duration_ms: 7.032333
+      type: 'test'
+      ...
+    # Subtest: 12. Model/client-supplied tenant ID cannot override trusted context
+    ok 12 - 12. Model/client-supplied tenant ID cannot override trusted context
+      ---
+      duration_ms: 5.821333
+      type: 'test'
+      ...
+    1..12
+ok 104 - RLS negative security tests
+  ---
+  duration_ms: 2212.3385
+  type: 'suite'
+  ...
+# Subtest: F-14 autonomy + contract surface
+    # Subtest: acceptance harness initialized (cancelled suite is not a pass)
+    ok 1 - acceptance harness initialized (cancelled suite is not a pass)
+      ---
+      duration_ms: 0.414542
+      type: 'test'
+      ...
+    # Subtest: business-write autonomy remains DISABLED
+    ok 2 - business-write autonomy remains DISABLED
+      ---
+      duration_ms: 0.057
+      type: 'test'
+      ...
+    # Subtest: contract_metadata records PiiErasureDeletion v1
+    ok 3 - contract_metadata records PiiErasureDeletion v1
+      ---
+      duration_ms: 1.023125
+      type: 'test'
+      ...
+    # Subtest: erasure surfaces cover canonical + vectors/FTS/cache/summaries
+    ok 4 - erasure surfaces cover canonical + vectors/FTS/cache/summaries
+      ---
+      duration_ms: 0.050709
+      type: 'test'
+      ...
+    # Subtest: deletion_audit_tombstones has no raw PII columns
+    ok 5 - deletion_audit_tombstones has no raw PII columns
+      ---
+      duration_ms: 2.924292
+      type: 'test'
+      ...
+    1..5
+ok 105 - F-14 autonomy + contract surface
+  ---
+  duration_ms: 2052.928792
+  type: 'suite'
+  ...
+# Subtest: Master \#40 valid customer deletion removes identifiable canonical data
+    # Subtest: \#40 deletes pii_store + current_state for the subject
+    ok 1 - \#40 deletes pii_store + current_state for the subject
+      ---
+      duration_ms: 53.668
+      type: 'test'
+      ...
+    # Subtest: \#40 legal_hold blocks deletion and leaves canonical PII
+    ok 2 - \#40 legal_hold blocks deletion and leaves canonical PII
+      ---
+      duration_ms: 23.456
+      type: 'test'
+      ...
+    # Subtest: \#40 fail-closed without trusted tenant context
+    ok 3 - \#40 fail-closed without trusted tenant context
+      ---
+      duration_ms: 0.243709
+      type: 'test'
+      ...
+    1..3
+ok 106 - Master \#40 valid customer deletion removes identifiable canonical data
+  ---
+  duration_ms: 77.685125
+  type: 'suite'
+  ...
+# Subtest: Master \#41 embeddings/FTS/cache/derived summaries no longer expose deleted PII
+    # Subtest: \#41 withdraws all derived surfaces and exposure check passes
+    ok 1 - \#41 withdraws all derived surfaces and exposure check passes
+      ---
+      duration_ms: 44.557334
+      type: 'test'
+      ...
+    # Subtest: \#41 stop condition: leftover PII in embeddings fails closed
+    ok 2 - \#41 stop condition: leftover PII in embeddings fails closed
+      ---
+      duration_ms: 28.465083
+      type: 'test'
+      ...
+    1..2
+ok 107 - Master \#41 embeddings/FTS/cache/derived summaries no longer expose deleted PII
+  ---
+  duration_ms: 73.119
+  type: 'suite'
+  ...
+# Subtest: Master \#43 non-identifying audit tombstone remains
+    # Subtest: \#43 tombstone + opaque receipt remain after deletion
+    ok 1 - \#43 tombstone + opaque receipt remain after deletion
+      ---
+      duration_ms: 35.210292
+      type: 'test'
+      ...
+    # Subtest: \#43 stop condition: deleted subject without tombstone fails closed
+    ok 2 - \#43 stop condition: deleted subject without tombstone fails closed
+      ---
+      duration_ms: 15.777708
+      type: 'test'
+      ...
+    1..2
+ok 108 - Master \#43 non-identifying audit tombstone remains
+  ---
+  duration_ms: 51.071042
+  type: 'suite'
+  ...
+# Subtest: F-14 third-party isolation regression (scope)
+    # Subtest: third-party raw payload cannot enter global durable memory
+    ok 1 - third-party raw payload cannot enter global durable memory
+      ---
+      duration_ms: 0.112167
+      type: 'test'
+      ...
+    # Subtest: promoteConnectorReadToGlobalMemory refuses third-party raw read
+    ok 2 - promoteConnectorReadToGlobalMemory refuses third-party raw read
+      ---
+      duration_ms: 0.110833
+      type: 'test'
+      ...
+    # Subtest: tenant B cannot read tenant A tombstones or pii_store
+    ok 3 - tenant B cannot read tenant A tombstones or pii_store
+      ---
+      duration_ms: 28.813458
+      type: 'test'
+      ...
+    1..3
+ok 109 - F-14 third-party isolation regression (scope)
+  ---
+  duration_ms: 29.190375
+  type: 'suite'
+  ...
+# Subtest: F-08 autonomy posture
+    # Subtest: business-write autonomy and live external side effects remain DISABLED
+    ok 1 - business-write autonomy and live external side effects remain DISABLED
+      ---
+      duration_ms: 0.315958
+      type: 'test'
+      ...
+    # Subtest: rejects non-local_fake adapters
+    ok 2 - rejects non-local_fake adapters
+      ---
+      duration_ms: 5.243292
+      type: 'test'
+      ...
+    1..2
+ok 110 - F-08 autonomy posture
+  ---
+  duration_ms: 1879.798875
+  type: 'suite'
+  ...
+# Subtest: Master \#21 deterministic idempotency key
+    # Subtest: \#21 deterministic idempotency key is stable across restart
+    ok 1 - \#21 deterministic idempotency key is stable across restart
+      ---
+      duration_ms: 1.257167
+      type: 'test'
+      ...
+    1..1
+ok 111 - Master \#21 deterministic idempotency key
+  ---
+  duration_ms: 1.329208
+  type: 'suite'
+  ...
+# Subtest: Master \#22 at-most-once
+    # Subtest: \#22 duplicate same logical effect executes at most once
+    ok 1 - \#22 duplicate same logical effect executes at most once
+      ---
+      duration_ms: 42.736584
+      type: 'test'
+      ...
+    1..1
+ok 112 - Master \#22 at-most-once
+  ---
+  duration_ms: 42.805667
+  type: 'suite'
+  ...
+# Subtest: Master \#23 crash after commit
+    # Subtest: \#23 crash after external commit but before local completion does not duplicate effect
+    ok 1 - \#23 crash after external commit but before local completion does not duplicate effect
+      ---
+      duration_ms: 43.059166
+      type: 'test'
+      ...
+    1..1
+ok 113 - Master \#23 crash after commit
+  ---
+  duration_ms: 43.374458
+  type: 'suite'
+  ...
+# Subtest: Master \#28 unknown never SUCCEEDED
+    # Subtest: \#28 unknown effect remains AMBIGUOUS/UNKNOWN never silently SUCCEEDED
+    ok 1 - \#28 unknown effect remains AMBIGUOUS/UNKNOWN never silently SUCCEEDED
+      ---
+      duration_ms: 27.398084
+      type: 'test'
+      ...
+    # Subtest: AMBIGUOUS postcondition cannot claim success
+    ok 2 - AMBIGUOUS postcondition cannot claim success
+      ---
+      duration_ms: 34.623542
+      type: 'test'
+      ...
+    1..2
+ok 114 - Master \#28 unknown never SUCCEEDED
+  ---
+  duration_ms: 62.306333
+  type: 'suite'
+  ...
+# Subtest: F-08 fail-closed authority/kill + grant
+    # Subtest: authority/kill outage denies (fail-closed, not fail-open)
+    ok 1 - authority/kill outage denies (fail-closed, not fail-open)
+      ---
+      duration_ms: 19.948542
+      type: 'test'
+      ...
+    # Subtest: revoked grant denies execution
+    ok 2 - revoked grant denies execution
+      ---
+      duration_ms: 27.274916
+      type: 'test'
+      ...
+    1..2
+ok 115 - F-08 fail-closed authority/kill + grant
+  ---
+  duration_ms: 47.359875
+  type: 'suite'
+  ...
+1..115
+# tests 369
+# suites 86
+# pass 369
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 113112.340333

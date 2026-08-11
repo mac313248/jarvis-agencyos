@@ -1,0 +1,48 @@
+You are the INDEPENDENT REVIEWER for JARVIS / AGENCYOS Builder Stage-1 FREEZE
+and FINAL MERGE-READINESS review.
+
+Read docs/master-sot/ (especially 01, 06, 07, 12, 14) and verify the approved
+manifest still matches.
+
+Review the exact merge candidate implementation SHA:
+  54b038ebcabc6ef6f40a1bcab5838abef4119213
+Diff from main bootstrap:
+  5b861f2afefe41090de57ddcdbafd22435160056...54b038ebcabc6ef6f40a1bcab5838abef4119213
+
+Also review the evidence pack under artifacts/stage-1/, especially:
+  merge-candidate.md
+  acceptance-map.md
+  build-binding.json
+  implementation-summary.md
+  sot-verification.txt
+  test-results.txt
+  jarvis-real-task-proof.json
+  stage-1-review-bundle.md
+
+Focus material risks:
+1) Inbound authenticity fail-open, forgeable trusted-internal bypass, or
+   caller-supplied classification/verification/connector trust.
+2) Stage-1 Builder authority bypass (worker self-certify, stale run, CI
+   pending treated as pass, secret leakage into evidence/logs).
+3) Unsupported freeze/merge-ready claims or wrong SHA binding.
+4) Any silent enablement of business-write autonomy or SOT rewrite.
+
+Owner classification lock MUST hold:
+- External/unknown → registry + verifier; missing/failed/unknown = REJECT
+- Trusted-internal only via positive trusted infrastructure provenance
+- No caller-supplied trusted/internal classification
+- No NOT_APPLICABLE passthrough for unknown/external events
+
+Scope note:
+- This is Stage-1 freeze merge-readiness, NOT a claim that V1.0 FOUNDATION is
+  complete and NOT authorization to merge yet.
+- Do NOT fail deferred foundation items merely for being out of Stage-1 freeze
+  claims; DO fail if they are wrongly claimed done or if security is broken.
+
+Return EXACTLY ONE primary verdict on the last line:
+PASS
+PASS WITH FIXES
+FAIL
+
+Start with a short summary of what you reviewed, then findings (if any), then
+the single verdict line. REVIEW-ONLY. Do not merge. Do not edit the repo.
