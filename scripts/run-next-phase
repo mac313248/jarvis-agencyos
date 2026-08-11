@@ -1,0 +1,23 @@
+#!/bin/sh
+# scripts/run-next-phase
+# Owner command for the JARVIS / AGENCYOS local build runner.
+#
+# Usage:
+#   cd /Users/sashairis/Projects/jarvis-agencyos
+#   ./scripts/run-next-phase            # real run (Cursor writer + Codex reviewer)
+#   ./scripts/run-next-phase --dry-run  # contract next slice only, no app changes
+#
+# The runner verifies repo root + SOT + safe Git state, contracts the next
+# smallest V1.0 Foundation slice from SOT, then drives Cursor (sole writer)
+# and Codex (review-only). It never auto-merges and never modifies the SOT.
+
+set -e
+
+# Resolve the repo root from this script's location so it works regardless of
+# the caller's CWD, but the canonical owner invocation is:
+#   cd /Users/sashairis/Projects/jarvis-agencyos && ./scripts/run-next-phase
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$ROOT"
+exec node "$ROOT/scripts/build-runner.mjs" "$@"
