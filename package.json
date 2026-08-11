@@ -1,9 +1,9 @@
 {
   "name": "jarvis-agencyos",
-  "version": "0.14.0-f14",
+  "version": "0.15.0-builder-stage1",
   "private": true,
   "type": "module",
-  "description": "JARVIS / AgencyOS — F-14 security/privacy acceptance suite",
+  "description": "JARVIS / AgencyOS — Builder Stage-1 core (interface boundary, contracts, durable state, task lock)",
   "scripts": {
     "verify:sot": "node scripts/verify-sot.mjs",
     "migrate": "node scripts/migrate.mjs",
@@ -16,6 +16,7 @@
     "test:f12": "node --test tests/observability.test.mjs",
     "test:f13": "node --test tests/backup-restore.test.mjs",
     "test:f14": "node --test tests/security-privacy-acceptance.test.mjs",
+    "test:builder-stage1": "node --test tests/builder-stage1-core.test.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
   },
