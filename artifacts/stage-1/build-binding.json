@@ -13,7 +13,7 @@
   "origin": "https://github.com/mac313248/jarvis-agencyos.git",
   "base_ref": "main",
   "builder_runtime": "Cursor",
-  "reviewer_runtime": "Codex (re-review after evidence rebind)",
+  "reviewer_runtime": "Codex gpt-5.4",
   "codex_prior_merge_readiness_verdict": "FAIL (forgeable trusted-internal provenance; repaired)",
   "local_npm_test": "369/369 pass",
   "local_builder_stage1_test": "see builder-stage1-test-results.txt",
@@ -23,5 +23,6 @@
   "merge_authorized": false,
   "merge_gate": "Codex merge-readiness review must return PASS before any merge to main",
   "repair_note": "Sealed processTrustedInternalEvent; removed caller-mintable buildTrustedInternalProvenance / trusted_provenance options.",
-  "created_at": "2026-08-11T17:59:35.638Z"
+  "created_at": "2026-08-11T17:59:35.638Z",
+  "codex_merge_readiness_verdict": "PASS WITH FIXES (evidence transcript labeling fixed)"
 }

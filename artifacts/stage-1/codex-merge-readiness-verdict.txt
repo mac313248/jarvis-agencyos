@@ -1,0 +1,6 @@
+Stage-1 freeze merge-readiness Codex verdict (current)
+implementation_sha=6fc6d373b4ad142dab0e6d863a38e934c6316db2
+verdict=PASS WITH FIXES
+fix_applied=moved unlabeled prior review transcripts to artifacts/stage-1/historical/
+awaiting=confirmation review after evidence labeling fix
+merge_authorized=false
