@@ -462,6 +462,10 @@ export function isReviewAuthoritative(core, reviewId) {
   if (candidate.review_ref !== reviewId) return false;
   if (candidate.commit_sha !== review.commit_sha) return false;
   if (!candidate.verification_ref) return false;
+  const boundVerificationId = review.evidence?.verification_id;
+  if (!boundVerificationId || boundVerificationId !== candidate.verification_ref) {
+    return false;
+  }
   if (!isVerificationAuthoritative(core, candidate.verification_ref)) return false;
   return true;
 }

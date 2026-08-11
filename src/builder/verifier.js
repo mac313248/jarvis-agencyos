@@ -46,6 +46,26 @@ function invalidatePriorVerifications(core, candidateId, reason) {
   }
 }
 
+function invalidatePriorReviews(core, candidateId, reason) {
+  const prior = core.store.listReviewsForCandidate(candidateId);
+  for (const r of prior) {
+    if (r.invalidated_at) continue;
+    // Prefer core wrapper when present to avoid circular imports with codex-review.
+    if (typeof core.invalidateReview === 'function') {
+      core.invalidateReview(r.review_id, reason);
+    } else {
+      core.store.updateReview(r.review_id, {
+        invalidated_at: nowIso(),
+        invalidation_reason: reason || 'invalidated',
+      });
+    }
+  }
+  const candidate = core.store.getCandidate(candidateId);
+  if (candidate?.review_ref) {
+    core.store.updateCandidate(candidateId, { review_ref: null });
+  }
+}
+
 /**
  * Deterministic verification profile for one exact candidate SHA.
  * GitHub landing evidence is mandatory for PASS.
@@ -98,6 +118,11 @@ export async function verifyExactCandidate({
 
   // Re-verification or landing-evidence refresh must invalidate prior authority.
   invalidatePriorVerifications(
+    core,
+    candidate_id,
+    're-verification_or_landing_evidence_change'
+  );
+  invalidatePriorReviews(
     core,
     candidate_id,
     're-verification_or_landing_evidence_change'

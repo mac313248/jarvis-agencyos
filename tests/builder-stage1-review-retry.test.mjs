@@ -202,6 +202,27 @@ describe('Stage-1 Codex review (item 11)', () => {
     core.close();
   });
 
+  it('re-verify invalidates prior PASS review authority', async () => {
+    const core = createBuilderCore();
+    const { candidate } = seedCandidate(core);
+    await passVerifier(core, candidate.candidate_id);
+    const { review } = await core.reviewCandidate(candidate.candidate_id, {
+      invoker: fakeInvoker(REVIEW_STATUS.PASS, ['ok']),
+    });
+    assert.equal(core.isReviewAuthoritative(review.review_id), true);
+
+    const second = await passVerifier(core, candidate.candidate_id);
+    assert.equal(second.result, VERIFICATION_RESULT.PASS);
+    assert.ok(core.store.getReview(review.review_id).invalidated_at);
+    assert.equal(core.store.getCandidate(candidate.candidate_id).review_ref, null);
+    assert.equal(core.isReviewAuthoritative(review.review_id), false);
+    assert.notEqual(
+      review.evidence?.verification_id,
+      second.verification.verification_id
+    );
+    core.close();
+  });
+
   it('stale caller-supplied verification cannot authorize Codex review', async () => {
     const core = createBuilderCore();
     const { candidate } = seedCandidate(core);
