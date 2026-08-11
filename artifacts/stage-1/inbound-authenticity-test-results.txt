@@ -3,79 +3,79 @@ TAP version 13
     # Subtest: A. verified inbound event is accepted and materializes canonical state
     ok 1 - A. verified inbound event is accepted and materializes canonical state
       ---
-      duration_ms: 12.313459
+      duration_ms: 14.131709
       type: 'test'
       ...
     # Subtest: B. unsigned/missing signature is rejected (UNKNOWN)
     ok 2 - B. unsigned/missing signature is rejected (UNKNOWN)
       ---
-      duration_ms: 7.329
+      duration_ms: 8.066917
       type: 'test'
       ...
     # Subtest: C. failed signature verification is rejected (FAILED)
     ok 3 - C. failed signature verification is rejected (FAILED)
       ---
-      duration_ms: 5.053958
+      duration_ms: 6.380417
       type: 'test'
       ...
     # Subtest: D. unknown source / unregistered connector is rejected
     ok 4 - D. unknown source / unregistered connector is rejected
       ---
-      duration_ms: 7.9545
+      duration_ms: 10.862667
       type: 'test'
       ...
     # Subtest: E. rejected events never reach canonical state materialization
     ok 5 - E. rejected events never reach canonical state materialization
       ---
-      duration_ms: 25.656458
+      duration_ms: 32.633292
       type: 'test'
       ...
     # Subtest: F. existing contracts-auth authenticity behavior remains passing
     ok 6 - F. existing contracts-auth authenticity behavior remains passing
       ---
-      duration_ms: 0.097417
+      duration_ms: 0.115833
       type: 'test'
       ...
     # Subtest: G. unknown/unlisted external event_type is rejected (no NOT_APPLICABLE passthrough)
     ok 7 - G. unknown/unlisted external event_type is rejected (no NOT_APPLICABLE passthrough)
       ---
-      duration_ms: 5.016542
+      duration_ms: 6.344208
       type: 'test'
       ...
     # Subtest: H. caller-spoofed internal/trusted labels are rejected
     ok 8 - H. caller-spoofed internal/trusted labels are rejected
       ---
-      duration_ms: 30.775417
+      duration_ms: 35.830791
       type: 'test'
       ...
-    # Subtest: I. only positively classified trusted-internal provenance may bypass external auth
-    ok 9 - I. only positively classified trusted-internal provenance may bypass external auth
+    # Subtest: I. only sealed trusted-internal infrastructure entrypoint may bypass external auth
+    ok 9 - I. only sealed trusted-internal infrastructure entrypoint may bypass external auth
       ---
-      duration_ms: 8.923458
+      duration_ms: 13.786208
       type: 'test'
       ...
     # Subtest: caller-supplied connector object cannot bypass registry (review finding 1)
     ok 10 - caller-supplied connector object cannot bypass registry (review finding 1)
       ---
-      duration_ms: 3.597291
+      duration_ms: 3.293042
       type: 'test'
       ...
     # Subtest: real authver://hmac/* refs fail closed without fake-HMAC passthrough
     ok 11 - real authver://hmac/* refs fail closed without fake-HMAC passthrough
       ---
-      duration_ms: 6.823958
+      duration_ms: 7.721375
       type: 'test'
       ...
     # Subtest: deterministic replay returns existing event without second state transition
     ok 12 - deterministic replay returns existing event without second state transition
       ---
-      duration_ms: 14.202625
+      duration_ms: 16.323
       type: 'test'
       ...
     1..12
 ok 1 - inbound authenticity gate — explicit gate before materialization
   ---
-  duration_ms: 996.561
+  duration_ms: 1319.707625
   type: 'suite'
   ...
 1..1
@@ -86,4 +86,4 @@ ok 1 - inbound authenticity gate — explicit gate before materialization
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1067.159958
+# duration_ms 1390.048416
