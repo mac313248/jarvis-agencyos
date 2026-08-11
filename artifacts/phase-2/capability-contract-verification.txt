@@ -1,0 +1,8 @@
+Capability contract verification
+contract_metadata: Capability v1
+columns: adapter, approval_policy, auth_scope, capability_id, contract_version, control_surface, created_at, credential_ref, fallback_routes, network_scope, operation, postcondition_observable, postcondition_verifier, preconditions, provider, provider_idempotency, receipt_schema, reversibility, risk_class, status, tenant_id, tenant_scope, timeout_retry_policy, updated_at
+forbidden_secret_columns_present: NONE
+credential_ref_column: opaque text
+unsafe_ambiguity_autonomously_retryable: false
+unsafe_ambiguity_min_verdict: APPROVAL_REQUIRED
+BUSINESS_WRITE_AUTONOMY: DISABLED
