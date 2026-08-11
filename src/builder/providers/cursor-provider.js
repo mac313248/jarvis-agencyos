@@ -2,6 +2,7 @@
 // Uses official @cursor/sdk cloud runtime for isolated workers.
 // Never marks task DONE. Never injects production business credentials.
 
+import { inspect } from 'node:util';
 import {
   PROVIDER_STATUS,
   WorkerProvider,
@@ -10,6 +11,7 @@ import {
 } from '../worker-provider.js';
 import { createCursorSdkAdapter } from './cursor-sdk-adapter.js';
 import { loadCursorApiKey } from './cursor-api-key.js';
+import { redactSecrets, safeErrorFields, REDACTED } from '../secrets-redact.js';
 
 const FORBIDDEN_ENV_NAME =
   /^(GHL_|HIGHLEVEL_|META_|FACEBOOK_|STRIPE_|PAYMENT_|PAYPAL_|TWILIO_|CUSTOMER_|CRM_|PROD_|PRODUCTION_)/i;
@@ -54,13 +56,8 @@ export function mapCursorRunStatus(status) {
   return PROVIDER_STATUS.UNKNOWN;
 }
 
-function providerErrorFrom(err, code = 'PROVIDER_ERROR') {
-  return {
-    name: err?.name || 'Error',
-    message: String(err?.message || err),
-    retryable: Boolean(err?.isRetryable ?? err?.retryable),
-    code: err?.code || code,
-  };
+function providerErrorFrom(err, code = 'PROVIDER_ERROR', extraSecrets = []) {
+  return safeErrorFields(err, code, extraSecrets);
 }
 
 export class CursorProvider extends WorkerProvider {
@@ -75,20 +72,55 @@ export class CursorProvider extends WorkerProvider {
     includeCloudMetadata = false,
   } = {}) {
     super();
-    this._apiKey = apiKey;
-    this._apiKeyLoader = apiKeyLoader;
-    this._sdk = sdkAdapter || createCursorSdkAdapter();
+    // Non-enumerable so JSON.stringify / util.inspect cannot leak the key.
+    Object.defineProperty(this, '_apiKey', {
+      value: apiKey,
+      writable: true,
+      enumerable: false,
+      configurable: true,
+    });
+    Object.defineProperty(this, '_apiKeyLoader', {
+      value: apiKeyLoader,
+      writable: false,
+      enumerable: false,
+      configurable: true,
+    });
+    Object.defineProperty(this, '_sdk', {
+      value: sdkAdapter || createCursorSdkAdapter(),
+      writable: false,
+      enumerable: false,
+      configurable: true,
+    });
+    Object.defineProperty(this, '_handles', {
+      value: new Map(),
+      writable: false,
+      enumerable: false,
+      configurable: true,
+    });
     this.repoUrl = repoUrl;
     this.startingRef = startingRef;
     this.model = model;
     this.autoCreatePR = autoCreatePR;
     this.includeCloudMetadata = includeCloudMetadata;
-    // In-memory handles for the active process; durable IDs live in Builder Core.
-    this._handles = new Map(); // factory_run_id -> { agent, run }
   }
 
   get name() {
     return 'cursor';
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      repoUrl: this.repoUrl,
+      startingRef: this.startingRef,
+      model: this.model,
+      autoCreatePR: this.autoCreatePR,
+      apiKey: REDACTED,
+    };
+  }
+
+  [inspect.custom]() {
+    return `CursorProvider ${JSON.stringify(this.toJSON())}`;
   }
 
   _resolveApiKey() {
@@ -96,6 +128,14 @@ export class CursorProvider extends WorkerProvider {
     const loaded = this._apiKeyLoader();
     this._apiKey = loaded.apiKey;
     return this._apiKey;
+  }
+
+  _secretBag() {
+    return this._apiKey ? [this._apiKey] : [];
+  }
+
+  _safeEvidence(evidence = {}) {
+    return redactSecrets(evidence, { extraSecrets: this._secretBag() });
   }
 
   async probeAuth() {
@@ -109,7 +149,7 @@ export class CursorProvider extends WorkerProvider {
     } catch (err) {
       return {
         ok: false,
-        error: providerErrorFrom(err, 'AUTH_FAILED'),
+        error: providerErrorFrom(err, 'AUTH_FAILED', this._secretBag()),
       };
     }
   }
@@ -142,10 +182,10 @@ export class CursorProvider extends WorkerProvider {
     try {
       apiKey = this._resolveApiKey();
     } catch (err) {
-      throw new WorkerProviderError(err.message, {
+      const safe = providerErrorFrom(err, 'AUTH_UNAVAILABLE', this._secretBag());
+      throw new WorkerProviderError(safe.message, {
         code: 'AUTH_UNAVAILABLE',
         retryable: false,
-        cause: err,
       });
     }
 
@@ -166,6 +206,7 @@ export class CursorProvider extends WorkerProvider {
           builder_trust_domain: 'BUILDER_CORE',
         };
       }
+      // apiKey is passed in-memory to the SDK only — never into evidence/logs.
       const agent = await this._sdk.createAgent({
         apiKey,
         model: { id: this.model },
@@ -191,24 +232,25 @@ export class CursorProvider extends WorkerProvider {
         provider_status: mapCursorRunStatus(run.status) === PROVIDER_STATUS.UNKNOWN
           ? PROVIDER_STATUS.LAUNCHED
           : mapCursorRunStatus(run.status),
-        evidence: {
+        evidence: this._safeEvidence({
           launched_at: new Date().toISOString(),
           repo_url: this.repoUrl,
           starting_ref: this.startingRef,
           model: this.model,
           runtime: 'cloud',
-        },
+        }),
         error: null,
       });
     } catch (err) {
-      throw new WorkerProviderError(
-        `cursor launch failed: ${err.message}`,
-        {
-          code: err?.name === 'AuthenticationError' ? 'AUTH_FAILED' : 'LAUNCH_FAILED',
-          retryable: Boolean(err?.isRetryable),
-          cause: err,
-        }
+      const safe = providerErrorFrom(
+        err,
+        err?.name === 'AuthenticationError' ? 'AUTH_FAILED' : 'LAUNCH_FAILED',
+        this._secretBag()
       );
+      throw new WorkerProviderError(`cursor launch failed: ${safe.message}`, {
+        code: safe.code,
+        retryable: safe.retryable,
+      });
     }
   }
 
@@ -241,10 +283,10 @@ export class CursorProvider extends WorkerProvider {
         error: null,
       });
     } catch (err) {
-      throw new WorkerProviderError(`cursor cancel failed: ${err.message}`, {
+      const safe = providerErrorFrom(err, 'CANCEL_FAILED', this._secretBag());
+      throw new WorkerProviderError(`cursor cancel failed: ${safe.message}`, {
         code: 'CANCEL_FAILED',
-        retryable: Boolean(err?.isRetryable),
-        cause: err,
+        retryable: safe.retryable,
       });
     }
   }
@@ -326,7 +368,7 @@ export class CursorProvider extends WorkerProvider {
               prUrl: run.prUrl || run.pullRequestUrl,
             }
           : undefined;
-      const evidence = {
+      const evidence = this._safeEvidence({
         inspected_at: new Date().toISOString(),
         mode,
         run_status: run.status,
@@ -337,10 +379,9 @@ export class CursorProvider extends WorkerProvider {
               ? String(run.result).slice(0, 4000)
               : undefined,
         git: git || undefined,
-        target:
-          run.target && typeof run.target === 'object' ? run.target : undefined,
+        // Never serialize SDK run/agent handles (they nest apiKey).
         usage: waitResult?.usage || run.usage || undefined,
-      };
+      });
 
       return normalizeProviderResult({
         factory_run_id,
@@ -361,17 +402,22 @@ export class CursorProvider extends WorkerProvider {
       });
     } catch (err) {
       // Preserve truthful provider/auth errors; do not invent success.
+      // Never attach raw SDK objects or credential-bearing causes.
       return normalizeProviderResult({
         factory_run_id,
         provider: this.name,
         provider_run_id,
         provider_agent_id,
         provider_status: PROVIDER_STATUS.ERROR,
-        evidence: {
+        evidence: this._safeEvidence({
           inspected_at: new Date().toISOString(),
           mode,
-        },
-        error: providerErrorFrom(err, err?.name === 'AuthenticationError' ? 'AUTH_FAILED' : 'STATUS_FAILED'),
+        }),
+        error: providerErrorFrom(
+          err,
+          err?.name === 'AuthenticationError' ? 'AUTH_FAILED' : 'STATUS_FAILED',
+          this._secretBag()
+        ),
       });
     }
   }

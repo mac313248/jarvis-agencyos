@@ -21,6 +21,7 @@ import {
   CI_WAIT_OUTCOME,
   detectAwaitingCi,
 } from './ci-wait.js';
+import { redactSecrets, redactString } from './secrets-redact.js';
 
 export const ORCHESTRATION_DECISION = Object.freeze({
   DONE: 'DONE',
@@ -31,7 +32,7 @@ export const ORCHESTRATION_DECISION = Object.freeze({
 
 export class OrchestratorError extends Error {
   constructor(message, code = 'ORCHESTRATOR_ERROR') {
-    super(message);
+    super(redactString(String(message || 'orchestrator error')));
     this.name = 'OrchestratorError';
     this.code = code;
   }
@@ -381,7 +382,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
 
   const trajectory = [];
   const push = (step, detail = {}) => {
-    const row = { at: nowIso(), step, ...detail };
+    const row = redactSecrets({ at: nowIso(), step, ...detail });
     trajectory.push(row);
     return row;
   };

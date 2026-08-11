@@ -15,6 +15,7 @@ import {
   assertTaskStatus,
   newEventId,
 } from './contracts.js';
+import { safeJsonStringify } from './secrets-redact.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 const SCHEMA_VERSION = 'builder-stage1-v5';
@@ -26,6 +27,10 @@ function nowIso() {
 function parseJson(text, fallback) {
   if (text == null || text === '') return fallback;
   return JSON.parse(text);
+}
+
+function durableJson(value) {
+  return value == null ? null : safeJsonStringify(value);
 }
 
 function rowToTask(row) {
@@ -325,7 +330,7 @@ export class BuilderStore {
         run.started_at ?? null,
         run.ended_at ?? null,
         run.failure_class ?? null,
-        run.evidence == null ? null : JSON.stringify(run.evidence),
+        durableJson(run.evidence),
         created_at
       );
     return this.getRun(run.factory_run_id);
@@ -369,7 +374,7 @@ export class BuilderStore {
         next.started_at ?? null,
         next.ended_at ?? null,
         next.failure_class ?? null,
-        next.evidence == null ? null : JSON.stringify(next.evidence),
+        durableJson(next.evidence),
         factoryRunId
       );
     return this.getRun(factoryRunId);
@@ -483,7 +488,7 @@ export class BuilderStore {
         verification.candidate_id,
         verification.commit_sha,
         verification.result,
-        JSON.stringify(verification.checks ?? []),
+        durableJson(verification.checks ?? []),
         verification.worker_claim ?? null,
         verification.failure_class ?? null,
         verification.created_at || nowIso(),
@@ -527,7 +532,7 @@ export class BuilderStore {
       )
       .run(
         next.result,
-        JSON.stringify(next.checks ?? []),
+        durableJson(next.checks ?? []),
         next.worker_claim ?? null,
         next.failure_class ?? null,
         next.invalidated_at ?? null,
@@ -575,8 +580,8 @@ export class BuilderStore {
         review.candidate_id,
         review.commit_sha,
         review.review_status,
-        JSON.stringify(review.findings ?? []),
-        review.evidence == null ? null : JSON.stringify(review.evidence),
+        durableJson(review.findings ?? []),
+        durableJson(review.evidence),
         review.reviewed_at || nowIso(),
         review.invalidated_at ?? null,
         review.invalidation_reason ?? null
@@ -603,8 +608,8 @@ export class BuilderStore {
       )
       .run(
         next.review_status,
-        JSON.stringify(next.findings ?? []),
-        next.evidence == null ? null : JSON.stringify(next.evidence),
+        durableJson(next.findings ?? []),
+        durableJson(next.evidence),
         next.reviewed_at,
         next.invalidated_at ?? null,
         next.invalidation_reason ?? null,
@@ -686,7 +691,7 @@ export class BuilderStore {
         record.factory_run_id,
         record.event_type,
         record.evidence_ref,
-        record.payload == null ? null : JSON.stringify(record.payload),
+        durableJson(record.payload),
         record.timestamp
       );
     return rowToEvent(

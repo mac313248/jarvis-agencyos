@@ -2,6 +2,8 @@
 // Minimal Stage-1 WorkerProvider seam.
 // Providers report worker lifecycle/evidence only. They never mark a task DONE.
 
+import { redactSecrets, redactString } from './secrets-redact.js';
+
 export const PROVIDER_STATUS = Object.freeze({
   CREATING: 'CREATING',
   LAUNCHED: 'LAUNCHED',
@@ -16,11 +18,14 @@ export const PROVIDER_STATUS = Object.freeze({
 
 export class WorkerProviderError extends Error {
   constructor(message, { code = 'PROVIDER_ERROR', retryable = false, cause = null } = {}) {
-    super(message);
+    super(redactString(String(message || 'provider error')));
     this.name = 'WorkerProviderError';
     this.code = code;
     this.retryable = retryable;
-    this.cause = cause;
+    // Never retain raw causes that may nest credentials (SDK client/options).
+    this.cause = cause
+      ? { name: cause.name, message: redactString(String(cause.message || '')), code: cause.code }
+      : null;
   }
 }
 
@@ -79,8 +84,10 @@ export function normalizeProviderResult(partial) {
     provider_run_id: partial.provider_run_id ?? null,
     provider_agent_id: partial.provider_agent_id ?? null,
     provider_status: partial.provider_status,
-    evidence: partial.evidence && typeof partial.evidence === 'object' ? partial.evidence : {},
-    error: partial.error ?? null,
+    evidence: redactSecrets(
+      partial.evidence && typeof partial.evidence === 'object' ? partial.evidence : {}
+    ),
+    error: partial.error == null ? null : redactSecrets(partial.error),
   };
 }
 

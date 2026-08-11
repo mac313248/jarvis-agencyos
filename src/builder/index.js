@@ -57,6 +57,14 @@ export {
 export { loadCursorApiKey, CURSOR_KEYCHAIN_SERVICE } from './providers/cursor-api-key.js';
 export { createCursorSdkAdapter } from './providers/cursor-sdk-adapter.js';
 export {
+  REDACTED,
+  redactSecrets,
+  redactString,
+  safeJsonStringify,
+  safeErrorFields,
+  isSensitiveKey,
+} from './secrets-redact.js';
+export {
   createGhLandingClient,
   parseRepoSlug,
   GitHubLandingError,

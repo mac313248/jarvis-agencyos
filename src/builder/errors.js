@@ -1,8 +1,11 @@
+import { redactString } from './secrets-redact.js';
+
 export class BuilderCoreError extends Error {
   constructor(reason, code = 'BUILDER_CORE_ERROR') {
-    super(reason);
+    const safe = redactString(String(reason || 'builder error'));
+    super(safe);
     this.name = 'BuilderCoreError';
     this.code = code;
-    this.reason = reason;
+    this.reason = safe;
   }
 }
