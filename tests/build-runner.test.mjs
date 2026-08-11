@@ -21,8 +21,8 @@ import {
 
 const REAL_ROOT = new URL('../', import.meta.url).pathname;
 const REAL_SOT_DIR = join(REAL_ROOT, 'docs/master-sot');
-// Fixtures live inside the workspace so the sandbox permits writes.
-const FIXTURE_ROOT = join('/private/tmp', 'jarvis-build-runner-tests');
+// Workspace-local fixtures: writable in sandbox and on Linux CI (not /private/tmp).
+const FIXTURE_ROOT = join(REAL_ROOT, '.tmp-build-runner-tests');
 const review = (verdict, blockers = []) => JSON.stringify({ verdict, blockers });
 
 function sha256File(p) {
