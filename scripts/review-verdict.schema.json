@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "blockers"],
+  "properties": {
+    "verdict": {"enum": ["PASS", "PASS_WITH_FIXES", "FAIL"]},
+    "blockers": {"type": "array", "items": {"type": "string"}}
+  }
+}

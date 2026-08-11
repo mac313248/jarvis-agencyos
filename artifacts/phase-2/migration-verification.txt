@@ -1,0 +1,17 @@
+MIGRATE (clean database) — Phase 2
+  applied  0001_roles_and_tenant_context  sha256=b8a76652d68eddd0
+  applied  0002_tenants_users_memberships  sha256=dacfc4d2bb221f45
+  applied  0003_owner_auth  sha256=0689d480058c6804
+  applied  0004_contract_metadata_and_sot_binding  sha256=b16c60098ce20ae1
+  applied  0005_authority_proposal_approval  sha256=e0747bd01a49f680
+  applied  0006_events_state_evidence  sha256=2d35265af0134c97
+  applied  0007_receipts_pii  sha256=a242985bc35b5796
+  applied  0008_kill_authority_epoch  sha256=27cb343d4ce60138
+  applied  0009_second_codex_repair  sha256=343fc9be22eb6e15
+  applied  0010_authority_runtime_context_bound  sha256=ece0faa8c76caa22
+  applied  0011_capability_registry  sha256=9e65993a2f117373
+
+Postgres engine: PGlite (real PostgreSQL WASM)
+server_version=16.4
+
+Phase 2 additive migration: 0011_capability_registry
