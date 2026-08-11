@@ -218,34 +218,62 @@ export async function refreshCandidateLanding(core, candidateId, githubClient) {
     );
   }
 
+  if (!candidate.branch) {
+    throw new BuilderCoreError(
+      'candidate missing branch for PR binding',
+      'MISSING_BRANCH'
+    );
+  }
+
   let pr_number = candidate.pr_number;
   let pr_url = candidate.pr_url;
-  if (pr_number) {
-    const pr = await githubClient.getPullRequest(pr_number);
-    if (pr.head_sha !== sha) {
+  if (pr_number == null) {
+    const found = await githubClient.findPullRequestsForHead(candidate.branch);
+    if (!found?.[0]?.number) {
       throw new BuilderCoreError(
-        `PR #${pr_number} head ${pr.head_sha} does not match candidate sha ${sha}`,
-        'PR_SHA_MISMATCH'
+        'candidate requires a GitHub PR bound to branch/SHA',
+        'MISSING_PR'
       );
     }
-    pr_url = pr.html_url;
-  } else if (candidate.branch) {
-    const found = await githubClient.findPullRequestsForHead(candidate.branch);
-    if (found[0]) {
-      pr_number = found[0].number;
-      pr_url = found[0].html_url;
-      const pr = await githubClient.getPullRequest(pr_number);
-      if (pr.head_sha !== sha) {
-        // Branch moved; do not bind mismatched PR head.
-        pr_number = candidate.pr_number;
-        pr_url = candidate.pr_url;
-      }
-    }
+    pr_number = found[0].number;
   }
+
+  const pr = await githubClient.getPullRequest(pr_number);
+  if (pr.head_sha !== sha) {
+    throw new BuilderCoreError(
+      `PR #${pr_number} head ${pr.head_sha} does not match candidate sha ${sha}`,
+      'PR_SHA_MISMATCH'
+    );
+  }
+  if (pr.head_ref !== candidate.branch) {
+    throw new BuilderCoreError(
+      `PR #${pr_number} head_ref ${pr.head_ref} does not match candidate branch ${candidate.branch}`,
+      'PR_BRANCH_MISMATCH'
+    );
+  }
+  pr_url = pr.html_url;
+  pr_number = pr.number;
 
   const checkRuns = await githubClient.getCheckRunsForCommit(sha);
   const combined = await githubClient.getCombinedStatusForCommit(sha);
   const summary = githubClient.summarizeCi({ checkRuns, combinedStatus: combined });
+
+  const evidenceChanged =
+    Number(candidate.pr_number) !== Number(pr_number) ||
+    candidate.pr_url !== pr_url ||
+    candidate.ci_status !== summary.ci_status ||
+    candidate.ci_conclusion !== summary.ci_conclusion;
+
+  if (evidenceChanged && candidate.verification_ref) {
+    invalidateVerification(
+      core,
+      candidate.verification_ref,
+      'landing_evidence_changed'
+    );
+    if (candidate.review_ref) {
+      invalidateReview(core, candidate.review_ref, 'landing_evidence_changed');
+    }
+  }
 
   return core.store.updateCandidate(candidateId, {
     pr_number,
@@ -255,11 +283,24 @@ export async function refreshCandidateLanding(core, candidateId, githubClient) {
     ci_conclusion: summary.ci_conclusion,
     ci_ref: JSON.stringify({
       commit_sha: sha,
+      branch: candidate.branch,
+      pr_number,
+      pr_url,
       ci_status: summary.ci_status,
       ci_conclusion: summary.ci_conclusion,
       checks: summary.checks,
       combined_state: summary.combined_state,
     }),
     evidence_at: summary.captured_at,
+    ...(evidenceChanged && candidate.verification_ref
+      ? {
+          status:
+            candidate.status === CANDIDATE_STATUS.VERIFIED
+              ? CANDIDATE_STATUS.PROPOSED
+              : candidate.status,
+          verification_ref: null,
+          review_ref: null,
+        }
+      : {}),
   });
 }

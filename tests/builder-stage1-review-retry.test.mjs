@@ -59,8 +59,73 @@ function seedCandidate(core, { review_required = true, sha = SHA_A } = {}) {
   return { task: core.getTask(task.task_id), run, candidate };
 }
 
-async function passVerifier(core, candidateId) {
+function reviewGithub({
+  sha = SHA_A,
+  branch = 'stage1-smoke/review',
+  prNumber = 7,
+  prUrl = 'https://github.com/mac313248/jarvis-agencyos/pull/7',
+} = {}) {
+  return {
+    async getCommit(requested) {
+      assert.equal(requested, sha);
+      return { sha, html_url: `https://github.com/x/y/commit/${sha}`, message: 'demo' };
+    },
+    async getPullRequest(number) {
+      assert.equal(number, prNumber);
+      return {
+        number: prNumber,
+        html_url: prUrl,
+        head_ref: branch,
+        head_sha: sha,
+        base_ref: 'main',
+        state: 'open',
+        draft: true,
+      };
+    },
+    async findPullRequestsForHead(head) {
+      assert.equal(head, branch);
+      return [{ number: prNumber, html_url: prUrl, state: 'open', title: 'demo' }];
+    },
+    async getCheckRunsForCommit(requested) {
+      assert.equal(requested, sha);
+      return [
+        {
+          id: 1,
+          name: 'ci',
+          status: 'completed',
+          conclusion: 'success',
+          html_url: prUrl,
+        },
+      ];
+    },
+    async getCombinedStatusForCommit() {
+      return { state: 'success', statuses: [], total_count: 1 };
+    },
+    summarizeCi({ checkRuns = [], combinedStatus = null } = {}) {
+      return {
+        ci_status: 'completed',
+        ci_conclusion: 'success',
+        checks: checkRuns.map((r) => ({
+          name: r.name,
+          status: r.status,
+          conclusion: r.conclusion,
+        })),
+        combined_state: combinedStatus?.state || 'success',
+        captured_at: new Date().toISOString(),
+      };
+    },
+  };
+}
+
+async function passVerifier(core, candidateId, sha = SHA_A) {
+  const candidate = core.store.getCandidate(candidateId);
   return core.verifyCandidate(candidateId, {
+    githubClient: reviewGithub({
+      sha,
+      branch: candidate.branch,
+      prNumber: candidate.pr_number,
+      prUrl: candidate.pr_url,
+    }),
     runTaskTests: async () => ({ ok: true, output: 'ok' }),
     runBuildChecks: async () => ({ ok: true, output: 'ok' }),
   });
@@ -391,7 +456,9 @@ describe('Stage-1 live Codex review smoke', () => {
 
     const core = createBuilderCore();
     const { candidate } = seedCandidate(core, { sha });
-    await passVerifier(core, candidate.candidate_id);
+    // Live GitHub CI on HEAD may be unavailable here; use bound landing fixture
+    // for deterministic PASS, then Codex reviews the exact live SHA.
+    await passVerifier(core, candidate.candidate_id, sha);
 
     const invoker = createCodexReviewInvoker({
       repoRoot,

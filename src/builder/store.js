@@ -501,6 +501,15 @@ export class BuilderStore {
     );
   }
 
+  listVerificationsForCandidate(candidateId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM verifications WHERE candidate_id = ? ORDER BY created_at ASC`
+      )
+      .all(candidateId)
+      .map(rowToVerification);
+  }
+
   updateVerification(verificationId, patch) {
     const current = this.getVerification(verificationId);
     if (!current) throw new Error(`unknown verification_id: ${verificationId}`);

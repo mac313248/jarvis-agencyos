@@ -187,6 +187,12 @@ describe('Stage-1 candidate registry + verifier (items 9–10)', () => {
       pr_url: 'https://example.test/pull/1',
     });
     const v = await core.verifyCandidate(candA.candidate_id, {
+      githubClient: fakeGithub({
+        sha: SHA_A,
+        branch: 'stage1-smoke/a',
+        prNumber: 1,
+        prUrl: 'https://example.test/pull/1',
+      }),
       runTaskTests: async () => ({ ok: true, output: 'ok' }),
     });
     const approval = core.recordApproval({
@@ -289,6 +295,117 @@ describe('Stage-1 candidate registry + verifier (items 9–10)', () => {
           e.event_type === EVENT_TYPE.VERIFICATION_RECORDED &&
           e.payload.worker_claim_ignored_for_authority === true
       )
+    );
+    core.close();
+  });
+
+  it('missing GitHub landing evidence cannot PASS (Codex blocker)', async () => {
+    const { core, task, run } = makeCoreWithActiveRun();
+    const cand = core.recordCandidate({
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: 'trusted-branch',
+      commit_sha: SHA_A,
+      pr_number: 7,
+      pr_url: 'https://example.test/pull/7',
+    });
+    const localOnly = await core.verifyCandidate(cand.candidate_id, {
+      runTaskTests: async () => ({ ok: true, output: 'local pass' }),
+    });
+    assert.equal(localOnly.result, VERIFICATION_RESULT.BLOCKED);
+    assert.equal(core.isVerificationAuthoritative(localOnly.verification.verification_id), false);
+    core.close();
+  });
+
+  it('PR head_ref must equal candidate.branch (Codex blocker)', async () => {
+    const { core, task, run } = makeCoreWithActiveRun();
+    const cand = core.recordCandidate({
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: 'trusted-branch',
+      commit_sha: SHA_A,
+      pr_number: 7,
+      pr_url: 'https://example.test/pull/7',
+    });
+    const attackerGh = fakeGithub({
+      sha: SHA_A,
+      branch: 'attacker-branch',
+      prNumber: 7,
+      prUrl: 'https://example.test/pull/7',
+    });
+    await assert.rejects(
+      () => core.refreshCandidateLanding(cand.candidate_id, attackerGh),
+      (err) => err.code === 'PR_BRANCH_MISMATCH'
+    );
+    const after = core.store.getCandidate(cand.candidate_id);
+    assert.equal(after.branch, 'trusted-branch');
+    core.close();
+  });
+
+  it('re-verify FAIL invalidates prior PASS authority (Codex blocker)', async () => {
+    const { core, task, run } = makeCoreWithActiveRun();
+    const cand = core.recordCandidate({
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: 'stage1-smoke/candidate-demo',
+      commit_sha: SHA_A,
+      pr_number: 42,
+      pr_url: 'https://github.com/mac313248/jarvis-agencyos/pull/42',
+    });
+    const first = await core.verifyCandidate(cand.candidate_id, {
+      githubClient: fakeGithub({ ciConclusion: 'success' }),
+      runTaskTests: async () => ({ ok: true, output: 'ok' }),
+    });
+    assert.equal(first.result, VERIFICATION_RESULT.PASS);
+    assert.equal(core.isVerificationAuthoritative(first.verification.verification_id), true);
+
+    const second = await core.verifyCandidate(cand.candidate_id, {
+      githubClient: fakeGithub({ ciConclusion: 'failure' }),
+      runTaskTests: async () => ({ ok: true, output: 'ok' }),
+    });
+    assert.equal(second.result, VERIFICATION_RESULT.FAIL);
+    assert.equal(second.candidate.status, CANDIDATE_STATUS.REJECTED);
+    assert.ok(core.store.getVerification(first.verification.verification_id).invalidated_at);
+    assert.equal(
+      core.isVerificationAuthoritative(first.verification.verification_id),
+      false
+    );
+    assert.equal(
+      core.isVerificationAuthoritative(second.verification.verification_id),
+      false
+    );
+    core.close();
+  });
+
+  it('same-SHA CI change invalidates prior PASS authority (Codex blocker)', async () => {
+    const { core, task, run } = makeCoreWithActiveRun();
+    const cand = core.recordCandidate({
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: 'stage1-smoke/candidate-demo',
+      commit_sha: SHA_A,
+      pr_number: 42,
+      pr_url: 'https://github.com/mac313248/jarvis-agencyos/pull/42',
+    });
+    const first = await core.verifyCandidate(cand.candidate_id, {
+      githubClient: fakeGithub({ ciConclusion: 'success' }),
+      runTaskTests: async () => ({ ok: true, output: 'ok' }),
+    });
+    assert.equal(first.result, VERIFICATION_RESULT.PASS);
+    assert.equal(core.isVerificationAuthoritative(first.verification.verification_id), true);
+
+    await core.refreshCandidateLanding(
+      cand.candidate_id,
+      fakeGithub({ ciConclusion: 'failure' })
+    );
+    const after = core.store.getCandidate(cand.candidate_id);
+    assert.equal(after.ci_conclusion, 'failure');
+    assert.equal(after.status, CANDIDATE_STATUS.PROPOSED);
+    assert.equal(after.verification_ref, null);
+    assert.ok(core.store.getVerification(first.verification.verification_id).invalidated_at);
+    assert.equal(
+      core.isVerificationAuthoritative(first.verification.verification_id),
+      false
     );
     core.close();
   });
@@ -429,14 +546,15 @@ describe('Stage-1 live GitHub candidate smoke (disposable PR)', () => {
         // Live CI may still be pending on a brand-new draft PR; do not require success.
         worker_claim: 'PASS',
       });
-      // With pending CI, authoritative github_ci ok=null + task test pass => PASS
-      // if CI conclusion null is treated as unknown not fail. Our verifier treats
-      // null ok as unknown; if only unknowns+passes => PASS when hardPasses>0.
+      // Pending/unknown CI must fail closed (BLOCKED). Completed success => PASS.
       assert.ok(
         [VERIFICATION_RESULT.PASS, VERIFICATION_RESULT.BLOCKED].includes(
           verified.result
         )
       );
+      if (landed.ci_status !== 'completed' || landed.ci_conclusion !== 'success') {
+        assert.equal(verified.result, VERIFICATION_RESULT.BLOCKED);
+      }
       assert.equal(verified.verification.commit_sha, sha);
       assert.equal(verified.task_accepted ?? false, false);
 
