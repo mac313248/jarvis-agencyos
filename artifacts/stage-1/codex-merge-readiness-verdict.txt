@@ -1,6 +1,7 @@
-Stage-1 freeze merge-readiness Codex verdict (current)
-implementation_sha=6fc6d373b4ad142dab0e6d863a38e934c6316db2
-verdict=PASS WITH FIXES
-fix_applied=moved unlabeled prior review transcripts to artifacts/stage-1/historical/
-awaiting=confirmation review after evidence labeling fix
+Stage-1 freeze merge-readiness status
+reviewed_implementation_sha=6fc6d373b4ad142dab0e6d863a38e934c6316db2
+freeze_branch=stage1/freeze-merge-ready
+draft_pr=https://github.com/mac313248/jarvis-agencyos/pull/56
+latest_codex_substantive_verdict=PASS WITH FIXES (provenance seal OK; evidence labeling fix applied)
 merge_authorized=false
+note=Do not require evidence files to exist inside the implementation commit tree; evidence is intentionally later and review-only.
