@@ -1,0 +1,17 @@
+{
+  "sot_manifest_sha256": "8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87",
+  "base_sha": "b5d68aa88bb4df251d8a0de15347576a40039390",
+  "reviewed_implementation_sha": "7072a4e425fb2c4e537b079a792f9909d40a3d49",
+  "git_commit_sha": "7072a4e425fb2c4e537b079a792f9909d40a3d49",
+  "evidence_or_review_only_sha": "pending — evidence/review-only commit created after this binding; not embedded (avoids self-referential Git-SHA loop)",
+  "branch": "phase-2/governed-capability-registry",
+  "origin": "https://github.com/mac313248/jarvis-agencyos.git",
+  "phase": "PHASE 2 — GOVERNED CAPABILITY REGISTRY",
+  "builder_runtime": "Cursor (Grok 4.5)",
+  "reviewer_runtime": "Codex (pending Phase 2 independent review)",
+  "business_write_autonomy": "DISABLED",
+  "postgres_engine": "PGlite (real PostgreSQL WASM)",
+  "postgres_server_version": "16.4",
+  "note": "git_commit_sha binds to the exact code+migrations+tests implementation commit whose suite was run. Any later commit is evidence/review-only and does not modify implementation.",
+  "created_at": "2026-08-10T10:39:14.216Z"
+}
