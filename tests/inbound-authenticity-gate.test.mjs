@@ -22,10 +22,11 @@ import {
 import {
   evaluateInboundAuthenticityGate,
   processInboundEvent,
+  processTrustedInternalEvent,
   verifyInboundSignature,
-  buildTrustedInternalProvenance,
   INBOUND_AUTHENTICITY_GATE_VERSION,
   TRUSTED_FAKE_SIGNATURE_HEADER,
+  TRUSTED_INTERNAL_PROVENANCE_SOURCE,
 } from '../src/runtime/inbound-authenticity-gate.js';
 
 let db;
@@ -289,7 +290,13 @@ describe('inbound authenticity gate — explicit gate before materialization', (
       { is_internal: true },
       { is_trusted: true },
       { classification: 'TRUSTED_INTERNAL' },
-      { trusted_provenance: buildTrustedInternalProvenance('internal.tick') },
+      {
+        trusted_provenance: {
+          classification: 'TRUSTED_INTERNAL',
+          source: TRUSTED_INTERNAL_PROVENANCE_SOURCE,
+          event_type: 'provider.message.received',
+        },
+      },
       { provenance: { classification: 'TRUSTED_INTERNAL' } },
       {
         connector: baseConnector({ connector_id: 'conn.does-not-exist' }),
@@ -318,14 +325,29 @@ describe('inbound authenticity gate — explicit gate before materialization', (
       processInboundEvent(tx, internalSpoof));
     assert.equal(internalResult.gate.accepted, false);
     assert.match(internalResult.gate.rejection_reason, /caller-supplied trusted\/internal/i);
+
+    // Forgeable plain-object "provenance option" is no longer an authority surface.
+    const forgedOption = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>
+      processInboundEvent(tx, {
+        event_type: 'internal.tick',
+        source_system: 'agencyos',
+        dedupe_key: 'dedupe-forged-option-' + randomUUID(),
+      }, {
+        trusted_provenance: {
+          classification: 'TRUSTED_INTERNAL',
+          source: TRUSTED_INTERNAL_PROVENANCE_SOURCE,
+          event_type: 'internal.tick',
+        },
+      }));
+    assert.equal(forgedOption.gate.accepted, false);
+    assert.equal(forgedOption.materialized, false);
   });
 
-  test('I. only positively classified trusted-internal provenance may bypass external auth', async () => {
-    const dedupe = 'dedupe-internal-trusted-' + randomUUID();
+  test('I. only sealed trusted-internal infrastructure entrypoint may bypass external auth', async () => {
     const inbound = {
       event_type: 'internal.tick',
       source_system: 'agencyos',
-      dedupe_key: dedupe,
+      dedupe_key: 'dedupe-internal-trusted-' + randomUUID(),
       content_trust: 'TRUSTED_STRUCTURED',
       materialization: {
         state_key: 'internal:tick',
@@ -337,33 +359,34 @@ describe('inbound authenticity gate — explicit gate before materialization', (
       },
     };
 
-    // Without infrastructure provenance → rejected.
+    // Untrusted inbound path → rejected (no forgeable provenance option).
     const rejected = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>
       processInboundEvent(tx, inbound));
     assert.equal(rejected.gate.accepted, false);
     assert.equal(rejected.materialized, false);
-    assert.match(rejected.gate.rejection_reason, /trusted internal provenance/i);
+    assert.match(rejected.gate.rejection_reason, /sealed infrastructure entrypoint|connector authenticity/i);
 
-    // With valid infrastructure provenance → NOT_APPLICABLE bypass.
+    // Sealed infrastructure entrypoint → NOT_APPLICABLE bypass.
     const accepted = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>
-      processInboundEvent(tx, {
+      processTrustedInternalEvent(tx, {
         ...inbound,
         dedupe_key: 'dedupe-internal-accepted-' + randomUUID(),
-      }, {
-        trusted_provenance: buildTrustedInternalProvenance('internal.tick'),
       }));
     assert.equal(accepted.gate.accepted, true);
     assert.equal(accepted.gate.authenticity_status, 'NOT_APPLICABLE');
     assert.equal(accepted.gate.evidence.classification, 'TRUSTED_INTERNAL');
+    assert.equal(accepted.gate.evidence.provenance_boundary, 'processTrustedInternalEvent');
     assert.equal(accepted.materialized, true);
 
-    // Mismatched provenance event_type → rejected.
+    // Non-allowlisted event_type on sealed entrypoint → rejected.
     const mismatch = await asRuntimeTenant(db, 'app_runtime', A, async (tx) =>
-      evaluateInboundAuthenticityGate(tx, inbound, {
-        trusted_provenance: buildTrustedInternalProvenance('internal.other'),
+      processTrustedInternalEvent(tx, {
+        event_type: 'internal.other',
+        source_system: 'agencyos',
+        dedupe_key: 'dedupe-internal-other-' + randomUUID(),
       }));
-    assert.equal(mismatch.accepted, false);
-    assert.match(mismatch.rejection_reason, /event_type mismatch/i);
+    assert.equal(mismatch.gate.accepted, false);
+    assert.match(mismatch.gate.rejection_reason, /not in trusted internal registry/i);
   });
 
   test('caller-supplied connector object cannot bypass registry (review finding 1)', async () => {

@@ -91,44 +91,11 @@ function hasUntrustedClassificationClaims(inbound) {
 }
 
 /**
- * Build trusted internal provenance from infrastructure (never from inbound payload).
+ * Trusted-internal classification is NOT a caller-mintable object.
+ * The sealed entrypoint `processTrustedInternalEvent` is the infrastructure
+ * provenance boundary. Plain objects, payload fields, and options such as
+ * trusted_provenance cannot authorize an authenticity bypass.
  */
-export function buildTrustedInternalProvenance(event_type) {
-  return Object.freeze({
-    classification: 'TRUSTED_INTERNAL',
-    source: TRUSTED_INTERNAL_PROVENANCE_SOURCE,
-    event_type,
-  });
-}
-
-/**
- * Positive classification of trusted internal provenance from infrastructure only.
- * Returns { isTrustedInternal: boolean, rejection_reason?: string }.
- */
-export function classifyTrustedInternalProvenance(trusted_provenance, inbound) {
-  if (!trusted_provenance || trusted_provenance.classification !== 'TRUSTED_INTERNAL') {
-    return { isTrustedInternal: false };
-  }
-  if (trusted_provenance.source !== TRUSTED_INTERNAL_PROVENANCE_SOURCE) {
-    return {
-      isTrustedInternal: false,
-      rejection_reason: 'unknown trusted provenance source',
-    };
-  }
-  if (trusted_provenance.event_type !== inbound.event_type) {
-    return {
-      isTrustedInternal: false,
-      rejection_reason: 'trusted provenance event_type mismatch',
-    };
-  }
-  if (!TRUSTED_INTERNAL_EVENT_TYPES.includes(inbound.event_type)) {
-    return {
-      isTrustedInternal: false,
-      rejection_reason: `event_type not in trusted internal registry: ${inbound.event_type}`,
-    };
-  }
-  return { isTrustedInternal: true };
-}
 
 /**
  * Derive deterministic fake-adapter inputs from raw envelope material only.
@@ -205,6 +172,8 @@ function buildGateEvidence({
   rejection_reason = null,
   authenticity_method = null,
   classification = null,
+  provenance_source = null,
+  provenance_boundary = null,
 }) {
   return Object.freeze({
     gate_version: INBOUND_AUTHENTICITY_GATE_VERSION,
@@ -215,6 +184,8 @@ function buildGateEvidence({
     authenticity_method,
     rejection_reason,
     classification,
+    provenance_source,
+    provenance_boundary,
   });
 }
 
@@ -273,15 +244,14 @@ async function loadTrustedRegistryConnector(backend, connector_id) {
 }
 
 /**
- * The explicit inbound authenticity gate — MUST run before materialization.
- * Returns { accepted, may_materialize, evidence, authenticity_status, content_trust, rejection_reason }.
+ * The explicit inbound authenticity gate for untrusted/external inbound paths.
+ * MUST run before materialization. Never accepts caller-supplied trusted/internal
+ * classification or verification claims. Trusted-internal events must use the
+ * sealed `processTrustedInternalEvent` entrypoint instead.
  *
- * @param {object} backend - DB backend with tenant context set.
- * @param {object} inbound - Untrusted inbound event payload.
- * @param {object} [opts]
- * @param {object|null} [opts.trusted_provenance] - Infrastructure-only trusted internal provenance.
+ * Returns { accepted, may_materialize, evidence, authenticity_status, content_trust, rejection_reason }.
  */
-export async function evaluateInboundAuthenticityGate(backend, inbound, { trusted_provenance = null } = {}) {
+export async function evaluateInboundAuthenticityGate(backend, inbound) {
   assertBusinessWriteAutonomyDisabled();
 
   const event_type = inbound.event_type;
@@ -323,29 +293,9 @@ export async function evaluateInboundAuthenticityGate(backend, inbound, { truste
 
   const authRequired = AUTH_REQUIRED_EVENT_TYPES.has(event_type);
 
-  // Trusted internal bypass: positive infrastructure provenance only (never auth-required types).
+  // External/unknown (and any non-auth-required type on this path) fail closed.
+  // Trusted-internal bypass is only available via processTrustedInternalEvent.
   if (!authRequired) {
-    const internal = classifyTrustedInternalProvenance(trusted_provenance, inbound);
-    if (internal.isTrustedInternal) {
-      const evidence = buildGateEvidence({
-        source_system,
-        provider: source_system,
-        verification_result: 'NOT_APPLICABLE',
-        rejection_reason: null,
-        authenticity_method: null,
-        classification: 'TRUSTED_INTERNAL',
-      });
-      return Object.freeze({
-        accepted: true,
-        may_materialize: true,
-        authenticity_status: 'NOT_APPLICABLE',
-        content_trust,
-        rejection_reason: null,
-        evidence,
-      });
-    }
-
-    // External/unknown event types without trusted internal provenance fail closed.
     return rejectGate({
       source_system,
       provider: source_system,
@@ -353,8 +303,8 @@ export async function evaluateInboundAuthenticityGate(backend, inbound, { truste
       content_trust,
       authenticity_status: 'UNKNOWN',
       verification_result: 'UNKNOWN',
-      rejection_reason: internal.rejection_reason
-        ?? 'external/unknown event requires connector authenticity or trusted internal provenance',
+      rejection_reason:
+        'external/unknown event requires connector authenticity; trusted-internal must use sealed infrastructure entrypoint',
       classification: 'EXTERNAL_OR_UNKNOWN',
     });
   }
@@ -470,20 +420,7 @@ function gateFromExistingRow(row) {
   });
 }
 
-/**
- * Persist canonical event + optional current_state materialization.
- * Gate evaluation ALWAYS precedes INSERT; rejected events never materialize state.
- * Deterministic replay: duplicate dedupe_key returns existing event without a
- * second state transition.
- */
-export async function processInboundEvent(
-  backend,
-  inbound,
-  { now = new Date().toISOString(), trusted_provenance = null } = {}
-) {
-  assertBusinessWriteAutonomyDisabled();
-  await requireTenant(backend);
-
+async function persistInboundResult(backend, inbound, gate, { now }) {
   const eventId = inbound.event_id ?? randomUUID();
   const dedupeKey = inbound.dedupe_key ?? `inbound-${eventId}`;
 
@@ -497,8 +434,6 @@ export async function processInboundEvent(
       replay: true,
     });
   }
-
-  const gate = await evaluateInboundAuthenticityGate(backend, inbound, { trusted_provenance });
 
   const typedProperties = {
     ...(inbound.typed_properties ?? {}),
@@ -601,4 +536,109 @@ export async function processInboundEvent(
     state_record: stateRecord,
     replay: false,
   });
+}
+
+/**
+ * Persist canonical event + optional current_state materialization for untrusted
+ * inbound events. Gate evaluation ALWAYS precedes INSERT; rejected events never
+ * materialize state. Deterministic replay: duplicate dedupe_key returns existing
+ * event without a second state transition.
+ *
+ * Does NOT accept trusted_provenance or any caller-supplied internal classification.
+ */
+export async function processInboundEvent(
+  backend,
+  inbound,
+  { now = new Date().toISOString() } = {}
+) {
+  assertBusinessWriteAutonomyDisabled();
+  await requireTenant(backend);
+  const gate = await evaluateInboundAuthenticityGate(backend, inbound);
+  return persistInboundResult(backend, inbound, gate, { now });
+}
+
+/**
+ * Sealed trusted-infrastructure entrypoint for positively classified internal events.
+ * Calling this API is the provenance boundary — not a forgeable options object.
+ * Untrusted callers must use processInboundEvent (fail-closed external path).
+ */
+export async function processTrustedInternalEvent(
+  backend,
+  inbound,
+  { now = new Date().toISOString() } = {}
+) {
+  assertBusinessWriteAutonomyDisabled();
+  await requireTenant(backend);
+
+  const event_type = inbound?.event_type;
+  const source_system = inbound?.source_system;
+  const content_trust = inbound?.content_trust ?? 'TRUSTED_STRUCTURED';
+
+  if (!event_type || !source_system) {
+    throw new InboundAuthenticityGateError(
+      'INVALID_INBOUND',
+      'event_type and source_system are required'
+    );
+  }
+
+  if (hasUntrustedClassificationClaims(inbound) || hasUntrustedVerificationClaims(inbound?.verification)) {
+    const gate = rejectGate({
+      source_system,
+      provider: source_system,
+      connector_id: inbound.connector_id ?? null,
+      content_trust,
+      authenticity_status: 'UNKNOWN',
+      verification_result: 'UNKNOWN',
+      rejection_reason: 'caller-supplied trusted/internal classification rejected',
+    });
+    return persistInboundResult(backend, inbound, gate, { now });
+  }
+
+  if (!TRUSTED_INTERNAL_EVENT_TYPES.includes(event_type)) {
+    const gate = rejectGate({
+      source_system,
+      provider: source_system,
+      connector_id: inbound.connector_id ?? null,
+      content_trust,
+      authenticity_status: 'UNKNOWN',
+      verification_result: 'UNKNOWN',
+      rejection_reason: `event_type not in trusted internal registry: ${event_type}`,
+      classification: 'EXTERNAL_OR_UNKNOWN',
+    });
+    return persistInboundResult(backend, inbound, gate, { now });
+  }
+
+  if (AUTH_REQUIRED_EVENT_TYPES.has(event_type)) {
+    const gate = rejectGate({
+      source_system,
+      provider: source_system,
+      connector_id: inbound.connector_id ?? null,
+      content_trust,
+      authenticity_status: 'UNKNOWN',
+      verification_result: 'UNKNOWN',
+      rejection_reason: 'auth-required event_type cannot use trusted-internal entrypoint',
+      classification: 'EXTERNAL_OR_UNKNOWN',
+    });
+    return persistInboundResult(backend, inbound, gate, { now });
+  }
+
+  const gate = Object.freeze({
+    accepted: true,
+    may_materialize: true,
+    authenticity_status: 'NOT_APPLICABLE',
+    content_trust,
+    rejection_reason: null,
+    evidence: buildGateEvidence({
+      source_system,
+      provider: source_system,
+      verification_result: 'NOT_APPLICABLE',
+      rejection_reason: null,
+      authenticity_method: null,
+      classification: 'TRUSTED_INTERNAL',
+      provenance_source: TRUSTED_INTERNAL_PROVENANCE_SOURCE,
+      provenance_boundary: 'processTrustedInternalEvent',
+    }),
+  });
+
+  return persistInboundResult(backend, inbound, gate, { now });
 }
