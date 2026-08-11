@@ -14,6 +14,8 @@ import {
   createBuilderCore,
   createCursorProvider,
   createDefaultOrchestrationDeps,
+  createCodexReviewInvoker,
+  createGhLandingClient,
 } from '../src/builder/index.js';
 import { createJarvisInterface, JARVIS_COMMANDS } from '../src/jarvis/index.js';
 
@@ -74,8 +76,21 @@ async function main() {
   const deps = createDefaultOrchestrationDeps({
     repoRoot: ROOT,
     enableGithub: process.env.JARVIS_DISABLE_GITHUB !== '1',
-    enableCodex: process.env.JARVIS_DISABLE_CODEX !== '1',
+    enableCodex: false,
   });
+  if (process.env.JARVIS_DISABLE_GITHUB !== '1' && !deps.githubClient) {
+    try {
+      deps.githubClient = createGhLandingClient({ cwd: ROOT });
+    } catch {
+      deps.githubClient = null;
+    }
+  }
+  if (process.env.JARVIS_DISABLE_CODEX !== '1') {
+    deps.codexInvoker = createCodexReviewInvoker({
+      repoRoot: ROOT,
+      timeoutMs: Number(process.env.JARVIS_CODEX_TIMEOUT_MS || 15 * 60 * 1000),
+    });
+  }
 
   const builder = createBuilderCore({
     dbPath,

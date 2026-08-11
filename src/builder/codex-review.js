@@ -78,6 +78,12 @@ export function buildCodexReviewPrompt({
     'CANDIDATE DIFF (exact SHA; truncated if large):',
     diff || '(no diff provided)',
     '',
+    'EVIDENCE RULES:',
+    '- The supplied CANDIDATE DIFF is authoritative for this exact commit_sha.',
+    '- Do NOT require the commit to exist in the local git checkout.',
+    '- Do NOT emit intermediate schema JSON. Emit the schema JSON once as the final answer only.',
+    '- Prefer the supplied diff + deterministic_checks over exploratory shell commands.',
+    '',
     'Return ONLY JSON: {"review_status":"PASS|REQUEST_CHANGES|BLOCKED","findings":[]}.',
     'Use REQUEST_CHANGES for material defects; BLOCKED if you cannot complete a safe review.',
   ].join('\n');
@@ -131,6 +137,23 @@ export function createCodexReviewInvoker({
   model = DEFAULT_CODEX_REVIEW_MODEL,
   fallbackModel = DEFAULT_CODEX_FALLBACK_MODEL,
 } = {}) {
+  function extractInvokerErrorMessage(raw) {
+    const lines = String(raw || '').split(/\r?\n/).filter((l) => l.trim());
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      try {
+        const ev = JSON.parse(lines[i]);
+        if (ev?.type === 'error' && ev.message) return String(ev.message).slice(0, 400);
+        if (ev?.type === 'turn.failed' && ev.error?.message) {
+          return String(ev.error.message).slice(0, 400);
+        }
+      } catch {
+        // keep scanning
+      }
+    }
+    const last = lines.at(-1) || 'codex failed';
+    return last.slice(0, 400);
+  }
+
   function runOnce(prompt, modelId) {
     const args = [
       '-a',
@@ -165,13 +188,23 @@ export function createCodexReviewInvoker({
       const timedOut = /ETIMEDOUT|timed out/i.test(
         String(err?.code || err?.message || '')
       );
+      // If Codex emitted a final schema-valid review before non-zero exit, accept it.
+      // Ignore early intermediate schema-shaped chatter by requiring turn completion
+      // or a trailing agent_message after the last turn.started.
+      const parsed = parseCodexReviewOutput(raw);
+      const completed =
+        /"type"\s*:\s*"turn\.completed"/i.test(raw) ||
+        /"type"\s*:\s*"turn\.failed"/i.test(raw);
+      if (parsed.ok && completed && !/"type"\s*:\s*"turn\.failed"/i.test(raw)) {
+        return { ok: true, raw, model: modelId || null, recovered_from_nonzero_exit: true };
+      }
       return {
         ok: false,
         raw,
         model: modelId || null,
         error: {
           name: err?.name || 'Error',
-          message: raw.split('\n').find((l) => l.trim())?.slice(0, 400) || 'codex failed',
+          message: extractInvokerErrorMessage(raw),
           code: timedOut ? 'TIMEOUT' : 'CODEX_INVOKE_FAILED',
           retryable: false,
         },
@@ -369,7 +402,7 @@ export async function reviewExactCandidate({
       ],
       evidence: {
         error: invoked?.error || { code: 'CODEX_UNAVAILABLE' },
-        raw_excerpt: String(invoked?.raw || '').slice(0, 2000),
+        raw_excerpt: String(invoked?.raw || '').slice(0, 8000),
         ...modelEvidence,
       },
       reviewed_at: nowIso(),
