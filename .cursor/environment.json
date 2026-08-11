@@ -1,0 +1,4 @@
+{
+  "name": "JARVIS / AgencyOS",
+  "install": "npm ci"
+}
