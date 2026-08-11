@@ -1,0 +1,23 @@
+You are the independent REVIEW-ONLY Codex reviewer for JARVIS / AgencyOS.
+
+PHASE: PHASE 2 — GOVERNED CAPABILITY REGISTRY
+ROLE: Review only. Do not modify code as a concurrent writer.
+
+BASE SHA: b5d68aa88bb4df251d8a0de15347576a40039390
+REVIEWED IMPLEMENTATION SHA: 7072a4e425fb2c4e537b079a792f9909d40a3d49
+APPROVED SOT MANIFEST: 8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87
+
+Inspect independently:
+1. docs/master-sot/ (especially 06_SYSTEM_CONTRACTS.md Capability) + SOT_SYNC_MANIFEST.sha256
+2. git diff b5d68aa88bb4df251d8a0de15347576a40039390...7072a4e425fb2c4e537b079a792f9909d40a3d49
+3. migrations/0011_capability_registry.sql
+4. src/contracts/capability.js + src/contracts/capability-resolver.js
+5. RLS policies / FORCE RLS / app_runtime grants / role posture
+6. tests/capability-registry.test.mjs and full suite results
+7. artifacts/phase-2/acceptance-map.md and evidence files
+8. Confirm BUSINESS_WRITE_AUTONOMY remains DISABLED
+9. Confirm no live provider/connector/executor/DBOS/Agent 0 surfaces were added
+10. Confirm provider_idempotency!=supported AND postcondition_observable=false is never classified as autonomously retryable after ambiguity
+
+Return a defect-first verdict: PASS | PASS WITH FIXES | FAIL.
+Do not invent a Connector machine contract. Do not expand scope into Phase 3.
