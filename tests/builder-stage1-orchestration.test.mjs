@@ -566,13 +566,41 @@ describe('Stage-1 live disposable orchestration smoke', () => {
         getDiff: async ({ commit_sha } = {}) => {
           if (!commit_sha) return '';
           try {
+            // Exact-SHA patch for Codex read-only review (not truncated metadata JSON).
             return execFileSync(
               'gh',
-              ['api', `repos/mac313248/jarvis-agencyos/commits/${commit_sha}`],
+              [
+                'api',
+                `repos/mac313248/jarvis-agencyos/commits/${commit_sha}`,
+                '-H',
+                'Accept: application/vnd.github.patch',
+              ],
               { encoding: 'utf8' }
-            ).slice(0, 4000);
+            ).slice(0, 120000);
           } catch {
-            return `commit ${commit_sha}`;
+            try {
+              const json = execFileSync(
+                'gh',
+                ['api', `repos/mac313248/jarvis-agencyos/commits/${commit_sha}`],
+                { encoding: 'utf8' }
+              );
+              const data = JSON.parse(json);
+              return JSON.stringify(
+                {
+                  sha: data.sha,
+                  message: data.commit?.message || '',
+                  files: (data.files || []).map((f) => ({
+                    filename: f.filename,
+                    status: f.status,
+                    patch: f.patch || '',
+                  })),
+                },
+                null,
+                2
+              ).slice(0, 120000);
+            } catch {
+              return `commit ${commit_sha}`;
+            }
           }
         },
       },
