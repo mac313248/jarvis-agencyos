@@ -33,11 +33,13 @@ CREATE TABLE IF NOT EXISTS runs (
   task_id TEXT NOT NULL REFERENCES tasks(task_id),
   provider TEXT NOT NULL,
   provider_run_id TEXT,
+  provider_agent_id TEXT,
   attempt INTEGER NOT NULL,
   status TEXT NOT NULL,
   started_at TEXT,
   ended_at TEXT,
   failure_class TEXT,
+  evidence_json TEXT,
   created_at TEXT NOT NULL,
   CHECK (attempt >= 1)
 );

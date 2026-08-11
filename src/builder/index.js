@@ -37,4 +37,19 @@ export {
   assertTaskMutable,
   verifyTaskHash,
 } from './task-lock.js';
-export { BuilderCore, createBuilderCore } from './core.js';
+export { BuilderCore, BuilderCoreError, createBuilderCore } from './core.js';
+export {
+  WorkerProvider,
+  WorkerProviderError,
+  PROVIDER_STATUS,
+  assertWorkerProvider,
+  normalizeProviderResult,
+} from './worker-provider.js';
+export {
+  CursorProvider,
+  createCursorProvider,
+  assertNoBusinessCredentials,
+  mapCursorRunStatus,
+} from './providers/cursor-provider.js';
+export { loadCursorApiKey, CURSOR_KEYCHAIN_SERVICE } from './providers/cursor-api-key.js';
+export { createCursorSdkAdapter } from './providers/cursor-sdk-adapter.js';

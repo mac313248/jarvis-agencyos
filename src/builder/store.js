@@ -17,7 +17,7 @@ import {
 } from './contracts.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-const SCHEMA_VERSION = 'builder-stage1-v1';
+const SCHEMA_VERSION = 'builder-stage1-v2';
 
 function nowIso() {
   return new Date().toISOString();
@@ -55,11 +55,13 @@ function rowToRun(row) {
     task_id: row.task_id,
     provider: row.provider,
     provider_run_id: row.provider_run_id,
+    provider_agent_id: row.provider_agent_id ?? null,
     attempt: row.attempt,
     status: row.status,
     started_at: row.started_at,
     ended_at: row.ended_at,
     failure_class: row.failure_class,
+    evidence: parseJson(row.evidence_json, null),
     created_at: row.created_at,
   };
 }
@@ -118,12 +120,23 @@ export class BuilderStore {
     this.db = new DatabaseSync(dbPath);
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
+    this._migrateRunsColumns();
     this.db
       .prepare(
         `INSERT INTO builder_meta(key, value) VALUES(?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`
       )
       .run('schema_version', SCHEMA_VERSION);
+  }
+
+  _migrateRunsColumns() {
+    const cols = this.db.prepare(`PRAGMA table_info(runs)`).all().map((c) => c.name);
+    if (!cols.includes('provider_agent_id')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN provider_agent_id TEXT`);
+    }
+    if (!cols.includes('evidence_json')) {
+      this.db.exec(`ALTER TABLE runs ADD COLUMN evidence_json TEXT`);
+    }
   }
 
   close() {
@@ -224,20 +237,23 @@ export class BuilderStore {
     this.db
       .prepare(
         `INSERT INTO runs(
-           factory_run_id, task_id, provider, provider_run_id, attempt, status,
-           started_at, ended_at, failure_class, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           factory_run_id, task_id, provider, provider_run_id, provider_agent_id,
+           attempt, status, started_at, ended_at, failure_class, evidence_json,
+           created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         run.factory_run_id,
         run.task_id,
         run.provider,
         run.provider_run_id ?? null,
+        run.provider_agent_id ?? null,
         run.attempt,
         run.status,
         run.started_at ?? null,
         run.ended_at ?? null,
         run.failure_class ?? null,
+        run.evidence == null ? null : JSON.stringify(run.evidence),
         created_at
       );
     return this.getRun(run.factory_run_id);
@@ -267,21 +283,35 @@ export class BuilderStore {
     this.db
       .prepare(
         `UPDATE runs SET
-           provider = ?, provider_run_id = ?, attempt = ?, status = ?,
-           started_at = ?, ended_at = ?, failure_class = ?
+           provider = ?, provider_run_id = ?, provider_agent_id = ?, attempt = ?,
+           status = ?, started_at = ?, ended_at = ?, failure_class = ?,
+           evidence_json = ?
          WHERE factory_run_id = ?`
       )
       .run(
         next.provider,
         next.provider_run_id ?? null,
+        next.provider_agent_id ?? null,
         next.attempt,
         next.status,
         next.started_at ?? null,
         next.ended_at ?? null,
         next.failure_class ?? null,
+        next.evidence == null ? null : JSON.stringify(next.evidence),
         factoryRunId
       );
     return this.getRun(factoryRunId);
+  }
+
+  listActiveRuns() {
+    return this.db
+      .prepare(
+        `SELECT * FROM runs
+         WHERE status IN ('PENDING', 'LAUNCHED', 'RUNNING')
+         ORDER BY created_at ASC`
+      )
+      .all()
+      .map(rowToRun);
   }
 
   insertCandidate(candidate) {
