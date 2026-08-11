@@ -192,7 +192,7 @@ describe('Stage-1 Builder Core (items 2–5)', () => {
 
       const core2 = createBuilderCore({ dbPath });
       const reconstructed = core2.reconstruct();
-      assert.equal(reconstructed.schema_version, 'builder-stage1-v3');
+      assert.equal(reconstructed.schema_version, 'builder-stage1-v4');
       assert.equal(reconstructed.nonterminal_tasks.length, 1);
       assert.equal(reconstructed.nonterminal_tasks[0].task_id, task.task_id);
       assert.equal(reconstructed.runs.length, 1);

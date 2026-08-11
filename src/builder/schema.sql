@@ -19,13 +19,17 @@ CREATE TABLE IF NOT EXISTS tasks (
   review_required INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL,
   priority INTEGER NOT NULL DEFAULT 100,
+  max_attempts INTEGER NOT NULL DEFAULT 2,
+  max_runtime_ms INTEGER NOT NULL DEFAULT 1800000,
+  cost_budget_status TEXT NOT NULL DEFAULT 'UNKNOWN',
   proposal_id TEXT,
   content_hash TEXT,
   locked_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   CHECK (intent_version >= 1),
-  CHECK (review_required IN (0, 1))
+  CHECK (review_required IN (0, 1)),
+  CHECK (max_attempts >= 1)
 );
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -76,6 +80,18 @@ CREATE TABLE IF NOT EXISTS verifications (
   worker_claim TEXT,
   failure_class TEXT,
   created_at TEXT NOT NULL,
+  invalidated_at TEXT,
+  invalidation_reason TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  review_id TEXT PRIMARY KEY,
+  candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+  commit_sha TEXT NOT NULL,
+  review_status TEXT NOT NULL,
+  findings_json TEXT NOT NULL,
+  evidence_json TEXT,
+  reviewed_at TEXT NOT NULL,
   invalidated_at TEXT,
   invalidation_reason TEXT
 );

@@ -19,6 +19,7 @@
     "test:builder-stage1": "node --test tests/builder-stage1-*.test.mjs",
     "test:builder-stage1-provider": "node --test tests/builder-stage1-provider.test.mjs",
     "test:builder-stage1-candidate": "node --test tests/builder-stage1-candidate-verifier.test.mjs",
+    "test:builder-stage1-review": "node --test tests/builder-stage1-review-retry.test.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
   },

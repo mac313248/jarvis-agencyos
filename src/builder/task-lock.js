@@ -57,6 +57,18 @@ export function normalizeOwnerIntent(input) {
   if (!Number.isFinite(priority)) {
     throw new TaskLockError('priority must be a number');
   }
+  const max_attempts =
+    input.max_attempts == null ? 2 : Number.parseInt(input.max_attempts, 10);
+  const max_runtime_ms =
+    input.max_runtime_ms == null
+      ? 1800000
+      : Number.parseInt(input.max_runtime_ms, 10);
+  if (!Number.isFinite(max_attempts) || max_attempts < 1) {
+    throw new TaskLockError('max_attempts must be >= 1');
+  }
+  if (!Number.isFinite(max_runtime_ms) || max_runtime_ms < 1) {
+    throw new TaskLockError('max_runtime_ms must be >= 1');
+  }
   return {
     intent,
     acceptance_ref,
@@ -64,6 +76,9 @@ export function normalizeOwnerIntent(input) {
     tool_manifest,
     review_required,
     priority,
+    max_attempts,
+    max_runtime_ms,
+    cost_budget_status: input.cost_budget_status || 'UNKNOWN',
     intent_version: 1,
   };
 }
@@ -79,6 +94,9 @@ export function createDraftTask(store, ownerIntent) {
     tool_manifest: normalized.tool_manifest,
     review_required: normalized.review_required,
     priority: normalized.priority,
+    max_attempts: normalized.max_attempts,
+    max_runtime_ms: normalized.max_runtime_ms,
+    cost_budget_status: normalized.cost_budget_status,
     status: TASK_STATUS.DRAFT,
   });
   store.appendEvent({
@@ -147,6 +165,9 @@ const IMMUTABLE_WHEN_LOCKED = new Set([
   'allowed_paths',
   'tool_manifest',
   'review_required',
+  'max_attempts',
+  'max_runtime_ms',
+  'cost_budget_status',
   'proposal_id',
   'content_hash',
 ]);

@@ -11,6 +11,7 @@ import {
 import { BuilderCoreError } from './errors.js';
 import { TaskLockError, verifyTaskHash } from './task-lock.js';
 import { invalidateVerification } from './verifier.js';
+import { invalidateReview } from './codex-review.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -110,6 +111,15 @@ export function registerExactCandidate(core, input) {
         invalidateVerification(
           core,
           old.verification_ref,
+          `commit changed ${old.commit_sha} -> ${sha}`
+        );
+      } catch {}
+    }
+    if (old.review_ref) {
+      try {
+        invalidateReview(
+          core,
+          old.review_ref,
           `commit changed ${old.commit_sha} -> ${sha}`
         );
       } catch {}

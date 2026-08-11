@@ -17,7 +17,7 @@ import {
 } from './contracts.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-const SCHEMA_VERSION = 'builder-stage1-v3';
+const SCHEMA_VERSION = 'builder-stage1-v4';
 
 function nowIso() {
   return new Date().toISOString();
@@ -40,11 +40,30 @@ function rowToTask(row) {
     review_required: Boolean(row.review_required),
     status: row.status,
     priority: row.priority,
+    max_attempts: row.max_attempts == null ? 2 : Number(row.max_attempts),
+    max_runtime_ms:
+      row.max_runtime_ms == null ? 1800000 : Number(row.max_runtime_ms),
+    cost_budget_status: row.cost_budget_status || 'UNKNOWN',
     proposal_id: row.proposal_id,
     content_hash: row.content_hash,
     locked_at: row.locked_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
+  };
+}
+
+function rowToReview(row) {
+  if (!row) return null;
+  return {
+    review_id: row.review_id,
+    candidate_id: row.candidate_id,
+    commit_sha: row.commit_sha,
+    review_status: row.review_status,
+    findings: parseJson(row.findings_json, []),
+    evidence: parseJson(row.evidence_json, null),
+    reviewed_at: row.reviewed_at,
+    invalidated_at: row.invalidated_at,
+    invalidation_reason: row.invalidation_reason,
   };
 }
 
@@ -172,6 +191,16 @@ export class BuilderStore {
         this.db.exec(`ALTER TABLE candidates ADD COLUMN ${col} ${type}`);
       }
     }
+    const taskCols = this.db.prepare(`PRAGMA table_info(tasks)`).all().map((c) => c.name);
+    for (const [col, type] of [
+      ['max_attempts', 'INTEGER NOT NULL DEFAULT 2'],
+      ['max_runtime_ms', 'INTEGER NOT NULL DEFAULT 1800000'],
+      ['cost_budget_status', "TEXT NOT NULL DEFAULT 'UNKNOWN'"],
+    ]) {
+      if (!taskCols.includes(col)) {
+        this.db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
+      }
+    }
   }
 
   close() {
@@ -192,9 +221,10 @@ export class BuilderStore {
       .prepare(
         `INSERT INTO tasks(
            task_id, intent, intent_version, acceptance_ref, allowed_paths_json,
-           tool_manifest_json, review_required, status, priority, proposal_id,
-           content_hash, locked_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           tool_manifest_json, review_required, status, priority, max_attempts,
+           max_runtime_ms, cost_budget_status, proposal_id, content_hash,
+           locked_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         task.task_id,
@@ -206,6 +236,9 @@ export class BuilderStore {
         task.review_required ? 1 : 0,
         task.status,
         task.priority ?? 100,
+        task.max_attempts ?? 2,
+        task.max_runtime_ms ?? 1800000,
+        task.cost_budget_status || 'UNKNOWN',
         task.proposal_id ?? null,
         task.content_hash ?? null,
         task.locked_at ?? null,
@@ -243,7 +276,8 @@ export class BuilderStore {
         `UPDATE tasks SET
            intent = ?, intent_version = ?, acceptance_ref = ?,
            allowed_paths_json = ?, tool_manifest_json = ?, review_required = ?,
-           status = ?, priority = ?, proposal_id = ?, content_hash = ?,
+           status = ?, priority = ?, max_attempts = ?, max_runtime_ms = ?,
+           cost_budget_status = ?, proposal_id = ?, content_hash = ?,
            locked_at = ?, updated_at = ?
          WHERE task_id = ?`
       )
@@ -256,6 +290,9 @@ export class BuilderStore {
         next.review_required ? 1 : 0,
         next.status,
         next.priority,
+        next.max_attempts ?? 2,
+        next.max_runtime_ms ?? 1800000,
+        next.cost_budget_status || 'UNKNOWN',
         next.proposal_id ?? null,
         next.content_hash ?? null,
         next.locked_at ?? null,
@@ -514,6 +551,66 @@ export class BuilderStore {
         approvalId
       );
     return this.getApproval(approvalId);
+  }
+
+  insertReview(review) {
+    this.db
+      .prepare(
+        `INSERT INTO reviews(
+           review_id, candidate_id, commit_sha, review_status, findings_json,
+           evidence_json, reviewed_at, invalidated_at, invalidation_reason
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        review.review_id,
+        review.candidate_id,
+        review.commit_sha,
+        review.review_status,
+        JSON.stringify(review.findings ?? []),
+        review.evidence == null ? null : JSON.stringify(review.evidence),
+        review.reviewed_at || nowIso(),
+        review.invalidated_at ?? null,
+        review.invalidation_reason ?? null
+      );
+    return this.getReview(review.review_id);
+  }
+
+  getReview(reviewId) {
+    return rowToReview(
+      this.db.prepare(`SELECT * FROM reviews WHERE review_id = ?`).get(reviewId)
+    );
+  }
+
+  updateReview(reviewId, patch) {
+    const current = this.getReview(reviewId);
+    if (!current) throw new Error(`unknown review_id: ${reviewId}`);
+    const next = { ...current, ...patch, review_id: current.review_id };
+    this.db
+      .prepare(
+        `UPDATE reviews SET
+           review_status = ?, findings_json = ?, evidence_json = ?,
+           reviewed_at = ?, invalidated_at = ?, invalidation_reason = ?
+         WHERE review_id = ?`
+      )
+      .run(
+        next.review_status,
+        JSON.stringify(next.findings ?? []),
+        next.evidence == null ? null : JSON.stringify(next.evidence),
+        next.reviewed_at,
+        next.invalidated_at ?? null,
+        next.invalidation_reason ?? null,
+        reviewId
+      );
+    return this.getReview(reviewId);
+  }
+
+  listReviewsForCandidate(candidateId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM reviews WHERE candidate_id = ? ORDER BY reviewed_at ASC`
+      )
+      .all(candidateId)
+      .map(rowToReview);
   }
 
   insertApproval(approval) {

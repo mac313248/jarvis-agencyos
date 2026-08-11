@@ -38,6 +38,14 @@ import {
   invalidateVerification,
   isVerificationAuthoritative,
 } from './verifier.js';
+import {
+  reviewExactCandidate,
+  evaluateReviewGate,
+  invalidateReview,
+  isReviewAuthoritative,
+  assertReviewerCannotMutate,
+} from './codex-review.js';
+import { beginRepairAttempt, resolveRetryPolicy } from './retry.js';
 
 export { BuilderCoreError } from './errors.js';
 
@@ -512,8 +520,39 @@ export class BuilderCore {
     return isVerificationAuthoritative(this, verificationId);
   }
 
+  async reviewCandidate(candidateId, options = {}) {
+    return reviewExactCandidate({
+      core: this,
+      candidate_id: candidateId,
+      ...options,
+    });
+  }
+
+  evaluateReviewGate(args) {
+    return evaluateReviewGate(args);
+  }
+
+  invalidateReview(reviewId, reason) {
+    return invalidateReview(this, reviewId, reason);
+  }
+
+  isReviewAuthoritative(reviewId) {
+    return isReviewAuthoritative(this, reviewId);
+  }
+
+  assertReviewerCannotMutate(taskId, patch) {
+    return assertReviewerCannotMutate(this, taskId, patch);
+  }
+
+  beginRepairAttempt(taskId, options = {}) {
+    return beginRepairAttempt(this, taskId, options);
+  }
+
+  getRetryPolicy(taskId) {
+    return resolveRetryPolicy(this.getTask(taskId) || {});
+  }
+
   // Stage-1 storage for approval records bound to proposal_id + content_hash.
-  // Full approval-invalidation policy wiring is a later build-order item.
   recordApproval({
     task_id,
     approved_by,

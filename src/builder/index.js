@@ -8,6 +8,7 @@ export {
   FAILURE_CLASS,
   EVENT_TYPE,
   VERIFICATION_RESULT,
+  REVIEW_STATUS,
   CI_STATUS,
   newTaskId,
   newFactoryRunId,
@@ -72,3 +73,23 @@ export {
   assertExactShaBinding,
   VerifierError,
 } from './verifier.js';
+export {
+  reviewExactCandidate,
+  evaluateReviewGate,
+  invalidateReview,
+  isReviewAuthoritative,
+  assertReviewerCannotMutate,
+  createCodexReviewInvoker,
+  buildCodexReviewPrompt,
+  parseCodexReviewOutput,
+  CodexReviewError,
+} from './codex-review.js';
+export {
+  beginRepairAttempt,
+  resolveRetryPolicy,
+  DEFAULT_RETRY_POLICY,
+  NON_RETRYABLE_FAILURE_CLASSES,
+  isRetryableFailureClass,
+  countAttempts,
+  elapsedRuntimeMs,
+} from './retry.js';
