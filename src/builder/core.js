@@ -59,6 +59,10 @@ import {
   reconstructAuthoritativeState,
   assertNoDuplicateLaunchAfterRecovery,
 } from './recovery.js';
+import {
+  runOwnerSoftwareTask,
+  ORCHESTRATION_DECISION,
+} from './orchestrator.js';
 
 export { BuilderCoreError } from './errors.js';
 
@@ -354,6 +358,96 @@ export class BuilderCore {
       },
     });
     return { run: updated, provider_result: providerResult };
+  }
+
+  /**
+   * Launch provider work onto an existing PENDING factory_run_id (repair path).
+   * Does not mint a second run — preserves bounded retry fresh-id semantics.
+   */
+  async launchCodingWorkerOnRun({ factory_run_id, prompt, envVars = {} }) {
+    if (!this.workerProvider) {
+      throw new BuilderCoreError('no worker provider configured', 'NO_PROVIDER');
+    }
+    const run = this.assertAuthorizedRun(factory_run_id);
+    if (run.status !== RUN_STATUS.PENDING) {
+      throw new BuilderCoreError(
+        `launchCodingWorkerOnRun requires PENDING run, got ${run.status}`,
+        'INVALID_RUN_STATUS'
+      );
+    }
+    const task = this.verifyLockedTask(run.task_id);
+    const approvedTools = workerApprovedTools(task);
+    if (!approvedTools.providers.includes(this.workerProvider.name)) {
+      throw new BuilderCoreError(
+        `coding worker provider not permitted by tool_manifest: ${this.workerProvider.name}`,
+        'UNAUTHORIZED_TOOL'
+      );
+    }
+    this._currentFactoryRunId = run.factory_run_id;
+
+    let providerResult;
+    try {
+      providerResult = normalizeProviderResult(
+        await this.workerProvider.launch({
+          factory_run_id: run.factory_run_id,
+          task,
+          prompt,
+          envVars,
+          allowed_tool_manifest: approvedTools.allowed_tool_manifest,
+          approved_tools: approvedTools,
+        })
+      );
+    } catch (err) {
+      this.store.updateRun(run.factory_run_id, {
+        status: RUN_STATUS.FAILED,
+        ended_at: new Date().toISOString(),
+        failure_class: FAILURE_CLASS.PROVIDER_ERROR,
+        evidence: {
+          error: {
+            name: err.name,
+            message: err.message,
+            code: err.code || 'LAUNCH_FAILED',
+            retryable: Boolean(err.retryable),
+          },
+        },
+      });
+      this._currentFactoryRunId = null;
+      throw err;
+    }
+
+    if (providerResult.factory_run_id !== run.factory_run_id) {
+      this.markRunStale(run.factory_run_id);
+      throw new BuilderCoreError(
+        'provider returned mismatched factory_run_id',
+        'FACTORY_RUN_MISMATCH'
+      );
+    }
+
+    const updated = this.store.updateRun(run.factory_run_id, {
+      provider_run_id: providerResult.provider_run_id,
+      provider_agent_id: providerResult.provider_agent_id,
+      status: mapProviderStatusToRunStatus(providerResult.provider_status),
+      started_at: new Date().toISOString(),
+      evidence: providerResult.evidence,
+    });
+    this.updateTaskStatus(run.task_id, TASK_STATUS.RUNNING);
+    this.store.appendEvent({
+      task_id: run.task_id,
+      factory_run_id: run.factory_run_id,
+      event_type: EVENT_TYPE.WORKER_LAUNCHED,
+      payload: {
+        provider: providerResult.provider,
+        provider_run_id: providerResult.provider_run_id,
+        provider_agent_id: providerResult.provider_agent_id,
+        provider_status: providerResult.provider_status,
+        on_existing_run: true,
+      },
+    });
+    return { run: updated, provider_result: providerResult };
+  }
+
+  async runOwnerSoftwareTask(ownerTask, options = {}) {
+    return runOwnerSoftwareTask(this, ownerTask, options);
   }
 
   async refreshWorkerStatus(factoryRunId) {

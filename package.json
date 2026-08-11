@@ -21,6 +21,8 @@
     "test:builder-stage1-candidate": "node --test tests/builder-stage1-candidate-verifier.test.mjs",
     "test:builder-stage1-review": "node --test tests/builder-stage1-review-retry.test.mjs",
     "test:builder-stage1-failure-battery": "node --test tests/builder-stage1-failure-battery.test.mjs",
+    "test:builder-stage1-orchestration": "node --test tests/builder-stage1-orchestration.test.mjs",
+    "jarvis:task": "node scripts/jarvis-task.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
   },

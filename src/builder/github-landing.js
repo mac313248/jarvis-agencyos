@@ -177,6 +177,20 @@ export function createGhLandingClient({
       };
     },
 
+    async getBranchHeadSha(branch) {
+      const data = api(
+        `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`
+      );
+      const sha = data?.object?.sha;
+      if (!sha) {
+        throw new GitHubLandingError(
+          `branch head sha unavailable: ${branch}`,
+          'BRANCH_SHA_MISSING'
+        );
+      }
+      return sha;
+    },
+
     createDraftPullRequest({ title, body, head, base = 'main' }) {
       const out = runGh(
         [

@@ -22,6 +22,8 @@ export const JARVIS_COMMANDS = Object.freeze({
   RECORD_APPROVAL: 'RECORD_APPROVAL',
   RECONSTRUCT: 'RECONSTRUCT',
   STATUS: 'STATUS',
+  /** Owner-facing end-to-end software-task execution (Builder pipeline). */
+  EXECUTE_SOFTWARE_TASK: 'EXECUTE_SOFTWARE_TASK',
 });
 
 export class JarvisInterfaceError extends Error {
@@ -115,9 +117,59 @@ export class JarvisInterface {
             agencyos_business_core: 'NOT_IN_STAGE1_SCOPE',
           },
         };
+      case JARVIS_COMMANDS.EXECUTE_SOFTWARE_TASK:
+        // Single owner submission → Builder owns the full pipeline thereafter.
+        return this._executeSoftwareTask(payload);
       default:
         throw new JarvisInterfaceError(`unknown command: ${command}`);
     }
+  }
+
+  async _executeSoftwareTask(payload = {}) {
+    const {
+      intent,
+      acceptance_ref,
+      allowed_paths,
+      tool_manifest,
+      review_required,
+      max_attempts,
+      max_runtime_ms,
+      priority,
+      cost_budget_status,
+      owner_prompt = null,
+      orchestration = {},
+    } = payload;
+
+    if (!intent || !acceptance_ref || !allowed_paths) {
+      throw new JarvisInterfaceError(
+        'EXECUTE_SOFTWARE_TASK requires intent, acceptance_ref, allowed_paths'
+      );
+    }
+
+    const result = await this.builder.runOwnerSoftwareTask(
+      {
+        intent,
+        acceptance_ref,
+        allowed_paths,
+        tool_manifest,
+        review_required,
+        max_attempts,
+        max_runtime_ms,
+        priority,
+        cost_budget_status,
+      },
+      {
+        ...orchestration,
+        owner_prompt,
+      }
+    );
+
+    return {
+      trust_domain: this.trustDomain,
+      delegated_to: TRUST_DOMAIN.BUILDER_CORE,
+      owner_interventions: 0,
+      result,
+    };
   }
 }
 

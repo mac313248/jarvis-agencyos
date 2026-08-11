@@ -294,6 +294,23 @@ export class CursorProvider extends WorkerProvider {
       }
 
       const statusSource = waitResult?.status || run.status;
+      // Cursor SDK cloud: git = { branches: [{ repoUrl, branch?, prUrl? }] }.
+      // Exact commit_sha is resolved later via GitHub landing truth.
+      const rawGit = waitResult?.git || run.git || null;
+      const branch0 = Array.isArray(rawGit?.branches) ? rawGit.branches[0] : null;
+      const git = rawGit
+        ? {
+            ...rawGit,
+            branch: branch0?.branch || rawGit.branch,
+            branchName: branch0?.branch || rawGit.branchName,
+            prUrl: branch0?.prUrl || rawGit.prUrl,
+          }
+        : run.branch || run.prUrl
+          ? {
+              branchName: run.branch || run.branchName,
+              prUrl: run.prUrl || run.pullRequestUrl,
+            }
+          : undefined;
       const evidence = {
         inspected_at: new Date().toISOString(),
         mode,
@@ -301,8 +318,12 @@ export class CursorProvider extends WorkerProvider {
         result_text:
           waitResult?.result != null
             ? String(waitResult.result).slice(0, 4000)
-            : undefined,
-        git: waitResult?.git || undefined,
+            : run.result != null
+              ? String(run.result).slice(0, 4000)
+              : undefined,
+        git: git || undefined,
+        target:
+          run.target && typeof run.target === 'object' ? run.target : undefined,
         usage: waitResult?.usage || run.usage || undefined,
       };
 

@@ -110,3 +110,11 @@ export {
   reconstructAuthoritativeState,
   assertNoDuplicateLaunchAfterRecovery,
 } from './recovery.js';
+export {
+  runOwnerSoftwareTask,
+  extractCandidateLanding,
+  resolveLandingSha,
+  createDefaultOrchestrationDeps,
+  ORCHESTRATION_DECISION,
+  OrchestratorError,
+} from './orchestrator.js';
