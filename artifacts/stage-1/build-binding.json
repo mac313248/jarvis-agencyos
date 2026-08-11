@@ -3,7 +3,7 @@
   "sot_manifest_sha256": "8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87",
   "reviewed_implementation_sha": "6fc6d373b4ad142dab0e6d863a38e934c6316db2",
   "git_commit_sha": "6fc6d373b4ad142dab0e6d863a38e934c6316db2",
-  "evidence_or_review_only_sha": "pending \u2014 set on evidence commit tip after this binding write",
+  "evidence_or_review_only_sha": "fd85da81040f1e564fb2a85947d8254cb66acf2e",
   "starting_git_sha": "5b861f2afefe41090de57ddcdbafd22435160056",
   "prior_failed_merge_readiness_sha": "54b038ebcabc6ef6f40a1bcab5838abef4119213",
   "builder_stage1_tip_sha": "420de2aeda53be25bfef47f1c3aa9f02aa4f2b64",
