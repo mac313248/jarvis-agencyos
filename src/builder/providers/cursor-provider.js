@@ -276,21 +276,36 @@ export class CursorProvider extends WorkerProvider {
     const apiKey = this._resolveApiKey();
     try {
       const handle = this._handles.get(factory_run_id);
-      let run = handle?.run;
-      if (!run) {
-        run = await this._sdk.getRun(provider_run_id, {
-          runtime: 'cloud',
-          agentId: provider_agent_id,
-          apiKey,
-        });
-      }
+      // Always refresh from Cursor API. The in-memory handle from agent.send()
+      // can transiently report status=error during stream setup while the
+      // cloud run continues and later FINISHES (observed on live smoke
+      // run-1aaa834e / bc-d7678c62).
+      const run = await this._sdk.getRun(provider_run_id, {
+        runtime: 'cloud',
+        agentId: provider_agent_id,
+        apiKey,
+      });
 
       let waitResult = null;
+      const apiStatus = String(run.status || '').toLowerCase();
       const terminal = ['finished', 'error', 'cancelled', 'canceled'].includes(
-        String(run.status || '').toLowerCase()
+        apiStatus
       );
-      if (wait || (mode === 'collect' && terminal && typeof run.wait === 'function')) {
-        waitResult = await run.wait();
+      // Prefer waiting on the live handle only while API still says non-terminal.
+      const waitTarget =
+        wait &&
+        !terminal &&
+        handle?.run &&
+        typeof handle.run.wait === 'function'
+          ? handle.run
+          : run;
+      if (
+        wait ||
+        (mode === 'collect' && terminal && typeof waitTarget.wait === 'function')
+      ) {
+        if (typeof waitTarget.wait === 'function') {
+          waitResult = await waitTarget.wait();
+        }
       }
 
       const statusSource = waitResult?.status || run.status;

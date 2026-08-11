@@ -45,6 +45,7 @@ class FakeCursorSdk {
     this.failLaunchMessage = null;
     this.cancelCalls = [];
     this.createCalls = [];
+    this.getRunCalls = [];
   }
 
   async listModels(_apiKey) {
@@ -83,8 +84,8 @@ class FakeCursorSdk {
           },
           wait: async () => ({
             status: run.status === 'running' ? 'finished' : run.status,
-            result: 'fake worker output',
-            git: {
+            result: run.result != null ? run.result : 'fake worker output',
+            git: run.git || {
               branches: [
                 {
                   repoUrl: options.cloud.repos[0].url,
@@ -104,6 +105,7 @@ class FakeCursorSdk {
   }
 
   async getRun(runId, { agentId }) {
+    this.getRunCalls.push({ runId, agentId });
     const entry = this.runs.get(runId);
     if (!entry || entry.agentId !== agentId) {
       throw new Error(`unknown run ${runId}`);
@@ -269,6 +271,60 @@ describe('Stage-1 WorkerProvider + CursorProvider (items 6–8)', () => {
       assert.equal(collected.provider_status, PROVIDER_STATUS.FINISHED);
       assert.equal(collected.evidence.result_text, 'fake worker output');
       assert.equal(Object.prototype.hasOwnProperty.call(collected, 'task_status'), false);
+    });
+
+    it('status trusts API getRun over stale in-memory handle error', async () => {
+      // Regression for live run-1aaa834e: local handle briefly reported
+      // status=error while cloud run continued to FINISHED with branch/PR.
+      const sdk = new FakeCursorSdk();
+      const provider = createCursorProvider({
+        apiKey: 'test-key',
+        sdkAdapter: fakeAdapter(sdk),
+      });
+      const launched = await provider.launch({
+        factory_run_id: 'run_stale_handle',
+        task: { task_id: 'task_stale_handle' },
+        prompt: 'poisoned handle must not fail closed',
+      });
+      const authoritative = sdk.runs.get(launched.provider_run_id).run;
+      authoritative.status = 'running';
+      // Poison only the in-memory handle (diverges from API truth).
+      provider._handles.get('run_stale_handle').run = {
+        id: launched.provider_run_id,
+        status: 'error',
+        wait: async () => ({ status: 'error', result: 'stale handle error' }),
+      };
+
+      const before = sdk.getRunCalls.length;
+      const status = await provider.status({
+        factory_run_id: 'run_stale_handle',
+        provider_run_id: launched.provider_run_id,
+        provider_agent_id: launched.provider_agent_id,
+      });
+      assert.equal(sdk.getRunCalls.length, before + 1);
+      assert.equal(status.provider_status, PROVIDER_STATUS.RUNNING);
+      assert.equal(status.error, null);
+
+      authoritative.status = 'finished';
+      authoritative.result = 'done via API';
+      authoritative.git = {
+        branches: [
+          {
+            repoUrl: 'https://github.com/mac313248/jarvis-agencyos.git',
+            branch: 'stage1-orch/smoke-regression',
+            prUrl: 'https://github.com/mac313248/jarvis-agencyos/pull/999',
+          },
+        ],
+      };
+      const collected = await provider.collect({
+        factory_run_id: 'run_stale_handle',
+        provider_run_id: launched.provider_run_id,
+        provider_agent_id: launched.provider_agent_id,
+        wait: true,
+      });
+      assert.equal(collected.provider_status, PROVIDER_STATUS.FINISHED);
+      assert.equal(collected.evidence.git.branch, 'stage1-orch/smoke-regression');
+      assert.equal(collected.error, null);
     });
 
     it('preserves truthful auth/launch errors', async () => {
