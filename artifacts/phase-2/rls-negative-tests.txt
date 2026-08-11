@@ -1,0 +1,37 @@
+RLS / role introspection (Phase 2)
+
+Runtime role properties:
+  app_migrator: rolsuper=false rolbypassrls=false rolcreaterole=false login=true
+  app_runtime: rolsuper=false rolbypassrls=false rolcreaterole=false login=true
+
+Table owners + RLS flags:
+  action_proposals             owner=app_migrator rls=true force=true
+  approval_decisions           owner=app_migrator rls=true force=true
+  authority_control            owner=app_migrator rls=true force=true
+  authority_grants             owner=app_migrator rls=true force=true
+  canonical_events             owner=app_migrator rls=true force=true
+  capabilities                 owner=app_migrator rls=true force=true
+  capability_fallback_refs     owner=app_migrator rls=true force=true
+  contract_metadata            owner=app_migrator rls=false force=false
+  current_state_records        owner=app_migrator rls=true force=true
+  evidence_refs                owner=app_migrator rls=true force=true
+  execution_receipts           owner=app_migrator rls=true force=true
+  memberships                  owner=app_migrator rls=true force=true
+  mfa_enrollments              owner=app_migrator rls=false force=false
+  owner_principals             owner=app_migrator rls=false force=false
+  owner_sessions               owner=app_migrator rls=false force=false
+  pii_subjects                 owner=app_migrator rls=true force=true
+  policy_decisions             owner=app_migrator rls=true force=true
+  schema_migrations            owner=postgres     rls=false force=false
+  sot_build_bindings           owner=app_migrator rls=false force=false
+  tenants                      owner=app_migrator rls=true force=true
+  users                        owner=app_migrator rls=true force=true
+
+Direct capability RLS attack results:
+  cap: no tenant sees 0              -> result=0
+  cap: A sees only A                 -> result=cap.a
+  cap: A insert B blocked            -> BLOCKED: new row violates row-level security policy for table "capabilities"
+  cap: A update B =0                 -> result=0
+  cap: A delete B =0                 -> result=0
+  cap: cross-tenant fallback FK      -> BLOCKED: insert or update on table "capability_fallback_refs" violates foreign key constraint "capability_fallback_refs_tenant_id_fallback_capability_id_fkey"
+  cap: pool leak post-commit         -> result=0
