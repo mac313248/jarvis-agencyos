@@ -65,5 +65,7 @@
       "review_status": "PASS",
       "findings_json": "[]"
     }
-  ]
+  ],
+  "freeze_implementation_sha": "6fc6d373b4ad142dab0e6d863a38e934c6316db2",
+  "freeze_note": "Jarvis ACCEPTED candidate commit is historical proof trajectory; freeze merge candidate was repaired to seal trusted-internal entrypoint at freeze_implementation_sha."
 }

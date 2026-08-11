@@ -1,7 +1,7 @@
 # Stage-1 Freeze — Acceptance Map
 
 Scope: **Builder Stage-1 + fail-closed inbound authenticity gate** on implementation SHA  
-`54b038ebcabc6ef6f40a1bcab5838abef4119213`.
+`6fc6d373b4ad142dab0e6d863a38e934c6316db2`.
 
 Business-write autonomy remains **DISABLED**.
 
@@ -52,7 +52,8 @@ Business-write autonomy remains **DISABLED**.
 | status | ACCEPTED / DONE |
 | attempts | 4 (PASS on attempt 4) |
 | candidate | `cand_93cdffd8-109f-4737-b82f-365b1ac2a0f3` |
-| commit | `54b038ebcabc6ef6f40a1bcab5838abef4119213` |
+| freeze_implementation_sha | `6fc6d373b4ad142dab0e6d863a38e934c6316db2` |
+| prior_jarvis_proof_commit | `54b038ebcabc6ef6f40a1bcab5838abef4119213` |
 | draft PR | #51 |
 | verify | PASS |
 | Codex | PASS |

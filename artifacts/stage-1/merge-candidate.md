@@ -1,6 +1,6 @@
 # Stage-1 Freeze — Exact Merge Candidate
 
-Status: **PREPARED — AWAITING CODEX MERGE-READINESS RE-REVIEW**  
+Status: **PREPARED — AWAITING CODEX MERGE-READINESS RE-REVIEW**
 Merge authorized: **NO**
 
 ## Exact merge candidate
@@ -18,7 +18,7 @@ Merge authorized: **NO**
 - Removed exported caller-mintable `buildTrustedInternalProvenance`.
 - `processInboundEvent` / `evaluateInboundAuthenticityGate` no longer accept `trusted_provenance`.
 - Trusted-internal bypass only via sealed `processTrustedInternalEvent` infrastructure entrypoint.
-- Evidence pack rebound to the repaired implementation SHA.
+- Evidence pack rebound consistently to `6fc6d373b4ad142dab0e6d863a38e934c6316db2`.
 
 ## Hard stops
 

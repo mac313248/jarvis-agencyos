@@ -23,7 +23,7 @@ Do not redesign for novelty. If fixes are needed, give the smallest concrete fix
 ## Scope under review
 
 **Builder Stage-1 freeze merge candidate** = implementation SHA  
-`54b038ebcabc6ef6f40a1bcab5838abef4119213`  
+`6fc6d373b4ad142dab0e6d863a38e934c6316db2`  
 (branch `stage1/freeze-merge-ready`, sourced from PR #51).
 
 Includes:
@@ -46,7 +46,7 @@ Does **not** claim:
 4. `artifacts/stage-1/test-results.txt` + builder/inbound result files.
 5. `artifacts/stage-1/sot-verification.txt`.
 6. `artifacts/stage-1/jarvis-real-task-proof.json`.
-7. Diff `5b861f2afefe41090de57ddcdbafd22435160056...54b038ebcabc6ef6f40a1bcab5838abef4119213`.
+7. Diff `5b861f2afefe41090de57ddcdbafd22435160056...6fc6d373b4ad142dab0e6d863a38e934c6316db2`.
 8. Especially: `src/runtime/inbound-authenticity-gate.js`, `src/builder/**`, `src/jarvis/**`, `tests/inbound-authenticity-gate.test.mjs`, `tests/builder-stage1-*.test.mjs`.
 9. Confirm `docs/master-sot/` unchanged vs approved manifest.
 
@@ -66,7 +66,7 @@ TRUSTED INTERNAL EVENT → must be positively classified by trusted internal pro
 - Builder Stage-1 suite: 90/90 PASS
 - Inbound authenticity suite: 12/12 PASS
 - Jarvis real-task proof: ACCEPTED / Codex PASS / CI success / OWNER_INTERVENTIONS=0
-- Exact merge candidate SHA: `54b038ebcabc6ef6f40a1bcab5838abef4119213`
+- Exact merge candidate SHA: `6fc6d373b4ad142dab0e6d863a38e934c6316db2`
 - BUSINESS_WRITE_AUTONOMY: DISABLED
 - Merge: NOT YET AUTHORIZED
 

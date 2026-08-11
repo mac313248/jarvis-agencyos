@@ -13,7 +13,7 @@
   "origin": "https://github.com/mac313248/jarvis-agencyos.git",
   "base_ref": "main",
   "builder_runtime": "Cursor",
-  "reviewer_runtime": "Codex (merge-readiness re-review pending after provenance repair)",
+  "reviewer_runtime": "Codex (re-review after evidence rebind)",
   "codex_prior_merge_readiness_verdict": "FAIL (forgeable trusted-internal provenance; repaired)",
   "local_npm_test": "369/369 pass",
   "local_builder_stage1_test": "see builder-stage1-test-results.txt",
