@@ -46,6 +46,19 @@ import {
   assertReviewerCannotMutate,
 } from './codex-review.js';
 import { beginRepairAttempt, resolveRetryPolicy } from './retry.js';
+import {
+  getAllowedToolManifest,
+  invokeTaskTool,
+  workerApprovedTools,
+  assertToolAllowed,
+  resolvePermittedProvider,
+  assertResearchCannotMutateAuthority,
+} from './tool-policy.js';
+import {
+  reconcileAfterRestart,
+  reconstructAuthoritativeState,
+  assertNoDuplicateLaunchAfterRecovery,
+} from './recovery.js';
 
 export { BuilderCoreError } from './errors.js';
 
@@ -70,12 +83,24 @@ function mapProviderStatusToRunStatus(providerStatus) {
 }
 
 export class BuilderCore {
-  constructor({ dbPath = ':memory:', store, workerProvider = null } = {}) {
+  constructor({
+    dbPath = ':memory:',
+    store,
+    workerProvider = null,
+    autoRecover = false,
+  } = {}) {
     this.trustDomain = TRUST_DOMAIN.BUILDER_CORE;
     this.store = store || openBuilderStore(dbPath);
     this.workerProvider = workerProvider ? assertWorkerProvider(workerProvider) : null;
     // Stage-1: at most one authorized active coding run across the Builder.
     this._currentFactoryRunId = null;
+    this._recovery = null;
+    if (autoRecover) {
+      // Synchronous pointer restore only; full async reconcile via recover().
+      const active = this.store.listActiveRuns();
+      if (active.length === 1) this._currentFactoryRunId = active[0].factory_run_id;
+      else if (active.length > 1) this._currentFactoryRunId = null;
+    }
   }
 
   close() {
@@ -257,6 +282,14 @@ export class BuilderCore {
     }
 
     const task = this.verifyLockedTask(task_id);
+    const approvedTools = workerApprovedTools(task);
+    // Worker receives only the locked task-approved tool surface (default deny).
+    if (!approvedTools.providers.includes(this.workerProvider.name)) {
+      throw new BuilderCoreError(
+        `coding worker provider not permitted by tool_manifest: ${this.workerProvider.name}`,
+        'UNAUTHORIZED_TOOL'
+      );
+    }
     const run = this.createRun({
       task_id,
       provider: this.workerProvider.name,
@@ -271,6 +304,8 @@ export class BuilderCore {
           task,
           prompt,
           envVars,
+          allowed_tool_manifest: approvedTools.allowed_tool_manifest,
+          approved_tools: approvedTools,
         })
       );
     } catch (err) {
@@ -591,8 +626,44 @@ export class BuilderCore {
     return approval;
   }
 
+  getAllowedToolManifest(taskId) {
+    return getAllowedToolManifest(this.verifyLockedTask(taskId));
+  }
+
+  assertToolAllowed(taskId, request) {
+    return assertToolAllowed(this.verifyLockedTask(taskId), request);
+  }
+
+  resolvePermittedProvider(taskId, options) {
+    return resolvePermittedProvider(this.verifyLockedTask(taskId), options);
+  }
+
+  async invokeTool(input) {
+    return invokeTaskTool(this, input);
+  }
+
+  async invokeResearch(input) {
+    // Research is a tool invocation under the same default-deny policy.
+    return invokeTaskTool(this, {
+      ...input,
+      tool: input.tool || 'research',
+    });
+  }
+
+  assertResearchCannotMutateAuthority(result) {
+    return assertResearchCannotMutateAuthority(result);
+  }
+
   reconstruct() {
-    return this.store.reconstruct();
+    return reconstructAuthoritativeState(this);
+  }
+
+  async recover(options = {}) {
+    return reconcileAfterRestart(this, options);
+  }
+
+  assertNoDuplicateLaunchAfterRecovery() {
+    return assertNoDuplicateLaunchAfterRecovery(this);
   }
 }
 

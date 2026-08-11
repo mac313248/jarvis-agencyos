@@ -29,7 +29,11 @@ const INTENT = {
   intent: 'Prove Cursor WorkerProvider lifecycle fencing',
   acceptance_ref: 'tests/builder-stage1-provider.test.mjs',
   allowed_paths: ['src/builder/', 'tests/builder-stage1-provider.test.mjs'],
-  tool_manifest: { providers: ['github'], tools: ['repo_read'], mode: 'build' },
+  tool_manifest: {
+    providers: ['cursor', 'github'],
+    tools: ['repo_read', 'coding_worker'],
+    mode: 'build',
+  },
   review_required: true,
 };
 

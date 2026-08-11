@@ -93,3 +93,20 @@ export {
   countAttempts,
   elapsedRuntimeMs,
 } from './retry.js';
+export {
+  ToolPolicyError,
+  RESEARCH_FORBIDDEN_AUTHORITY_KEYS,
+  getAllowedToolManifest,
+  isToolAllowed,
+  assertToolAllowed,
+  resolvePermittedProvider,
+  assertResearchCannotMutateAuthority,
+  invokeTaskTool,
+  workerApprovedTools,
+  assertNoAuthorityPatchFromResearch,
+} from './tool-policy.js';
+export {
+  reconcileAfterRestart,
+  reconstructAuthoritativeState,
+  assertNoDuplicateLaunchAfterRecovery,
+} from './recovery.js';

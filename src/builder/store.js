@@ -17,7 +17,7 @@ import {
 } from './contracts.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-const SCHEMA_VERSION = 'builder-stage1-v4';
+const SCHEMA_VERSION = 'builder-stage1-v5';
 
 function nowIso() {
   return new Date().toISOString();
