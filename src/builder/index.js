@@ -115,6 +115,13 @@ export {
   extractCandidateLanding,
   resolveLandingSha,
   createDefaultOrchestrationDeps,
+  resumeExactCandidateCiAndVerify,
   ORCHESTRATION_DECISION,
   OrchestratorError,
 } from './orchestrator.js';
+export {
+  waitForExactCandidateCi,
+  classifyCiSummary,
+  detectAwaitingCi,
+  CI_WAIT_OUTCOME,
+} from './ci-wait.js';

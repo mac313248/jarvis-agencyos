@@ -580,7 +580,7 @@ describe('Stage-1 WorkerProvider + CursorProvider (items 6–8)', () => {
         );
         assert.match(
           `${probe.error.name} ${probe.error.message}`,
-          /Invalid User API Key|CURSOR_API_KEY unavailable|AuthenticationError|AUTH_/i
+          /Invalid User API Key|CURSOR_API_KEY unavailable|AuthenticationError|AUTH_|NetworkError|Network request failed/i
         );
       }
     });

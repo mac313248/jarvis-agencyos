@@ -16,6 +16,7 @@ import { isVerificationAuthoritative } from './verifier.js';
 import { isReviewAuthoritative } from './codex-review.js';
 import { countAttempts, resolveRetryPolicy } from './retry.js';
 import { getAllowedToolManifest } from './tool-policy.js';
+import { detectAwaitingCi } from './ci-wait.js';
 
 const TERMINAL_TASK_STATUSES = new Set([
   TASK_STATUS.ACCEPTED,
@@ -154,6 +155,7 @@ function buildTaskRecoverySnapshot(core, task) {
 
   const retry = resolveRetryPolicy(task);
   const attempts = countAttempts(core, task.task_id);
+  const awaitingCi = detectAwaitingCi(core, task.task_id);
 
   return {
     task_id: task.task_id,
@@ -173,6 +175,8 @@ function buildTaskRecoverySnapshot(core, task) {
       ? isReviewAuthoritative(core, review.review_id)
       : false,
     approval: apprResult.approval,
+    awaiting_ci: Boolean(awaitingCi.awaiting_ci),
+    resume_without_worker_launch: Boolean(awaitingCi.awaiting_ci),
     retry: {
       max_attempts: retry.max_attempts,
       max_runtime_ms: retry.max_runtime_ms,

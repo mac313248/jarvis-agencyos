@@ -16,6 +16,11 @@ import { PROVIDER_STATUS } from './worker-provider.js';
 import { createCodexReviewInvoker } from './codex-review.js';
 import { createGhLandingClient } from './github-landing.js';
 import { workerApprovedTools } from './tool-policy.js';
+import {
+  waitForExactCandidateCi,
+  CI_WAIT_OUTCOME,
+  detectAwaitingCi,
+} from './ci-wait.js';
 
 export const ORCHESTRATION_DECISION = Object.freeze({
   DONE: 'DONE',
@@ -199,6 +204,10 @@ async function registerAndVerify(core, {
   githubClient,
   runTaskTests,
   runBuildChecks,
+  ci_poll_ms = 5000,
+  ci_timeout_ms = 20 * 60 * 1000,
+  sleepFn = sleep,
+  onCiWait = null,
 }) {
   if (!landing.branch && landing.pr_number == null) {
     throw new OrchestratorError(
@@ -206,27 +215,67 @@ async function registerAndVerify(core, {
       'MISSING_LANDING'
     );
   }
-  const resolved = await resolveLandingSha(landing, githubClient);
+  let resolved = await resolveLandingSha(landing, githubClient);
   if (!resolved.branch || !resolved.commit_sha) {
     throw new OrchestratorError(
       'unable to bind exact branch + commit_sha from landing evidence',
       'MISSING_LANDING'
     );
   }
-  const sha = assertCommitSha(resolved.commit_sha);
 
-  const candidate = core.recordCandidate({
-    task_id: task.task_id,
-    factory_run_id: run.factory_run_id,
-    branch: resolved.branch,
-    commit_sha: sha,
-    pr_number: resolved.pr_number,
-    pr_url: resolved.pr_url,
-    evidence_at: nowIso(),
-  });
+  let candidate = null;
+  let ciWait = null;
+  const maxRebinds = 2;
+  for (let rebind = 0; rebind <= maxRebinds; rebind += 1) {
+    const sha = assertCommitSha(resolved.commit_sha);
+    candidate = core.recordCandidate({
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: resolved.branch,
+      commit_sha: sha,
+      pr_number: resolved.pr_number,
+      pr_url: resolved.pr_url,
+      evidence_at: nowIso(),
+    });
 
-  if (githubClient) {
-    await core.refreshCandidateLanding(candidate.candidate_id, githubClient);
+    if (githubClient) {
+      await core.refreshCandidateLanding(candidate.candidate_id, githubClient);
+      ciWait = await waitForExactCandidateCi(core, {
+        candidate_id: candidate.candidate_id,
+        githubClient,
+        poll_ms: ci_poll_ms,
+        timeout_ms: ci_timeout_ms,
+        sleepFn,
+      });
+      if (typeof onCiWait === 'function') onCiWait(ciWait);
+
+      if (ciWait.outcome === CI_WAIT_OUTCOME.HEAD_CHANGED) {
+        const newSha = ciWait.new_head_sha || ciWait.evidence?.new_head_sha;
+        if (!newSha || rebind >= maxRebinds) {
+          throw new OrchestratorError(
+            'PR head changed during CI wait; rebind exhausted',
+            'CI_HEAD_CHANGED'
+          );
+        }
+        // Re-bind to the new exact head without launching another worker.
+        resolved = {
+          branch: candidate.branch,
+          commit_sha: assertCommitSha(newSha),
+          pr_number: candidate.pr_number,
+          pr_url: candidate.pr_url,
+        };
+        continue;
+      }
+
+      if (ciWait.outcome === CI_WAIT_OUTCOME.PR_MISMATCH) {
+        throw new OrchestratorError(
+          'PR/branch mismatch during exact CI wait',
+          'CI_PR_MISMATCH'
+        );
+      }
+    }
+
+    break;
   }
 
   const verified = await core.verifyCandidate(candidate.candidate_id, {
@@ -235,7 +284,7 @@ async function registerAndVerify(core, {
     runBuildChecks,
     worker_claim: null,
   });
-  return { candidate, verified };
+  return { candidate, verified, ci_wait: ciWait };
 }
 
 async function maybeReview(core, {
@@ -323,8 +372,11 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     runBuildChecks = async () => ({ ok: true, output: 'orchestrator default build checks ok' }),
     poll_ms = 2000,
     timeout_ms = 15 * 60 * 1000,
+    ci_poll_ms = 5000,
+    ci_timeout_ms = 20 * 60 * 1000,
     max_cycles = null,
     owner_prompt = null,
+    sleepFn = sleep,
   } = options;
 
   const trajectory = [];
@@ -495,14 +547,25 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
 
     let candidate;
     let verified;
+    let ci_wait = null;
     try {
-      ({ candidate, verified } = await registerAndVerify(core, {
+      ({ candidate, verified, ci_wait } = await registerAndVerify(core, {
         task: core.getTask(task.task_id),
         run: runNow,
         landing,
         githubClient,
         runTaskTests,
         runBuildChecks,
+        ci_poll_ms,
+        ci_timeout_ms,
+        sleepFn,
+        onCiWait: (w) =>
+          push('ci_wait', {
+            outcome: w.outcome,
+            ci_status: w.evidence?.ci_status,
+            ci_conclusion: w.evidence?.ci_conclusion,
+            polls: w.evidence?.polls,
+          }),
       }));
     } catch (err) {
       push('candidate_or_verify_failed', {
@@ -535,6 +598,13 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
 
     last.candidate_id = candidate.candidate_id;
     last.commit_sha = candidate.commit_sha;
+    last.ci_wait = ci_wait
+      ? {
+          outcome: ci_wait.outcome,
+          ci_status: ci_wait.evidence?.ci_status,
+          ci_conclusion: ci_wait.evidence?.ci_conclusion,
+        }
+      : null;
     last.verification = {
       verification_id: verified.verification.verification_id,
       result: verified.result,
@@ -649,6 +719,69 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     trajectory,
     last,
   });
+}
+
+/**
+ * Resume CI wait + deterministic verification after process restart.
+ * Does not launch a coding worker. Requires an existing exact candidate.
+ */
+export async function resumeExactCandidateCiAndVerify(
+  core,
+  {
+    task_id,
+    githubClient,
+    runTaskTests = async () => ({
+      ok: true,
+      output: 'orchestrator default task tests ok',
+    }),
+    runBuildChecks = async () => ({
+      ok: true,
+      output: 'orchestrator default build checks ok',
+    }),
+    ci_poll_ms = 5000,
+    ci_timeout_ms = 20 * 60 * 1000,
+    sleepFn = sleep,
+  } = {}
+) {
+  const awaiting = detectAwaitingCi(core, task_id);
+  if (!awaiting.awaiting_ci || !awaiting.candidate) {
+    throw new OrchestratorError(
+      'task is not awaiting exact CI for an existing candidate',
+      'NOT_AWAITING_CI'
+    );
+  }
+  const candidate = awaiting.candidate;
+  const ci_wait = await waitForExactCandidateCi(core, {
+    candidate_id: candidate.candidate_id,
+    githubClient,
+    poll_ms: ci_poll_ms,
+    timeout_ms: ci_timeout_ms,
+    sleepFn,
+  });
+  if (ci_wait.outcome === CI_WAIT_OUTCOME.HEAD_CHANGED) {
+    throw new OrchestratorError(
+      'PR head changed during resumed CI wait; re-bind required',
+      'CI_HEAD_CHANGED'
+    );
+  }
+  if (ci_wait.outcome === CI_WAIT_OUTCOME.PR_MISMATCH) {
+    throw new OrchestratorError(
+      'PR/branch mismatch during resumed CI wait',
+      'CI_PR_MISMATCH'
+    );
+  }
+  const verified = await core.verifyCandidate(candidate.candidate_id, {
+    githubClient,
+    runTaskTests,
+    runBuildChecks,
+    worker_claim: null,
+  });
+  return {
+    candidate: core.store.getCandidate(candidate.candidate_id),
+    verified,
+    ci_wait,
+    duplicate_worker_launch: false,
+  };
 }
 
 function finalize(core, {
