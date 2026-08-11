@@ -192,7 +192,7 @@ describe('Stage-1 Builder Core (items 2–5)', () => {
 
       const core2 = createBuilderCore({ dbPath });
       const reconstructed = core2.reconstruct();
-      assert.equal(reconstructed.schema_version, 'builder-stage1-v2');
+      assert.equal(reconstructed.schema_version, 'builder-stage1-v3');
       assert.equal(reconstructed.nonterminal_tasks.length, 1);
       assert.equal(reconstructed.nonterminal_tasks[0].task_id, task.task_id);
       assert.equal(reconstructed.runs.length, 1);
@@ -359,6 +359,8 @@ describe('Stage-1 Builder Core (items 2–5)', () => {
       const { result: run } = jarvis.dispatch(JARVIS_COMMANDS.CREATE_RUN, {
         task_id: task.task_id,
         provider: 'cursor',
+        provider_run_id: 'prov_test_run_1',
+        provider_agent_id: 'bc_test_agent_1',
       });
       const { result: candidate } = jarvis.dispatch(
         JARVIS_COMMANDS.RECORD_CANDIDATE,
@@ -367,8 +369,15 @@ describe('Stage-1 Builder Core (items 2–5)', () => {
           factory_run_id: run.factory_run_id,
           branch: 'feature/x',
           commit_sha: SAMPLE_COMMIT,
+          pr_number: 99,
+          pr_url: 'https://github.com/mac313248/jarvis-agencyos/pull/99',
+          ci_status: 'completed',
+          ci_conclusion: 'success',
+          evidence_at: '2026-08-11T00:00:00.000Z',
         }
       );
+      assert.equal(candidate.provider_run_id, 'prov_test_run_1');
+      assert.equal(candidate.commit_sha, SAMPLE_COMMIT);
       const { result: approval } = jarvis.dispatch(
         JARVIS_COMMANDS.RECORD_APPROVAL,
         {

@@ -17,7 +17,7 @@ import {
 } from './contracts.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-const SCHEMA_VERSION = 'builder-stage1-v2';
+const SCHEMA_VERSION = 'builder-stage1-v3';
 
 function nowIso() {
   return new Date().toISOString();
@@ -72,14 +72,36 @@ function rowToCandidate(row) {
     candidate_id: row.candidate_id,
     task_id: row.task_id,
     factory_run_id: row.factory_run_id,
+    provider_run_id: row.provider_run_id ?? null,
     branch: row.branch,
     commit_sha: row.commit_sha,
+    pr_number: row.pr_number == null ? null : Number(row.pr_number),
+    pr_url: row.pr_url ?? null,
     pr_ref: row.pr_ref,
     verification_ref: row.verification_ref,
     review_ref: row.review_ref,
+    ci_status: row.ci_status ?? null,
+    ci_conclusion: row.ci_conclusion ?? null,
     ci_ref: row.ci_ref,
+    evidence_at: row.evidence_at ?? null,
     status: row.status,
     created_at: row.created_at,
+  };
+}
+
+function rowToVerification(row) {
+  if (!row) return null;
+  return {
+    verification_id: row.verification_id,
+    candidate_id: row.candidate_id,
+    commit_sha: row.commit_sha,
+    result: row.result,
+    checks: parseJson(row.checks_json, []),
+    worker_claim: row.worker_claim,
+    failure_class: row.failure_class,
+    created_at: row.created_at,
+    invalidated_at: row.invalidated_at,
+    invalidation_reason: row.invalidation_reason,
   };
 }
 
@@ -130,12 +152,25 @@ export class BuilderStore {
   }
 
   _migrateRunsColumns() {
-    const cols = this.db.prepare(`PRAGMA table_info(runs)`).all().map((c) => c.name);
-    if (!cols.includes('provider_agent_id')) {
+    const runCols = this.db.prepare(`PRAGMA table_info(runs)`).all().map((c) => c.name);
+    if (!runCols.includes('provider_agent_id')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN provider_agent_id TEXT`);
     }
-    if (!cols.includes('evidence_json')) {
+    if (!runCols.includes('evidence_json')) {
       this.db.exec(`ALTER TABLE runs ADD COLUMN evidence_json TEXT`);
+    }
+    const candCols = this.db.prepare(`PRAGMA table_info(candidates)`).all().map((c) => c.name);
+    for (const [col, type] of [
+      ['provider_run_id', 'TEXT'],
+      ['pr_number', 'INTEGER'],
+      ['pr_url', 'TEXT'],
+      ['ci_status', 'TEXT'],
+      ['ci_conclusion', 'TEXT'],
+      ['evidence_at', 'TEXT'],
+    ]) {
+      if (!candCols.includes(col)) {
+        this.db.exec(`ALTER TABLE candidates ADD COLUMN ${col} ${type}`);
+      }
     }
   }
 
@@ -320,20 +355,27 @@ export class BuilderStore {
     this.db
       .prepare(
         `INSERT INTO candidates(
-           candidate_id, task_id, factory_run_id, branch, commit_sha, pr_ref,
-           verification_ref, review_ref, ci_ref, status, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           candidate_id, task_id, factory_run_id, provider_run_id, branch,
+           commit_sha, pr_number, pr_url, pr_ref, verification_ref, review_ref,
+           ci_status, ci_conclusion, ci_ref, evidence_at, status, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         candidate.candidate_id,
         candidate.task_id,
         candidate.factory_run_id,
+        candidate.provider_run_id ?? null,
         candidate.branch ?? null,
         candidate.commit_sha ?? null,
+        candidate.pr_number ?? null,
+        candidate.pr_url ?? null,
         candidate.pr_ref ?? null,
         candidate.verification_ref ?? null,
         candidate.review_ref ?? null,
+        candidate.ci_status ?? null,
+        candidate.ci_conclusion ?? null,
         candidate.ci_ref ?? null,
+        candidate.evidence_at ?? null,
         candidate.status,
         created_at
       );
@@ -348,6 +390,39 @@ export class BuilderStore {
     );
   }
 
+  updateCandidate(candidateId, patch) {
+    const current = this.getCandidate(candidateId);
+    if (!current) throw new Error(`unknown candidate_id: ${candidateId}`);
+    const next = { ...current, ...patch, candidate_id: current.candidate_id };
+    assertCandidateStatus(next.status);
+    this.db
+      .prepare(
+        `UPDATE candidates SET
+           provider_run_id = ?, branch = ?, commit_sha = ?, pr_number = ?,
+           pr_url = ?, pr_ref = ?, verification_ref = ?, review_ref = ?,
+           ci_status = ?, ci_conclusion = ?, ci_ref = ?, evidence_at = ?,
+           status = ?
+         WHERE candidate_id = ?`
+      )
+      .run(
+        next.provider_run_id ?? null,
+        next.branch ?? null,
+        next.commit_sha ?? null,
+        next.pr_number ?? null,
+        next.pr_url ?? null,
+        next.pr_ref ?? null,
+        next.verification_ref ?? null,
+        next.review_ref ?? null,
+        next.ci_status ?? null,
+        next.ci_conclusion ?? null,
+        next.ci_ref ?? null,
+        next.evidence_at ?? null,
+        next.status,
+        candidateId
+      );
+    return this.getCandidate(candidateId);
+  }
+
   listCandidatesForTask(taskId) {
     return this.db
       .prepare(
@@ -355,6 +430,90 @@ export class BuilderStore {
       )
       .all(taskId)
       .map(rowToCandidate);
+  }
+
+  insertVerification(verification) {
+    this.db
+      .prepare(
+        `INSERT INTO verifications(
+           verification_id, candidate_id, commit_sha, result, checks_json,
+           worker_claim, failure_class, created_at, invalidated_at,
+           invalidation_reason
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        verification.verification_id,
+        verification.candidate_id,
+        verification.commit_sha,
+        verification.result,
+        JSON.stringify(verification.checks ?? []),
+        verification.worker_claim ?? null,
+        verification.failure_class ?? null,
+        verification.created_at || nowIso(),
+        verification.invalidated_at ?? null,
+        verification.invalidation_reason ?? null
+      );
+    return this.getVerification(verification.verification_id);
+  }
+
+  getVerification(verificationId) {
+    return rowToVerification(
+      this.db
+        .prepare(`SELECT * FROM verifications WHERE verification_id = ?`)
+        .get(verificationId)
+    );
+  }
+
+  updateVerification(verificationId, patch) {
+    const current = this.getVerification(verificationId);
+    if (!current) throw new Error(`unknown verification_id: ${verificationId}`);
+    const next = {
+      ...current,
+      ...patch,
+      verification_id: current.verification_id,
+    };
+    this.db
+      .prepare(
+        `UPDATE verifications SET
+           result = ?, checks_json = ?, worker_claim = ?, failure_class = ?,
+           invalidated_at = ?, invalidation_reason = ?
+         WHERE verification_id = ?`
+      )
+      .run(
+        next.result,
+        JSON.stringify(next.checks ?? []),
+        next.worker_claim ?? null,
+        next.failure_class ?? null,
+        next.invalidated_at ?? null,
+        next.invalidation_reason ?? null,
+        verificationId
+      );
+    return this.getVerification(verificationId);
+  }
+
+  updateApproval(approvalId, patch) {
+    const current = this.getApproval(approvalId);
+    if (!current) throw new Error(`unknown approval_id: ${approvalId}`);
+    const next = { ...current, ...patch, approval_id: current.approval_id };
+    assertApprovalStatus(next.status);
+    this.db
+      .prepare(
+        `UPDATE approvals SET
+           proposal_id = ?, content_hash = ?, candidate_id = ?, commit_sha = ?,
+           approved_by = ?, approved_at = ?, status = ?
+         WHERE approval_id = ?`
+      )
+      .run(
+        next.proposal_id,
+        next.content_hash,
+        next.candidate_id ?? null,
+        next.commit_sha ?? null,
+        next.approved_by,
+        next.approved_at,
+        next.status,
+        approvalId
+      );
+    return this.getApproval(approvalId);
   }
 
   insertApproval(approval) {

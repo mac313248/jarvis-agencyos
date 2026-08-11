@@ -51,14 +51,33 @@ CREATE TABLE IF NOT EXISTS candidates (
   candidate_id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL REFERENCES tasks(task_id),
   factory_run_id TEXT NOT NULL REFERENCES runs(factory_run_id),
+  provider_run_id TEXT,
   branch TEXT,
   commit_sha TEXT,
+  pr_number INTEGER,
+  pr_url TEXT,
   pr_ref TEXT,
   verification_ref TEXT,
   review_ref TEXT,
+  ci_status TEXT,
+  ci_conclusion TEXT,
   ci_ref TEXT,
+  evidence_at TEXT,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS verifications (
+  verification_id TEXT PRIMARY KEY,
+  candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+  commit_sha TEXT NOT NULL,
+  result TEXT NOT NULL,
+  checks_json TEXT NOT NULL,
+  worker_claim TEXT,
+  failure_class TEXT,
+  created_at TEXT NOT NULL,
+  invalidated_at TEXT,
+  invalidation_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS approvals (

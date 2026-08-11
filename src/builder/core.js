@@ -5,7 +5,6 @@
 
 import {
   ACTIVE_RUN_STATUSES,
-  CANDIDATE_STATUS,
   EVENT_TYPE,
   FAILURE_CLASS,
   RUN_STATUS,
@@ -13,7 +12,6 @@ import {
   TRUST_DOMAIN,
   assertCommitSha,
   newApprovalId,
-  newCandidateId,
   newFactoryRunId,
 } from './contracts.js';
 import { openBuilderStore } from './store.js';
@@ -30,15 +28,18 @@ import {
   assertWorkerProvider,
   normalizeProviderResult,
 } from './worker-provider.js';
+import { BuilderCoreError } from './errors.js';
+import {
+  registerExactCandidate,
+  refreshCandidateLanding,
+} from './candidate-registry.js';
+import {
+  verifyExactCandidate,
+  invalidateVerification,
+  isVerificationAuthoritative,
+} from './verifier.js';
 
-export class BuilderCoreError extends Error {
-  constructor(reason, code = 'BUILDER_CORE_ERROR') {
-    super(reason);
-    this.name = 'BuilderCoreError';
-    this.code = code;
-    this.reason = reason;
-  }
-}
+export { BuilderCoreError } from './errors.js';
 
 function mapProviderStatusToRunStatus(providerStatus) {
   switch (providerStatus) {
@@ -486,74 +487,29 @@ export class BuilderCore {
     return { run: updated, provider_result: providerResult };
   }
 
-  recordCandidate({
-    task_id,
-    factory_run_id,
-    branch,
-    commit_sha,
-    pr_ref = null,
-    verification_ref = null,
-    review_ref = null,
-    ci_ref = null,
-  }) {
-    const task = this.store.getTask(task_id);
-    if (!task) throw new TaskLockError(`unknown task_id: ${task_id}`);
-    verifyTaskHash(task);
-    const run = this.store.getRun(factory_run_id);
-    if (!run || run.task_id !== task_id) {
-      throw new TaskLockError('factory_run_id does not belong to task');
-    }
-    if (run.status === RUN_STATUS.STALE || run.status === RUN_STATUS.CANCELLED) {
-      this.store.appendEvent({
-        task_id,
-        factory_run_id,
-        event_type: EVENT_TYPE.STALE_RUN_REJECTED,
-        payload: { reason: 'candidate_from_cancelled_or_stale_run', status: run.status },
-      });
-      throw new BuilderCoreError(
-        `cancelled/stale run cannot become authoritative: ${factory_run_id}`,
-        'STALE_RUN'
-      );
-    }
-    const current = this.getCurrentCodingRun();
-    if (current && current.factory_run_id !== factory_run_id) {
-      this.store.appendEvent({
-        task_id,
-        factory_run_id,
-        event_type: EVENT_TYPE.STALE_RUN_REJECTED,
-        payload: {
-          rejected_factory_run_id: factory_run_id,
-          current_factory_run_id: current.factory_run_id,
-        },
-      });
-      throw new BuilderCoreError(
-        `stale run rejected: ${factory_run_id}`,
-        'STALE_RUN'
-      );
-    }
-    const candidate = this.store.insertCandidate({
-      candidate_id: newCandidateId(),
-      task_id,
-      factory_run_id,
-      branch,
-      commit_sha: commit_sha ? assertCommitSha(commit_sha) : null,
-      pr_ref,
-      verification_ref,
-      review_ref,
-      ci_ref,
-      status: CANDIDATE_STATUS.PROPOSED,
+  recordCandidate(input) {
+    // Exact GitHub candidate registry (Build Order item 9).
+    return registerExactCandidate(this, input);
+  }
+
+  async refreshCandidateLanding(candidateId, githubClient) {
+    return refreshCandidateLanding(this, candidateId, githubClient);
+  }
+
+  async verifyCandidate(candidateId, options = {}) {
+    return verifyExactCandidate({
+      core: this,
+      candidate_id: candidateId,
+      ...options,
     });
-    this.store.appendEvent({
-      task_id,
-      factory_run_id,
-      event_type: EVENT_TYPE.CANDIDATE_RECORDED,
-      payload: {
-        candidate_id: candidate.candidate_id,
-        commit_sha: candidate.commit_sha,
-        branch: candidate.branch,
-      },
-    });
-    return candidate;
+  }
+
+  invalidateVerification(verificationId, reason) {
+    return invalidateVerification(this, verificationId, reason);
+  }
+
+  isVerificationAuthoritative(verificationId) {
+    return isVerificationAuthoritative(this, verificationId);
   }
 
   // Stage-1 storage for approval records bound to proposal_id + content_hash.
