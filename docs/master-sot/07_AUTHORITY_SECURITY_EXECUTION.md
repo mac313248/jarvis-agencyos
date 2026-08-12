@@ -8,6 +8,8 @@ The model is never a security boundary.
 
 The model may request a capability. Only trusted deterministic infrastructure may grant/use it.
 
+Builder Core and coding workers have no ambient AgencyOS business-write authority or production business credentials.
+
 ## Tenant isolation
 
 Primary tenant boundary is PostgreSQL RLS + trusted transaction-local tenant context.
@@ -49,9 +51,15 @@ If authority/kill-state cannot be freshly verified, material write = DENY.
 
 ## Inbound authenticity
 
-Provider webhooks/push events that support authenticity verification MUST be verified before canonical materialization.
+External provider webhooks/push events MUST pass the trusted connector/verifier boundary before canonical materialization.
 
 The connector registry stores the verification method/secret/public key reference.
+
+Rules:
+- external or unknown/unclassified event origin fails closed unless authenticity is positively verified;
+- a trusted-internal path may bypass provider authentication only when non-forgeable provenance is created/enforced by trusted infrastructure;
+- caller-supplied connector names, event types, verification objects, `trusted/internal` flags, or equivalent metadata have zero authority to establish trust;
+- `NOT_APPLICABLE` is not a generic passthrough for unknown event types.
 
 Failed/unknown authenticity:
 - cannot mutate canonical business state;

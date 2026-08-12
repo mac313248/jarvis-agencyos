@@ -72,7 +72,7 @@ After restore:
 - bump recovery/kill epoch;
 - restore Postgres;
 - rebuild derived indexes;
-- restore/reconcile DBOS workflow state;
+- restore/reconcile DBOS workflow state if DBOS is deployed for the affected workflows;
 - re-evaluate pending/ambiguous external steps using deterministic idempotency keys and postcondition checks;
 - reconcile providers;
 - only then re-enable writes.
@@ -89,7 +89,7 @@ If fresh authority/kill state cannot be read:
 ## Backups
 
 Required:
-- Postgres PITR/continuous recovery;
+- Postgres PITR/continuous recovery before production tenant data;
 - object-storage versioning/retention;
 - Git remote;
 - rebuildable pgvector/FTS.

@@ -1,0 +1,18 @@
+{
+  "phase": "V1_0C_WRITE_SAFE_FOUNDATION",
+  "base_sha": "2cb6f58f28f0e3d2bb8d52d7c85150d9f79c0fb3",
+  "branch": "phase-build/agencyos-secure-core",
+  "sot_manifest_sha256": "8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87",
+  "business_write_autonomy": "DISABLED",
+  "dbos": "NOT_REQUIRED",
+  "local_npm_test": "391/391 pass",
+  "v1_0c_write_safe_test": "11/11 pass",
+  "security_review": "PASS_WITH_FIXES_REPAIRED",
+  "codex": "PASS",
+  "created_at": "2026-08-12T20:30:00.000Z",
+  "candidate_sha": "bd9853e7a6cd2819106de65f0753b2759d03bcdf",
+  "reviewed_implementation_sha": "bd9853e7a6cd2819106de65f0753b2759d03bcdf",
+  "codex_merge_readiness_verdict": "PASS",
+  "codex_model": "gpt-5.4",
+  "codex_reviewed_implementation_sha": "bd9853e7a6cd2819106de65f0753b2759d03bcdf"
+}

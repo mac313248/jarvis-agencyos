@@ -43,10 +43,11 @@ Agency/reseller commercial relationship does not automatically grant end-tenant 
 → assign confidentiality class
 → pin Business Pack
 → create RLS-protected storage
-→ provision DBOS/control state
+→ provision control state; provision DBOS workflow state only where selected workflows require it
 → authorize connectors
 → verify connector resource ownership
 → read-only sync
+→ enable T0/T1 only after read-path isolation/authenticity/privacy gates pass
 → reconcile mappings
 → configure grants/budgets
 → run isolation + inbound-auth tests

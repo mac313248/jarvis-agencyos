@@ -37,7 +37,7 @@ import { join } from 'node:path';
 // ---------------------------------------------------------------------------
 
 export const APPROVED_MANIFEST_SHA256 =
-  '8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87';
+  'baca23685a76be4f75033c1cb95fb6979513626cd09aacb8601fa11444e823c7';
 
 export const REPO_ROOT_MARKERS = ['AGENTS.md', 'docs/master-sot/00_START_HERE.md', 'package.json'];
 

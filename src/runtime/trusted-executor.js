@@ -29,6 +29,18 @@ import { assertWritersAllowed, WritersFrozenError } from './dbos.js';
 import { LOCAL_FAKE_SURFACE } from './local-effect-adapter.js';
 import { createExecutionTrace } from './observability.js';
 import { acquireLocalEffectScopeLock } from './reconciliation.js';
+import {
+  assertAutonomousRetryAllowedAfterAmbiguity,
+  assertCrossSurfaceFallbackAllowed,
+  EffectAmbiguityError,
+} from './effect-ambiguity.js';
+import {
+  assertWorkflowMayCommitEffect,
+  claimSemanticAction,
+  releaseSemanticActionClaim,
+  SingleFlightError,
+} from './single-flight.js';
+import { classifyAmbiguousOutcomePolicy } from '../contracts/capability.js';
 
 export class TrustedExecutorError extends Error {
   constructor(code, message, details = null) {
@@ -87,13 +99,17 @@ function decidePolicy({ grant, capability, proposal }) {
       policy_version: 'executor-v1',
     };
   }
+  const ambiguity = classifyAmbiguousOutcomePolicy(capability);
   const approvalMode = grant.approval_mode || capability.approval_policy || 'default';
   const highRisk = proposal.risk_class === 'high' || proposal.risk_class === 't4'
-    || approvalMode === 'owner_step_up' || approvalMode === 'approval_required';
+    || approvalMode === 'owner_step_up' || approvalMode === 'approval_required'
+    || ambiguity.min_verdict === 'APPROVAL_REQUIRED';
   if (highRisk) {
     return {
       verdict: 'APPROVAL_REQUIRED',
-      reason_codes: ['HIGH_RISK_OR_APPROVAL_MODE'],
+      reason_codes: ambiguity.min_verdict === 'APPROVAL_REQUIRED'
+        ? ['HIGH_RISK_OR_APPROVAL_MODE', ...ambiguity.reason_codes]
+        : ['HIGH_RISK_OR_APPROVAL_MODE'],
       policy_version: grant.policy_version || 'executor-v1',
     };
   }
@@ -422,9 +438,141 @@ export async function executeTrustedEffect(backend, args) {
     request_hash: proposal.request_hash,
   });
 
+  // V1.0C #28: autonomous retry after AMBIGUOUS/UNKNOWN requires policy allow.
+  // Also auto-engage when durable prior ledger for this exact key is ambiguous
+  // and the capability forbids autonomous retry (fail closed without caller flag).
+  {
+    const prior = await loadLedgerByKey(backend, key);
+    const priorOutcome = prior?.outcome ?? args.prior_outcome ?? null;
+    const priorPost = prior?.postcondition_status ?? args.prior_postcondition ?? null;
+    const ambiguousPrior =
+      priorOutcome === 'AMBIGUOUS' ||
+      priorPost === 'AMBIGUOUS' ||
+      priorPost === 'UNKNOWN' ||
+      priorPost === 'UNVERIFIED';
+    if (args.retry_after_ambiguity || (ambiguousPrior && prior?.status === 'COMPLETED')) {
+      try {
+        assertAutonomousRetryAllowedAfterAmbiguity(capability, {
+          prior_outcome: priorOutcome,
+          prior_postcondition: priorPost,
+        });
+      } catch (err) {
+        if (err instanceof EffectAmbiguityError) {
+          return {
+            status: 'DENIED',
+            verification_status: null,
+            reason_codes: [err.code, ...(err.details?.reason_codes || [])],
+            claimed_success: false,
+            idempotency_key: key,
+            policy_decision_id: policyDecisionId,
+          };
+        }
+        throw err;
+      }
+    }
+  }
+
+  // V1.0C #29: browser/Orgo fallback only after durable VERIFIED ABSENT evidence.
+  if (args.fallback_surface) {
+    try {
+      let postStatus = args.prior_postcondition ?? null;
+      let durable = false;
+      if (args.prior_idempotency_key) {
+        const priorLedger = await loadLedgerByKey(backend, args.prior_idempotency_key);
+        if (priorLedger?.postcondition_status) {
+          postStatus = priorLedger.postcondition_status;
+          durable = true;
+        }
+      }
+      if (args.durable_postcondition_evidence === true && postStatus) {
+        durable = true;
+      }
+      assertCrossSurfaceFallbackAllowed({
+        prior_surface: args.prior_surface || capability.control_surface || 'api',
+        fallback_surface: args.fallback_surface,
+        postcondition_status: postStatus,
+        durable_evidence: durable,
+      });
+    } catch (err) {
+      if (err instanceof EffectAmbiguityError) {
+        return {
+          status: 'DENIED',
+          verification_status: null,
+          reason_codes: [err.code],
+          claimed_success: false,
+          idempotency_key: key,
+          policy_decision_id: policyDecisionId,
+        };
+      }
+      throw err;
+    }
+  }
+
+  // V1.0C #33: cancelled/expired/missing single-flight workflows cannot commit late.
+  if (args.enforce_single_flight) {
+    try {
+      await assertWorkflowMayCommitEffect(backend, {
+        workflow_id: proposal.workflow_id,
+        subject_ref: args.subject_ref ?? null,
+        routine_id: args.routine_id ?? null,
+        logical_stage: args.logical_stage ?? null,
+        requireActiveFlight: true,
+      });
+    } catch (err) {
+      if (err instanceof SingleFlightError) {
+        return {
+          status: 'DENIED',
+          verification_status: null,
+          reason_codes: [err.code],
+          claimed_success: false,
+          idempotency_key: key,
+          policy_decision_id: policyDecisionId,
+        };
+      }
+      throw err;
+    }
+  }
+
+  // V1.0C #34: provisional semantic claim; released if commit does not succeed.
+  let semanticClaimHeld = false;
+  if (args.semantic_action_key && args.subject_ref) {
+    try {
+      await claimSemanticAction(backend, {
+        subject_ref: args.subject_ref,
+        semantic_action_key: args.semantic_action_key,
+        workflow_id: proposal.workflow_id,
+        effect_id: null,
+      });
+      semanticClaimHeld = true;
+    } catch (err) {
+      if (err instanceof SingleFlightError) {
+        return {
+          status: 'DENIED',
+          verification_status: null,
+          reason_codes: [err.code],
+          claimed_success: false,
+          idempotency_key: key,
+          policy_decision_id: policyDecisionId,
+        };
+      }
+      throw err;
+    }
+  }
+
+  async function releaseSemanticIfNeeded() {
+    if (!semanticClaimHeld) return;
+    await releaseSemanticActionClaim(backend, {
+      subject_ref: args.subject_ref,
+      semantic_action_key: args.semantic_action_key,
+      workflow_id: proposal.workflow_id,
+    });
+    semanticClaimHeld = false;
+  }
+
   // At-most-once: completed ledger/receipt short-circuits.
   let ledger = await loadLedgerByKey(backend, key);
   if (ledger?.status === 'COMPLETED') {
+    if (ledger.outcome !== 'SUCCEEDED') await releaseSemanticIfNeeded();
     return {
       status: ledger.outcome,
       verification_status: ledger.postcondition_status === 'VERIFIED' ? 'VERIFIED' : mapPostconditionToVerification(ledger.postcondition_status),
@@ -499,6 +647,7 @@ export async function executeTrustedEffect(backend, args) {
       forcedPostcondition: args.forcedPostcondition ?? null,
       startedAt: ledger.started_at,
     });
+    if (!resumed.claimed_success) await releaseSemanticIfNeeded();
     return { ...resumed, policy_decision_id: policyDecisionId, duplicate: true };
   }
 
@@ -512,6 +661,7 @@ export async function executeTrustedEffect(backend, args) {
     );
   } catch (err) {
     if (err instanceof AuthorityUnavailableError) {
+      await releaseSemanticIfNeeded();
       return {
         status: 'DENIED',
         verification_status: null,
@@ -525,6 +675,7 @@ export async function executeTrustedEffect(backend, args) {
   }
 
   if (!revalidation.decision.allowed) {
+    await releaseSemanticIfNeeded();
     return {
       status: 'DENIED',
       verification_status: null,
@@ -588,6 +739,7 @@ export async function executeTrustedEffect(backend, args) {
       forcedPostcondition: args.forcedPostcondition ?? null,
       startedAt: ledger.started_at,
     });
+    if (!resumed.claimed_success) await releaseSemanticIfNeeded();
     return { ...resumed, policy_decision_id: policyDecisionId, duplicate: true };
   }
 
@@ -635,6 +787,8 @@ export async function executeTrustedEffect(backend, args) {
     forcedPostcondition: args.forcedPostcondition ?? null,
     startedAt,
   });
+
+  if (!finished.claimed_success) await releaseSemanticIfNeeded();
 
   return {
     ...finished,

@@ -12,6 +12,7 @@ import {
   FORBIDDEN_SECRET_FIELDS,
 } from '../src/contracts/capability.js';
 import { BUSINESS_WRITE_AUTONOMY } from '../src/runtime/autonomy.js';
+import { APPROVED_MANIFEST_SHA256 } from './build-runner.mjs';
 
 const root = new URL('..', import.meta.url).pathname;
 const outDir = root + 'artifacts/phase-2';
@@ -37,7 +38,7 @@ function write(file, content) { writeFileSync(outDir + '/' + file, content); }
 const baseSha = 'b5d68aa88bb4df251d8a0de15347576a40039390'; // Phase 1 final accepted tip
 const sotDir = root + 'docs/master-sot';
 const sot = await verifySotManifest(sotDir);
-let sotTxt = `SOT VERIFY: ${sot.ok ? 'PASS' : 'FAIL'}\nmanifest_sha256=${sot.manifestHash}\napproved_manifest_expected=8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87\n`;
+let sotTxt = `SOT VERIFY: ${sot.ok ? 'PASS' : 'FAIL'}\nmanifest_sha256=${sot.manifestHash}\napproved_manifest_expected=${APPROVED_MANIFEST_SHA256}\n`;
 for (const r of sot.results) sotTxt += `  ${r.ok ? 'OK ' : 'BAD'} ${r.file}\n`;
 write('sot-verification.txt', sotTxt);
 
@@ -313,7 +314,7 @@ PHASE 2 — GOVERNED CAPABILITY REGISTRY
 
 ## Mandatory independent inspection
 1. SOT verify against approved manifest
-   \`8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87\`
+   \`${APPROVED_MANIFEST_SHA256}\`
 2. Diff: \`${baseSha}...${implSha}\` (implementation only)
 3. Migration \`0011_capability_registry.sql\` (RLS, FORCE RLS, enums, grants)
 4. Capability resolver (tenant context only; no caller tenant override)
@@ -343,7 +344,7 @@ ROLE: Review only. Do not modify code as a concurrent writer.
 
 BASE SHA: ${baseSha}
 REVIEWED IMPLEMENTATION SHA: ${implSha}
-APPROVED SOT MANIFEST: 8454dc306866ced3a5b7f7a827131cbba3587a741b2c948c16e0b1bfde226a87
+APPROVED SOT MANIFEST: ${APPROVED_MANIFEST_SHA256}
 
 Inspect independently:
 1. docs/master-sot/ (especially 06_SYSTEM_CONTRACTS.md Capability) + SOT_SYNC_MANIFEST.sha256

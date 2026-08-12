@@ -1,38 +1,28 @@
-# 14 — CODING AGENT BOOTSTRAP & RUNBOOK
+# 14 — CODING AGENT RUNBOOK — CURRENT SECURE CORE PHASE
 
-## Owner choices
+## Current state
 
-- Build the permanent AgencyOS/Jarvis foundation first.
-- Primary builder: **Cursor**.
-- Independent reviewer/fallback: **Codex**.
-- Build/control host: **Mac Mini**.
-- GitHub: **brand-new clean private repository**.
+Builder Stage 1 is complete, frozen and merged to `main`.
 
-Recommended repository name: `jarvis-agencyos`.
+Current repository:
+- private repo: `mac313248/jarvis-agencyos`;
+- control/build host: Mac Mini;
+- primary builder: Cursor through Builder Core;
+- independent reviewer: Codex;
+- business-write autonomy: **DISABLED**.
 
-Recommended Mac Mini path:
-
-`$HOME/Projects/jarvis-agencyos`
+The owner should no longer manually act as the normal AI-to-AI courier. Use the proven Builder path for AgencyOS implementation tasks.
 
 ## How the ChatGPT Master SOT matches the Mac Mini
 
 There are two copies of the same approved SOT:
 
-1. **ChatGPT Project**
-   `JARVIS / AGENCYOS — MASTER (SOT)`
-   - human/control reference;
-   - owner decisions;
-   - build-controller conversations.
+1. **ChatGPT Project Sources** — human/control reference.
+2. **Git repository `docs/master-sot/`** — exact machine-readable mirror.
 
-2. **Git repository**
-   `docs/master-sot/`
-   - exact machine-readable mirror for Cursor/Codex;
-   - committed to Git;
-   - verified using `SOT_SYNC_MANIFEST.sha256`.
+They match only when every canonical SOT file hash matches `SOT_SYNC_MANIFEST.sha256`.
 
-They are considered MATCHED only when every canonical SOT file hash matches the manifest.
-
-The coding agent must stop on mismatch.
+The coding system must stop on mismatch.
 
 ## Repo SOT rule
 
@@ -40,43 +30,20 @@ Cursor/Codex may READ `docs/master-sot/`.
 
 They MUST NOT rewrite architecture files because implementation is inconvenient.
 
-If implementation exposes a true architecture contradiction:
-- mark `WAITING_ON_ARCHITECTURE`;
-- show concrete live evidence;
+If live evidence proves a genuine contradiction:
+- use `WAITING_ON_ARCHITECTURE`;
+- show concrete evidence;
 - do not silently change SOT.
 
-## Initial repository layout
+## Root `AGENTS.md` required direction
+
+Keep it short and include:
 
 ```text
-jarvis-agencyos/
-├── AGENTS.md
-├── README.md
-├── docs/
-│   └── master-sot/
-│       ├── 00_START_HERE.md
-│       ├── ...
-│       ├── 14_CODING_AGENT_BOOTSTRAP_AND_RUNBOOK.md
-│       └── SOT_SYNC_MANIFEST.sha256
-├── src/
-├── migrations/
-├── tests/
-├── scripts/
-└── artifacts/
-```
-
-Exact application framework/layout below this level is a reversible engineering choice for the coding agent unless the SOT says otherwise.
-
-## Root AGENTS.md — required content
-
-The builder creates a SHORT `AGENTS.md` that says:
-
-```text
-# AGENTS.md
-
 AUTHORITATIVE DESIGN:
 Read docs/master-sot/00_START_HERE.md first.
 
-Required before architecture/security work:
+Required before security/business-runtime work:
 01_ARCHITECTURE_LOCKS.md
 05_PRODUCT_BEHAVIOR.md
 06_SYSTEM_CONTRACTS.md
@@ -86,64 +53,33 @@ Required before architecture/security work:
 12_ACCEPTANCE_AND_IMPLEMENTATION.md
 14_CODING_AGENT_BOOTSTRAP_AND_RUNBOOK.md
 
-06_SYSTEM_CONTRACTS.md is the only canonical contract/schema source.
-
+06_SYSTEM_CONTRACTS.md is the canonical AgencyOS business-runtime contract/schema source.
 Never modify docs/master-sot silently.
+Verify SOT_SYNC_MANIFEST.sha256 before work.
 
-Before work, verify:
-sha256sum -c docs/master-sot/SOT_SYNC_MANIFEST.sha256
-
-Primary builder: Cursor.
-Independent reviewer/fallback: Codex.
-
-Owner is nontechnical.
-Do not ask routine engineering questions.
-Ask only for:
-- login/OAuth/MFA/access,
-- product/business behavior,
-- money/legal/privacy authority,
-- genuinely irreversible choices.
-
-No business-write autonomy until the applicable acceptance gates pass.
+Primary builder: Cursor through Builder Core.
+Independent reviewer: Codex.
+No business-write autonomy until applicable write-path gates pass.
 ```
 
 ## Builder operating mode
 
-Cursor should operate as the implementation worker.
-
-It should:
-1. read SOT;
-2. verify hashes;
-3. inspect the repo and live Mac Mini environment;
-4. create an implementation plan for only the current phase;
-5. create/lock tests before consequential behavior;
+For each material AgencyOS task, Builder Core should:
+1. read/verify the SOT;
+2. lock task intent + acceptance;
+3. inspect relevant current repo state;
+4. launch one primary worker per task;
+5. use bounded research/tools only as needed;
 6. implement;
-7. run tests;
-8. repair failures;
-9. produce evidence;
-10. request Codex review at phase gate;
-11. continue automatically if PASS and no owner gate exists.
-
-## Codex role
-
-Codex is:
-- independent reviewer;
-- contradiction detector;
-- test/evidence reviewer;
-- fallback implementation reviewer when Cursor is blocked.
-
-Codex should not become a second uncontrolled writer to the same branch/resource.
-
-Default review input:
-- task/acceptance criteria;
-- diff/artifact;
-- test output;
-- evidence;
-- relevant SOT sections.
+7. run deterministic tests/CI;
+8. repair bounded failures;
+9. bind evidence to exact candidate SHA/PR;
+10. obtain Codex review at security/phase gates;
+11. continue automatically when PASS and no owner gate exists.
 
 ## Owner question policy
 
-The coding system should NOT ask the owner:
+Do NOT ask the owner routine engineering questions such as:
 - table names;
 - library choices;
 - UUID choices;
@@ -153,152 +89,213 @@ The coding system should NOT ask the owner:
 - file layout below frozen boundaries;
 - reversible provider SDK details.
 
-It MAY stop for:
-- OAuth/login/MFA;
+Stop only for:
+- login/OAuth/MFA/access;
 - production/staging credentials;
 - exact business authority threshold;
 - privacy/legal decision;
 - product behavior ambiguity;
-- live platform limitation that materially breaks SOT.
+- genuinely irreversible choice;
+- live platform limitation that materially breaks the SOT.
 
-Ask at most 1–3 plain-English questions at a time.
-
-## Human gate state
-
-Use:
-
-`WAITING_ON_OWNER`
-
-not `BLOCKED`
-
-when the only missing item is:
-- login,
-- OAuth,
-- MFA,
-- API key entry,
-- account selection,
-- screenshot confirmation.
-
-After owner action, continue automatically.
+Use `WAITING_ON_OWNER` for pure access/login/MFA/key/account-selection steps.
 
 ## Git rules
 
-- new repo is private;
-- protected main before production build;
-- feature branches/PRs for material work;
+- `main` stays protected;
+- material work uses feature branches/PRs;
+- exact candidate SHA is the unit of verification/review;
 - Cursor is primary writer for a task;
-- Codex is reviewer, not concurrent writer;
-- required tests before merge;
-- SOT sync changes happen in dedicated commits;
-- production procedures pin Git SHA.
+- Codex is independent reviewer, not uncontrolled concurrent writer;
+- SOT sync changes use dedicated commits;
+- no blind merge of stale branches;
+- production procedures pin exact Git SHA.
 
-## Phase 1 bootstrap
+## CURRENT MISSION — AGENCYOS SECURE CORE
 
-The first implementation phase is the secure core spine:
+### Step 0 — sync this revised SOT
 
-- authentication skeleton;
-- tenants/users/memberships;
-- Postgres connection/migrations;
-- RLS/FORCE RLS;
-- transaction-local tenant context;
-- canonical IDs;
-- events/current state/evidence/receipts base tables;
-- contract version metadata;
-- DB roles/constraints;
-- tenant isolation tests;
-- SOT build binding.
+Before Secure Core implementation:
+1. replace Project Sources with the revised synchronized package;
+2. copy the identical package into `docs/master-sot/`;
+3. verify the new manifest;
+4. commit only the SOT synchronization change;
+5. return to clean `main`.
 
-No live business writes.
+### Step 1 — reclaim prior Secure Core work instead of rebuilding it blindly
 
-## MASTER CURSOR BOOTSTRAP PROMPT
+There is useful prior candidate work on `phase-1/secure-core-spine`.
 
-Paste this once into Cursor Agent on the Mac Mini with the new repo open:
+First Builder task is **read-only reconciliation**:
 
 ```text
-You are the primary implementation agent for JARVIS / AGENCYOS.
+Compare current main against phase-1/secure-core-spine.
+Do not merge or modify code.
+Produce a file/module/migration-level classification:
+REUSE AS-IS
+REUSE WITH REPAIR
+REBUILD
+DROP
 
-Read docs/master-sot/00_START_HERE.md first.
-Then read all files it marks required for implementation.
-
-Before doing any design or code:
-1. verify SOT_SYNC_MANIFEST.sha256;
-2. inspect the current repo and Mac Mini environment;
-3. confirm Git branch/status;
-4. identify only the dependencies/access needed for V1.0 Foundation;
-5. create a concise implementation plan for Phase 1;
-6. map every Phase 1 change to acceptance tests from 12_ACCEPTANCE_AND_IMPLEMENTATION.md.
-
-Rules:
-- 06_SYSTEM_CONTRACTS.md is canonical for machine contracts.
-- Do not change the SOT.
-- Do not ask Alex routine technical questions.
-- Choose safe reversible engineering defaults yourself.
-- If login/OAuth/MFA/access is needed, enter WAITING_ON_OWNER and ask for only the exact action.
-- No business-write autonomy.
-- Postgres RLS is the primary tenant boundary; application filtering is defense-in-depth.
-- Any privileged execution must fail closed if authority/kill state cannot be verified.
-- Build incrementally, test continuously, repair your own failures.
-- Use Git branches/commits carefully.
-- Do not merge or claim PASS until required tests/evidence pass.
-- At the Phase 1 gate, prepare a compact handoff for Codex review.
-
-Start with inspection and Phase 1 planning. Do not jump to later phases.
+Map every reusable item to current 06_SYSTEM_CONTRACTS.md and
+12_ACCEPTANCE_AND_IMPLEMENTATION.md.
+Explicitly include the new external/unknown-event fail-closed and sealed
+trusted-internal provenance requirements.
+Return the smallest ordered dependency plan for a fresh secure-core branch.
 ```
 
-## CODEX PHASE REVIEW PROMPT
+### Step 2 — create a fresh Secure Core branch from current `main`
+
+Do not resurrect the old branch as the integration branch.
+
+Suggested logical branch:
+
+`phase-build/agencyos-secure-core`
+
+Use old commits as source material only after reconciliation.
+
+## Fast build strategy
+
+### Wave A — Read-safe spine — one schema owner
+
+One primary coding worker owns shared migrations/schema until these contracts stabilize:
+- Postgres connection/migrations;
+- tenant/user/membership model;
+- RLS/FORCE RLS;
+- trusted transaction-local tenant context;
+- canonical IDs/version metadata;
+- events/current state/evidence/source health;
+- corrected inbound authenticity + sealed trusted-internal provenance;
+- connector registry/read credential references;
+- read-path privacy/confidentiality.
+
+Run real multi-process PostgreSQL tests before declaring the DB boundary complete.
+
+### What can run in parallel during Wave A
+
+These can happen concurrently because they need not mutate the shared schema:
+- Codex adversarial review;
+- attack-test design;
+- connector official-doc/resource/scope discovery;
+- fixture creation;
+- evidence/acceptance mapping;
+- read-only adapter interface planning.
+
+### Wave B — Early value
+
+As soon as Read-Safe Foundation passes:
+- build/enable Agent 0 T0 observation;
+- build/enable Agent 0 T1 recommendations/drafts;
+- Jarvis owner queries/briefings over evidence-backed read state;
+- first-party portfolio synthesis where authorized.
+
+Do **not** wait for business-write autonomy to get useful read-only Agent 0 value.
+
+### Wave C — Write-safe spine — bounded parallel coding allowed
+
+After base contracts/schema are stable, Builder may run up to 2–3 disjoint coding tasks simultaneously.
+
+Example dependency-safe slices:
+
+**Worker A — Authority / approvals**
+- grants/caps;
+- owner session + step-up binding;
+- policy verdicts;
+- revocation/kill state.
+
+**Worker B — Executor / receipts / idempotency**
+- exact proposal/capability execution envelope;
+- deterministic idempotency;
+- postcondition verification;
+- execution receipts;
+- ambiguity handling.
+
+**Worker C — Read-only connectors / reconciliation**
+- provider read adapters;
+- provenance/freshness;
+- resource ownership mapping;
+- source reconciliation.
+
+Guardrails:
+- no two workers own the same migration/schema file at once;
+- explicit allowed paths/resources;
+- isolated branches/worktrees;
+- dependency DAG;
+- fresh CI/verifier/Codex after integration.
+
+### Wave D — DBOS only when justified
+
+Do not make DBOS a blocking installation task just because it is approved architecture.
+
+Introduce DBOS when the first chosen business routine needs durable waits/retries/queues/signals/human waits.
+
+Then prove:
+- crash recovery;
+- durable approval wait;
+- stable workflow identity;
+- PITR interaction;
+- no duplicate external side effect.
+
+### Wave E — first T2
+
+Choose one low-risk reversible/pre-authorized business routine.
+
+Pass the entire write-path acceptance suite in staging/shadow.
+
+Enable only that exact routine.
+
+## Speed rules
+
+1. **Use Builder Core; do not manually relay AI context.**
+2. **Reuse old code only through explicit reconciliation.**
+3. **One schema owner first; parallelize after shared contracts are stable.**
+4. **Run research/review/test-design concurrently with implementation.**
+5. **Read-only connectors can start before write autonomy.**
+6. **Agent 0 T0/T1 can start after read-safe gates; do not wait for T2.**
+7. **DBOS is demand-driven, not calendar-driven.**
+8. **No broad architecture research unless a live test contradicts the SOT.**
+9. **Codex reviews phase/security boundaries; deterministic tests run continuously.**
+10. **Never trade tenant isolation, authenticity, approval binding, idempotency or fail-closed behavior for speed.**
+
+## Codex phase review prompt
 
 ```text
-You are the independent reviewer for the current JARVIS / AGENCYOS implementation phase.
+You are the independent reviewer for the current JARVIS / AGENCYOS Secure Core phase.
 
-Read the relevant files under docs/master-sot/, especially:
+Read the relevant docs/master-sot files, especially:
 01_ARCHITECTURE_LOCKS.md
 06_SYSTEM_CONTRACTS.md
 07_AUTHORITY_SECURITY_EXECUTION.md
 12_ACCEPTANCE_AND_IMPLEMENTATION.md
 
-Review the actual diff, migrations, tests and test output.
+Review the exact candidate diff, migrations, tests, test output and evidence.
 
-Do not redesign the architecture for novelty.
+Do not redesign for novelty.
+Do not fail explicitly deferred later-wave items if the candidate does not claim them complete.
 
-Return:
+Return one verdict:
 PASS
 PASS WITH FIXES
 or FAIL
 
 Only report material:
-- SOT contradiction,
-- security/tenant flaw,
-- missing acceptance coverage,
-- unsafe retry/idempotency,
-- unsupported completion claim,
-- broken recovery,
-- code that leaves a major architecture choice unstated.
-
-If fixes are needed, give the smallest concrete fix list.
+- SOT contradiction;
+- cross-tenant/RLS bypass;
+- forgeable event authenticity/provenance;
+- stale/forgeable approval;
+- unsafe retry/idempotency;
+- fail-open authority/kill behavior;
+- missing required acceptance coverage;
+- unsupported completion/evidence claim;
+- recovery behavior that can duplicate/lose a material effect.
 ```
 
 ## Phase transition rule
 
-A phase advances only when:
+A wave advances only when:
 - required tests pass;
-- evidence/artifacts exist;
+- evidence binds to exact candidate;
 - Codex gate is PASS or required fixes are resolved;
 - no owner/live gate remains.
 
-Then Cursor may continue to the next implementation phase without asking the owner to approve ordinary technical work.
-
-## What “Phase 1 complete” means
-
-Not “tables were created.”
-
-It means:
-- repo/SOT hashes match;
-- migrations reproducible;
-- RLS hard boundary proven with direct negative tests;
-- runtime role cannot bypass isolation;
-- tenant context cannot leak through pooling;
-- base contracts exist/versioned;
-- evidence/receipt/event/state primitives exist;
-- no business writes enabled;
-- test results recorded;
-- Codex review passed.
+Ordinary technical work then continues automatically.

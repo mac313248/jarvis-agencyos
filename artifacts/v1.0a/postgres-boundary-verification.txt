@@ -1,0 +1,9 @@
+V1.0A REAL POSTGRES BOUNDARY VERIFICATION
+engine=embedded-postgres (real OS process, multi-process pg connections)
+test_file=tests/postgres-multiprocess-boundary.test.mjs
+result=PASS (4/4)
+evidence=
+  - separate Node child processes per connection
+  - tenant A/B isolation across processes
+  - missing tenant context fails closed across processes
+  - concurrent processes cannot widen tenant visibility

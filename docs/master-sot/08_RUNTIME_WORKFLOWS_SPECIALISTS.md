@@ -1,76 +1,89 @@
 # 08 — RUNTIME, WORKFLOWS & SPECIALISTS
 
-### SPECIALISTS
+## Specialists / concurrency
 
-Available V1 specialist contracts remain:
+Available specialist contracts remain:
 
-**Scout** — discovers information/evidence.
-
-**Analyst** — reasons over structured evidence.
-
-**Builder** — creates software/assets/configuration.
-
-**Operator** — performs governed operational tasks.
-
+**Scout** — discovers information/evidence.  
+**Analyst** — reasons over structured evidence.  
+**Builder** — creates software/assets/configuration.  
+**Operator** — performs governed operational tasks.  
 **Reviewer** — independent verification when required.
 
-But the execution rule is:
+Default execution remains:
 
 `ONE AGENT`
 → solve if adequate
 → delegate only if justified.
 
-Independent research now reinforces this strongly: coordination adds overhead and can propagate failures; task topology matters more than agent count. ([Nature](https://www.nature.com/articles/s42256-026-01268-y?utm_source=chatgpt.com "Capable language models can outgrow the benefits of collaboration | Nature Machine Intelligence"))
+Stage 1 intentionally proved the sequential loop first.
+
+After Stage 1, **bounded parallelism is allowed when it buys real speed**:
+- maximum 2–3 coding workers initially;
+- tasks must be dependency-ready and disjoint;
+- isolated branches/worktrees;
+- one primary writer for any shared migration/schema/resource;
+- deterministic dependency DAG;
+- stale-base detection and fresh verification before integration;
+- no free-form swarm or peer-negotiated authority.
 
 No:
-
 - permanent department swarm;
 - recursive autonomous hierarchy;
 - unrestricted peer chat;
 - agents negotiating authority;
-- agent-created specialists with new permissions.
+- agent-created specialists with new permissions;
+- concurrent writers to the same security-critical file/migration set without explicit serialization.
 
-### CODING FACTORY
+## Coding factory — live status
 
-Do **not** rebuild a giant custom coding factory.
+Builder Stage 1 is **PROVEN and merged**.
 
-Final architecture:
+Current architecture:
 
 `AgencyOS task envelope`
-→ Cursor / Codex / other qualified native coding runtime
-→ branch/worktree/isolated environment
+→ Builder Core
+→ Cursor / other qualified native coding runtime
+→ isolated branch/worktree/environment
 → implementation
 → tests
 → PR
 → GitHub CI
-→ required gates
+→ deterministic verification
+→ Codex semantic review when policy requires
 → merge authorization.
 
-Cursor already supplies isolated cloud-agent environments capable of building, testing, computer use and producing reviewable work, which materially reduces the infrastructure AgencyOS needs to recreate. ([Cursor](https://cursor.com/blog/agent-computer-use?utm_source=chatgpt.com "Cursor agents can now control their own computers · Cursor"))
-
-AgencyOS custom software-factory code is limited to:
-
+AgencyOS custom software-factory code remains limited to the thin control surface already proven:
 - task/spec envelope;
 - provider launch/status/cancel;
 - run/PR registry;
 - acceptance/gate reader;
 - bounded repair;
-- receipts/trace linkage.
+- evidence/trajectory linkage.
 
-The old Planner → Builder → Reviewer → Test Author → custom harness architecture is eliminated as a mandatory pipeline.
+Do not rebuild a VM platform, generalized scheduler, or giant custom coding runtime unless measured need proves it.
 
-### DURABLE WORKFLOWS
+## Durable workflows
 
-**V1 = DBOS Transact + Postgres.**
+**Postgres is the AgencyOS business-state foundation.**
 
-DBOS currently provides Postgres-backed durable workflows that recover from completed checkpoints and supports long-running processes, queues and human waits without requiring a separate workflow orchestration server. ([DBOS Docs](https://docs.dbos.dev/typescript/integrating-dbos?utm_source=chatgpt.com "Add DBOS To Your App | DBOS Docs"))
+DBOS is the approved V1 durable-workflow engine **when the workflow requires it** — for example:
+- long waits;
+- durable retries;
+- queues;
+- signals;
+- human approval waits;
+- crash-resumable multi-step routines.
 
-Rule:
+DBOS is **not** a prerequisite for:
+- Builder Core;
+- simple request/response operations;
+- read-only connector syncs that can be safely reconciled without workflow state;
+- early Agent 0 T0/T1 observation/recommendation.
 
-> Every nondeterministic LLM call, tool call or external interaction inside a durable process becomes a durable step.
+When DBOS is used, every nondeterministic LLM call, tool call or external interaction inside a durable process becomes a durable step.
 
 DBOS owns:
-
 - workflow execution;
 - waiting;
 - retries;
@@ -79,13 +92,23 @@ DBOS owns:
 - checkpoint/recovery.
 
 AgencyOS owns:
-
 - product state;
 - authority;
 - external-write idempotency;
 - external verification;
 - business receipts.
 
-DBOS does **not** magically make an external API side effect exactly once. External writes still require our idempotency key and postcondition verifier.
+DBOS does **not** make external side effects exactly once. External writes still require deterministic idempotency and/or postcondition verification.
 
-Temporal/Restate are later escalation options if actual scale/distribution requirements justify them.
+Temporal/Restate remain later escalation options only if actual scale/distribution requirements justify them.
+
+## Fast Secure Core execution pattern
+
+Build in dependency waves rather than one giant serial project:
+
+1. **Reconcile prior `phase-1/secure-core-spine` work against current `main`.**
+2. **Read-safe foundation:** tenant/RLS, canonical events/authenticity, state/evidence, connector registry, read-only access.
+3. **Begin Agent 0 T0/T1 as soon as read-path security gates pass.**
+4. **Write-safe foundation in parallelizable slices:** authority/approvals; executor/receipts/idempotency; kill/revocation/reconciliation.
+5. **Adopt DBOS only when the first selected durable business routine requires it.**
+6. **Enable only the exact low-risk T2 routine whose write-path tests pass.**

@@ -1,29 +1,107 @@
 # 13 — SOURCE INDEX
 
-## Strongest final evidence
+## Current evidence hierarchy
 
-The most consequential external result is the July 24, 2026 Nature Machine Intelligence controlled study: multi-agent coordination is highly task-dependent, a strong single-agent baseline is a major predictor of whether collaboration helps, and coordination can create substantial error amplification. ([Nature](https://www.nature.com/articles/s42256-026-01268-y?utm_source=chatgpt.com "Capable language models can outgrow the benefits of collaboration | Nature Machine Intelligence"))
+### 1. Frozen architecture/research basis
 
-The NeurIPS MAST research independently identified recurring multi-agent failures across system design, inter-agent alignment and verification, reinforcing deterministic orchestration and explicit verification rather than free-form agent interaction. ([NeurIPS](https://neurips.cc/virtual/2025/122442?utm_source=chatgpt.com "NeurIPS Why Do Multi-Agent LLM Systems Fail?"))
+The August 10 Master SOT remains the architecture foundation after its audit corrections:
+- deterministic authority outside models;
+- Postgres RLS tenant isolation;
+- exact approval binding;
+- authenticated inbound events;
+- deterministic idempotency + postcondition verification;
+- fail-closed authority;
+- provider-replaceable execution;
+- governed learning.
 
-Anthropic's production experience likewise recommends simple composable patterns and documents that its successful multi-agent research system depends on explicit orchestration, delegation boundaries, context control, tooling and evaluation—not merely adding more agents. ([Anthropic Resources](https://resources.anthropic.com/building-effective-ai-agents?utm_source=chatgpt.com "Building Effective AI Agents"))
+### 2. Jarvis architecture reconciliation — controlling sequencing/boundary clarification
 
-For execution infrastructure, current DBOS documentation supports the Postgres-backed durable-workflow direction, current Cursor capabilities substantially reduce what we need to custom-build for coding agents, and current MCP evolution supports treating MCP as a replaceable interoperability layer instead of AgencyOS's authority system. ([DBOS Docs](https://docs.dbos.dev/architecture?utm_source=chatgpt.com "DBOS Architecture | DBOS Docs"))
+`JARVIS_ARCHITECTURE_RECONCILIATION_2026-08-10.md` resolved the important execution-order and naming issues:
+- one Jarvis owner experience above separate logical trust domains;
+- thin Builder first;
+- immediately use Builder to build AgencyOS Secure Core;
+- one worker before earned parallelism;
+- DBOS not required for Builder Stage 1;
+- business-runtime security remains mandatory before business data/writes.
 
-**Research is complete enough to freeze. The next phase is not Pass 19. It is creating the clean Master SOT from these locks, then implementation against the live-verification gates.**
+### 3. Kamal founder-friendly roadmap/playbook — reference, not current status authority
 
-## Additional canonical platform/research sources referenced by the frozen design
+`JARVIS_BUILD_PLAYBOOK_FOR_ALEX_2026-08-10.pdf` and `JARVIS_MASTER_ROADMAP_TREE_2026-08-10.pdf` remain useful explanatory artifacts.
 
-- PostgreSQL RLS: https://www.postgresql.org/docs/current/ddl-rowsecurity.html
-- PostgreSQL transactions: https://www.postgresql.org/docs/current/tutorial-transactions.html
-- PostgreSQL PITR: https://www.postgresql.org/docs/current/continuous-archiving.html
-- pgvector: https://github.com/pgvector/pgvector
-- Hermes docs: https://hermes-agent.nousresearch.com/docs/
-- Cursor Cloud Agents: https://cursor.com/docs/cloud-agent
-- DBOS docs: https://docs.dbos.dev/
-- OpenAI Agents SDK: https://openai.github.io/openai-agents-python/
-- Anthropic Agent SDK / Managed Agents: https://platform.claude.com/docs/
-- GitHub protected branches: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
-- MCP security considerations: https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations
+They correctly preserve:
+- build the builder first;
+- worker never grades itself;
+- failure/recovery proof;
+- Hermes as interface, not authority;
+- Obsidian as human-readable memory;
+- Prime as later improvement/evals;
+- separate Jarvis build authority vs Agent 0 production authority.
 
-The full Project research history contains the detailed pass-specific source inventory. This compact index is not a replacement for those original source records.
+Their stage/status labels are historical and are superseded by live evidence + the reconciliation.
+
+### 4. Live Builder Stage-1 evidence — newer than the roadmaps
+
+Builder Stage 1 was completed in the actual private `mac313248/jarvis-agencyos` repository.
+
+Latest owner-supplied freeze evidence:
+- reviewed implementation SHA: `6fc6d373b4ad142dab0e6d863a38e934c6316db2`;
+- merge commit: `ab9b4dbb7c146fe1faaf1d2aeea2e2cb62e2dc5d`;
+- PR #56 merged to `main`;
+- CI `phase1` success;
+- business-write autonomy disabled.
+
+The real Stage-1 AgencyOS task also produced a new security finding now incorporated into this SOT: unknown/external events fail closed, and trusted-internal provenance must be non-forgeable and created/enforced by trusted infrastructure.
+
+### 5. Prior Secure Core candidate evidence — reusable but not current PASS
+
+An earlier unmerged `phase-1/secure-core-spine` branch built useful candidate work including:
+- migrations 0001–0008;
+- roles + trusted tenant context;
+- RLS/FORCE RLS;
+- tenants/users/memberships;
+- owner auth skeleton;
+- authority/proposal/approval/policy;
+- events/state/evidence;
+- receipts/PII subject refs;
+- authority/kill epochs;
+- SOT build binding.
+
+Its reviewed implementation SHA was `20c64b759c3f6aced3879e2872cca76326e58914` before the Builder-first work diverged.
+
+This is **acceleration input**, not something to blind-merge. Current `main` + revised SOT must control the new Secure Core branch.
+
+## Strong research evidence retained
+
+The frozen design continues to rely on the prior evidence base around:
+- task-dependent multi-agent coordination;
+- deterministic orchestration/verification;
+- Cursor native coding runtime capabilities;
+- PostgreSQL RLS;
+- DBOS durable workflows;
+- MCP as interoperability rather than authority.
+
+Broad architecture research remains closed.
+
+## Targeted research rule
+
+Do not start another broad pass.
+
+Research only when:
+- a live implementation test contradicts a lock;
+- current official provider behavior is required to implement a connector;
+- a provider changes materially;
+- a new irreversible risk appears.
+
+For implementation questions, prefer current first-party/official documentation, then source repositories/primary evidence.
+
+## Canonical platform references retained
+
+- PostgreSQL RLS / transactions / PITR
+- DBOS documentation
+- Cursor coding-agent documentation
+- GitHub protected branch / CI documentation
+- Hermes documentation
+- MCP security considerations
+- provider-specific official docs as connectors are implemented
+
+The full Project research history remains supporting evidence, not current implementation state.
