@@ -42,6 +42,9 @@ export const BACKUP_RESTORE_REHEARSAL = true;
 /** F-14: security/privacy acceptance (deletion / PII erasure) is in scope. */
 export const SECURITY_PRIVACY_ACCEPTANCE = true;
 
+/** V1.0B: Agent 0 T0/T1 read-only routines are enabled after V1.0A. */
+export const AGENT0_T0_T1_READ = true;
+
 export function assertBusinessWriteAutonomyDisabled() {
   if (BUSINESS_WRITE_AUTONOMY !== false) {
     throw new Error('BUSINESS_WRITE_AUTONOMY must remain DISABLED');

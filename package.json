@@ -22,6 +22,8 @@
     "test:builder-stage1-review": "node --test tests/builder-stage1-review-retry.test.mjs",
     "test:builder-stage1-failure-battery": "node --test tests/builder-stage1-failure-battery.test.mjs",
     "test:builder-stage1-orchestration": "node --test tests/builder-stage1-orchestration.test.mjs",
+    "test:v1.0a-postgres": "node --test tests/postgres-multiprocess-boundary.test.mjs",
+    "test:v1.0b-agent0": "node --test tests/agent0-v1.0b.test.mjs",
     "jarvis:task": "node scripts/jarvis-task.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"
@@ -30,5 +32,8 @@
     "@cursor/sdk": "^1.0.27",
     "@electric-sql/pglite": "^0.2.0",
     "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.4.0-beta.17"
   }
 }

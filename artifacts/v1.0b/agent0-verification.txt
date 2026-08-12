@@ -1,0 +1,10 @@
+V1.0B AGENT 0 T0/T1 VERIFICATION
+test_file=tests/agent0-v1.0b.test.mjs
+result=PASS (6/6)
+behaviors=
+  - T0 observe (read-only state/attention/events/connectors)
+  - T1 recommend/draft (no durable writes)
+  - Jarvis owner briefing sections (Changed/Needs You/Risks/Completed/Evidence)
+  - first-party portfolio synthesis only
+  - third-party portfolio isolation enforced
+business_write_autonomy=DISABLED
