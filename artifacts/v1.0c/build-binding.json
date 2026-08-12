@@ -10,5 +10,6 @@
   "security_review": "PASS_WITH_FIXES_REPAIRED",
   "codex": "NOT_RUN",
   "created_at": "2026-08-12T20:30:00.000Z",
-  "candidate_sha": "PENDING_AFTER_COMMIT"
+  "candidate_sha": "bd9853e7a6cd2819106de65f0753b2759d03bcdf",
+  "reviewed_implementation_sha": "bd9853e7a6cd2819106de65f0753b2759d03bcdf"
 }
