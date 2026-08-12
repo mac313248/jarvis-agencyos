@@ -23,7 +23,7 @@ No business-write autonomy until applicable write-path gates pass.
 
 ## Cursor Cloud specific instructions
 
-- **Node.js**: 22 (pinned via `.cursor/Dockerfile`; matches CI).
+- **Node.js**: 22 (default Cursor Cloud image; matches CI).
 - **Install**: `npm ci` (runs automatically during environment builds).
 - **SOT guard**: `npm run verify:sot` — run before security/business-runtime work.
 - **Migrations**: `npm run migrate` (uses PGlite in `.pgdata`).

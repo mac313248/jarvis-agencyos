@@ -1,8 +1,4 @@
 {
   "name": "jarvis-agencyos",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
-  },
   "install": "npm ci"
 }
