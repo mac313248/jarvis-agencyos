@@ -1,0 +1,110 @@
+{
+  "source_repository": "https://github.com/cursor/plugins",
+  "upstream_commit_sha": "6dbbdd50cef1bdbfb540f80df8b598d0a546e3aa",
+  "upstream_commit_date": "2026-08-11T17:42:05Z",
+  "import_date": "2026-08-12",
+  "license": "MIT",
+  "license_files": [
+    ".cursor/vendor/cursor-plugins/licenses/cursor-team-kit.LICENSE",
+    ".cursor/vendor/cursor-plugins/licenses/cursor-sdk.LICENSE",
+    ".cursor/vendor/cursor-plugins/licenses/cli-for-agent.LICENSE"
+  ],
+  "discovery_contract": {
+    "skills": ".cursor/skills/<skill-name>/SKILL.md",
+    "agents": ".cursor/agents/*.md",
+    "rules": ".cursor/rules/*.mdc",
+    "cloud_agents": "Cloud Agents clone the repo and discover these paths from the checkout. User-level ~/.cursor/plugins is not used."
+  },
+  "plugins": [
+    {
+      "plugin_name": "cursor-team-kit",
+      "plugin_version": "1.2.0",
+      "source_path": "cursor-team-kit/",
+      "imported_skills": [
+        "check-compiler-errors",
+        "control-cli",
+        "control-ui",
+        "deslop",
+        "fix-ci",
+        "fix-merge-conflicts",
+        "get-pr-comments",
+        "loop-on-ci",
+        "make-pr-easy-to-review",
+        "new-branch-and-pr",
+        "pr-review-canvas",
+        "review-and-ship",
+        "run-smoke-tests",
+        "thermo-nuclear-code-quality-review",
+        "verify-this",
+        "weekly-review",
+        "what-did-i-get-done",
+        "workflow-from-chats"
+      ],
+      "imported_subagents": [
+        "ci-watcher",
+        "thermo-nuclear-code-quality-review"
+      ],
+      "imported_rules": [
+        "no-inline-imports",
+        "typescript-exhaustive-switch"
+      ],
+      "omitted": [
+        {
+          "path": "cursor-team-kit/assets/avatar.png",
+          "reason": "Marketplace logo only; not required for skill/agent/rule discovery."
+        }
+      ]
+    },
+    {
+      "plugin_name": "cursor-sdk",
+      "plugin_version": "1.0.0",
+      "source_path": "cursor-sdk/",
+      "imported_skills": ["cursor-sdk"],
+      "imported_references": [
+        "cursor-sdk/references/runtime-choice.md",
+        "cursor-sdk/references/auth.md",
+        "cursor-sdk/references/error-handling.md",
+        "cursor-sdk/references/streaming.md",
+        "cursor-sdk/references/mcp.md",
+        "cursor-sdk/references/advanced.md",
+        "cursor-sdk/references/patterns.md"
+      ],
+      "imported_subagents": [],
+      "imported_rules": [],
+      "omitted": []
+    },
+    {
+      "plugin_name": "cli-for-agent",
+      "plugin_version": "1.0.0",
+      "source_path": "cli-for-agent/",
+      "imported_skills": ["cli-for-agents"],
+      "imported_subagents": [],
+      "imported_rules": [],
+      "omitted": []
+    }
+  ],
+  "local_modifications": [
+    {
+      "path": ".cursor/rules/typescript-exhaustive-switch.mdc",
+      "plugin": "cursor-team-kit",
+      "change": "alwaysApply changed from true to false; added globs *.ts,*.tsx",
+      "reason": "This repository is JavaScript (.js/.mjs). Always-on TypeScript exhaustive-switch guidance would pollute every Cloud Agent turn. The rule remains available when TypeScript files are in context."
+    },
+    {
+      "path": ".cursor/rules/jarvis-authority.mdc",
+      "plugin": "local",
+      "change": "Added always-apply Jarvis authority overlay",
+      "reason": "Team Kit shipping/CI/PR skills may help perform work but must not independently declare PASS/DONE, merge eligibility, accepted evidence, or task completion. Cursor remains the execution plane; Jarvis remains the authority plane."
+    }
+  ],
+  "intentionally_not_installed": [
+    {
+      "item": "Cursor Agent CLI binary (`agent`)",
+      "reason": "CLI binary optional/not required — SDK remains primary. Official install is an unpinned curl|bash installer, which this repository forbids. @cursor/sdk 1.0.27 is already the locked programmatic integration via CursorProvider."
+    },
+    {
+      "item": "Marketplace plugin install under ~/.cursor/plugins",
+      "reason": "User-local plugin state does not survive fresh Cloud Agent VMs. Repo-native .cursor/skills, .cursor/agents, and .cursor/rules are the durable delivery mechanism."
+    }
+  ]
+}
