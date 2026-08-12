@@ -1,8 +1,10 @@
 # 06 — SYSTEM CONTRACTS
 
-**THIS FILE IS THE SINGLE CANONICAL CONTRACT/SCHEMA AUTHORITY.**
+**THIS FILE IS THE SINGLE CANONICAL AGENCYOS BUSINESS-RUNTIME CONTRACT/SCHEMA AUTHORITY.**
 
-All code, migrations, tests and other SOT files reference the versioned contracts defined here.
+All AgencyOS business-runtime code, migrations, tests and other SOT files reference the versioned contracts defined here.
+
+Builder Core Stage-1 internal contracts are already frozen in implemented Builder code/evidence and are intentionally not duplicated here; only the trust-domain boundary is shared.
 
 ## Contract versioning
 
@@ -185,15 +187,21 @@ typed_properties: object
 dedupe_key: string
 evidence_ref: string|null
 schema_version: integer
+origin_class: EXTERNAL|TRUSTED_INTERNAL
 authenticity_status: VERIFIED|NOT_APPLICABLE|FAILED|UNKNOWN
 authenticity_method: string|null
 content_trust: TRUSTED_STRUCTURED|UNTRUSTED_PAYLOAD
 verification_evidence_ref: string|null
+internal_provenance_ref: string|null
 ```
 
-Rule:
-- `FAILED`/`UNKNOWN` authenticity on an event type requiring provider authentication cannot materialize canonical business state.
-- It may create a security/source-health event.
+Rules:
+- `EXTERNAL` events require `authenticity_status=VERIFIED` from the trusted connector/verifier boundary before canonical materialization.
+- If origin is unknown, unclassified, ambiguous, or not positively proven internal, treat it as external and fail closed until verified.
+- `NOT_APPLICABLE` is valid only when `origin_class=TRUSTED_INTERNAL` and `internal_provenance_ref` points to provenance produced/enforced by trusted infrastructure.
+- Caller-supplied connector identity, event type, authenticity status, `trusted/internal` flag, or equivalent payload metadata cannot establish `origin_class=TRUSTED_INTERNAL` or authenticity.
+- `FAILED`/`UNKNOWN` authenticity cannot mutate canonical business state. It may create a security/source-health event.
+- Authenticated origin does not make payload text semantically trusted.
 
 ## CurrentStateRecord
 

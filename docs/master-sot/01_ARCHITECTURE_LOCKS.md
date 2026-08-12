@@ -1,8 +1,16 @@
 # 01 — ARCHITECTURE LOCKS
 
-## Jarvis
+## Jarvis / trust-domain boundary
 
 Jarvis is the owner-facing Chief of Staff and mediation layer.
+
+The owner experiences one Jarvis, but authority is separated underneath it:
+
+- **Jarvis Interface / Mediator** — intent, briefing, approval UX, routing.
+- **Builder Core** — software-work task/run/candidate/verification authority.
+- **AgencyOS Business Core** — tenant business state, grants/policy, workflows, executor and receipts.
+
+Builder Core Stage 1 is proven and frozen. AgencyOS Business Core is the current implementation phase.
 
 Jarvis:
 - understands owner intent;
@@ -136,7 +144,9 @@ Conversation history, summaries and vector similarity are evidence/context — n
 → materiality
 → `SILENCE | BATCH | NOTIFY | WAKE`.
 
-Unauthenticated or failed-auth inbound events cannot materialize canonical state.
+External or unclassified inbound events cannot materialize canonical state unless authenticity is positively verified by trusted infrastructure.
+
+`NOT_APPLICABLE` is permitted only for a positively established trusted-internal event path whose provenance is created/enforced by trusted infrastructure. Caller-supplied event fields, connector names, verification flags, or `trusted/internal` claims have zero authority.
 
 ## Non-silenceable classes
 
@@ -196,7 +206,9 @@ No verified receipt = no claim that a material action succeeded.
 
 ## V1 durability
 
-DBOS + Postgres.
+**Postgres is mandatory for AgencyOS business state.**
+
+DBOS is the approved V1 durable-workflow option when a workflow actually needs long waits, durable retries, queues, signals, or human approval waits. It is not a prerequisite for simple read-only flows, ordinary request/response code, or Builder Core.
 
 Internal workflow durability does not create exactly-once external side effects.
 
@@ -209,6 +221,8 @@ If authority/kill-state cannot be freshly verified, material writes are denied.
 Control-plane degradation never causes fail-open execution.
 
 ## Coding factory
+
+Builder Stage 1 is proven.
 
 Use Cursor as primary builder and Codex as independent reviewer/fallback.
 
