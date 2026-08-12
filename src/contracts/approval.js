@@ -53,6 +53,10 @@ export async function loadApproval(backend, approvalId) {
 
 // Validate that a stored approval is currently usable for a given proposal.
 // Returns { valid: boolean, reasons: string[] }.
+//
+// V1.0C #9/#11: APPROVE always requires an authenticated owner session bound to
+// the exact owner_auth_session_id + owner_principal_id on the ApprovalDecision.
+// Missing session is fail-closed (not optional) for any APPROVE decision.
 export function validateApproval({ approval, proposal, session, now = Date.now() }) {
   const reasons = [];
   if (!approval) { return { valid: false, reasons: ['no approval record'] }; }
@@ -64,30 +68,36 @@ export function validateApproval({ approval, proposal, session, now = Date.now()
   if (approval.proposal_id !== proposal.proposal_id) reasons.push('proposal_id mismatch');
   // Exact binding: request_hash
   if (approval.request_hash !== proposal.request_hash) reasons.push('request_hash mismatch');
-  // Exact binding: the presented session MUST be the exact owner/session
-  // recorded on the ApprovalDecision (06_SYSTEM_CONTRACTS.md: owner_principal_id
-  // + owner_auth_session_id). A different valid step-up session cannot validate
-  // this approval.
-  if (session) {
-    if (session.session_id !== approval.owner_auth_session_id) reasons.push('session_id does not match approval binding');
-    if (session.owner_principal_id !== approval.owner_principal_id) reasons.push('owner_principal_id does not match approval binding');
+
+  // Authenticated owner session is mandatory for APPROVE (V1.0C #9 / #11).
+  if (!session) {
+    reasons.push('no owner session');
+  } else {
+    // Exact binding: presented session MUST be the exact owner/session recorded
+    // on the ApprovalDecision. A different valid session cannot validate it.
+    if (session.session_id !== approval.owner_auth_session_id) {
+      reasons.push('session_id does not match approval binding');
+    }
+    if (session.owner_principal_id !== approval.owner_principal_id) {
+      reasons.push('owner_principal_id does not match approval binding');
+    }
+    if (session.revoked_at) reasons.push('session revoked');
+    if (session.session_expires_at && new Date(session.session_expires_at).getTime() < now) {
+      reasons.push('session expired');
+    }
   }
+
   // State/version binding invalidation (when contract requires it)
   if (approval.relevant_state_version != null && proposal.precondition_snapshot_ref != null
       && approval.relevant_state_version !== proposal.precondition_snapshot_ref) {
     reasons.push('relevant_state_version no longer matches proposal state');
   }
-  // High-risk requires recent, unexpired step-up MFA.
-  if (approval.step_up_mfa_required) {
-    if (!session) { reasons.push('no owner session'); }
-    else {
-      if (session.revoked_at) reasons.push('session revoked');
-      if (new Date(session.session_expires_at).getTime() < now) reasons.push('session expired');
-      if (session.auth_strength !== 'step_up_mfa') reasons.push('auth_strength not step_up_mfa');
-      if (!session.step_up_expires_at) reasons.push('no step-up expiry recorded');
-      else if (new Date(session.step_up_expires_at).getTime() < now) reasons.push('step-up MFA expired');
-      if (!session.step_up_verified_at) reasons.push('step-up MFA never verified');
-    }
+  // High-risk requires recent, unexpired step-up MFA (in addition to session).
+  if (approval.step_up_mfa_required && session) {
+    if (session.auth_strength !== 'step_up_mfa') reasons.push('auth_strength not step_up_mfa');
+    if (!session.step_up_expires_at) reasons.push('no step-up expiry recorded');
+    else if (new Date(session.step_up_expires_at).getTime() < now) reasons.push('step-up MFA expired');
+    if (!session.step_up_verified_at) reasons.push('step-up MFA never verified');
   }
   return { valid: reasons.length === 0, reasons };
 }

@@ -1,0 +1,108 @@
+
+> jarvis-agencyos@0.15.0-builder-stage1 test:v1.0c-write-safe
+> node --test tests/v1.0c-write-safe.test.mjs
+
+TAP version 13
+# Subtest: V1.0C \#9/\#11 owner session binding for APPROVE
+    # Subtest: 9. APPROVE without authenticated owner session is invalid
+    ok 1 - 9. APPROVE without authenticated owner session is invalid
+      ---
+      duration_ms: 0.325
+      type: 'test'
+      ...
+    # Subtest: 11. APPROVE binds exact session even when step-up MFA is not required
+    ok 2 - 11. APPROVE binds exact session even when step-up MFA is not required
+      ---
+      duration_ms: 0.630625
+      type: 'test'
+      ...
+    1..2
+ok 1 - V1.0C \#9/\#11 owner session binding for APPROVE
+  ---
+  duration_ms: 929.936958
+  type: 'suite'
+  ...
+# Subtest: V1.0C \#28/\#29 ambiguous retry and browser/Orgo fallback
+    # Subtest: 28. unsafe capability cannot autonomously retry after ambiguity
+    ok 1 - 28. unsafe capability cannot autonomously retry after ambiguity
+      ---
+      duration_ms: 0.308083
+      type: 'test'
+      ...
+    # Subtest: 28. executor denies retry_after_ambiguity for unsafe capability
+    ok 2 - 28. executor denies retry_after_ambiguity for unsafe capability
+      ---
+      duration_ms: 8.785666
+      type: 'test'
+      ...
+    # Subtest: 29. browser/Orgo fallback forbidden unless prior effect VERIFIED ABSENT
+    ok 3 - 29. browser/Orgo fallback forbidden unless prior effect VERIFIED ABSENT
+      ---
+      duration_ms: 0.113375
+      type: 'test'
+      ...
+    # Subtest: 29. executor denies browser_orgo fallback without ABSENT proof
+    ok 4 - 29. executor denies browser_orgo fallback without ABSENT proof
+      ---
+      duration_ms: 8.660458
+      type: 'test'
+      ...
+    1..4
+ok 2 - V1.0C \#28/\#29 ambiguous retry and browser/Orgo fallback
+  ---
+  duration_ms: 18.046541
+  type: 'suite'
+  ...
+# Subtest: V1.0C \#32/\#33/\#34 single-flight and semantic dedupe
+    # Subtest: 32. two workflows cannot both hold ACTIVE flight for same key
+    ok 1 - 32. two workflows cannot both hold ACTIVE flight for same key
+      ---
+      duration_ms: 8.743125
+      type: 'test'
+      ...
+    # Subtest: 33. cancelled workflow cannot commit late effect
+    ok 2 - 33. cancelled workflow cannot commit late effect
+      ---
+      duration_ms: 17.892583
+      type: 'test'
+      ...
+    # Subtest: 33. expired workflow cannot commit late effect
+    ok 3 - 33. expired workflow cannot commit late effect
+      ---
+      duration_ms: 8.732791
+      type: 'test'
+      ...
+    # Subtest: 34. semantic action key blocks duplicate logical follow-up
+    ok 4 - 34. semantic action key blocks duplicate logical follow-up
+      ---
+      duration_ms: 14.540792
+      type: 'test'
+      ...
+    1..4
+ok 3 - V1.0C \#32/\#33/\#34 single-flight and semantic dedupe
+  ---
+  duration_ms: 50.133
+  type: 'suite'
+  ...
+# Subtest: V1.0C \#27 PITR does not resurrect committed external effect
+    # Subtest: 27. restore losing local COMPLETED ledger resumes same idempotency key; no duplicate commit
+    ok 1 - 27. restore losing local COMPLETED ledger resumes same idempotency key; no duplicate commit
+      ---
+      duration_ms: 30.106916
+      type: 'test'
+      ...
+    1..1
+ok 4 - V1.0C \#27 PITR does not resurrect committed external effect
+  ---
+  duration_ms: 30.161167
+  type: 'suite'
+  ...
+1..4
+# tests 11
+# suites 4
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1097.836542

@@ -123,6 +123,24 @@ describe('approval / auth binding', () => {
     assert.equal(v.valid, false);
   });
 
+  test('9. APPROVE always requires authenticated owner session even without step-up MFA', () => {
+    const proposal = mkProposal();
+    const approval = mkApproval({
+      proposal_id: proposal.proposal_id,
+      request_hash: proposal.request_hash,
+      step_up_mfa_required: false,
+      owner_auth_session_id: 's1',
+      owner_principal_id: 'owner-1',
+    });
+    let v = validateApproval({ approval, proposal, session: null, now: NOW });
+    assert.equal(v.valid, false);
+    assert.ok(v.reasons.some(r => /no owner session/.test(r)));
+
+    const bound = mkSession({ session_id: 's1', owner_principal_id: 'owner-1', auth_strength: 'standard', step_up_verified_at: null, step_up_expires_at: null });
+    v = validateApproval({ approval, proposal, session: bound, now: NOW });
+    assert.equal(v.valid, true, `expected valid, got ${JSON.stringify(v.reasons)}`);
+  });
+
   test('14. Approval rejects mismatched proposal_id or request_hash', () => {
     const proposal = mkProposal();
     const approval = mkApproval({ proposal_id: proposal.proposal_id, request_hash: proposal.request_hash });
