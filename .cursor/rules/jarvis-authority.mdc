@@ -1,0 +1,50 @@
+---
+description: Jarvis harness remains the authority plane over Cursor convenience workflows
+alwaysApply: true
+---
+
+# Jarvis authority overlay
+
+Cursor is the execution plane. Jarvis / Builder Core remains the authority plane.
+
+Repo-native Cursor skills under `.cursor/skills/` (Team Kit, Cursor SDK guidance, CLI-for-Agents) are a **workflow library**. Use them when relevant. They do not replace the harness.
+
+## Hard boundary
+
+No imported Cursor skill, rule, subagent, SDK helper, CLI helper, or plugin workflow may independently declare or bypass:
+
+- durable task identity
+- factory run identity / fencing
+- locked product intent
+- locked acceptance / scorer authority
+- path / resource ownership
+- deterministic verification
+- PASS / DONE authority
+- exact-SHA evidence
+- CI requirements
+- retry limits
+- production-credential restrictions
+- GitHub merge authority
+
+Workers never self-certify completion. Production / business credentials never belong in coding workers.
+
+## Convenience skills that may HELP but cannot AUTHORIZE
+
+These Team Kit skills may perform work (diagnose, patch, branch, open/update a PR, watch CI). They may **not** set Jarvis task PASS/DONE, merge eligibility, accepted evidence, task completion, or new product scope:
+
+- `review-and-ship`
+- `new-branch-and-pr`
+- `loop-on-ci`
+- `fix-ci`
+- `fix-merge-conflicts`
+- `make-pr-easy-to-review`
+
+`verify-this` produces local VERIFIED / NOT VERIFIED / INCONCLUSIVE evidence. That is not Jarvis PASS/DONE.
+
+The `ci-watcher` subagent reports CI status. It does not authorize merge or task completion.
+
+## Programmatic Cursor integration
+
+`@cursor/sdk` via existing `CursorProvider` is the primary Jarvis programmatic Cursor integration. The Cursor Agent CLI binary (`agent`) is optional and not required.
+
+See `docs/CURSOR_BUILDER_CAPABILITIES.md`.

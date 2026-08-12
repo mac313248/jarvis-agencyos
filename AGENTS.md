@@ -33,3 +33,15 @@ No business-write autonomy until applicable write-path gates pass.
 - **No external DATABASE_URL required** — tests spin up disposable PGlite or embedded-postgres clusters.
 - **GitHub live smoke test** (`builder-stage1-ci-wait`) requires GitHub credentials and may fail without them; other tests do not depend on it.
 - **Secrets**: add production/staging credentials via the Cursor Cloud dashboard, not in source.
+
+## Cursor builder capabilities
+
+Repo-native skills live in `.cursor/skills/` (Team Kit, Cursor SDK guidance, CLI-for-Agents). Use them when relevant.
+
+- Team Kit is a **workflow library**, not authority.
+- `@cursor/sdk` (existing `CursorProvider`) is the primary programmatic Cursor integration.
+- `cli-for-agents` is CLI-design guidance. The `agent` binary is optional/not required.
+- Jarvis harness rules override convenience workflows. Workers never self-certify PASS/DONE.
+- Production credentials never belong in coding workers.
+
+Details: `docs/CURSOR_BUILDER_CAPABILITIES.md`.
