@@ -36,7 +36,7 @@ export const RELEASE_GATES = Object.freeze([
     ],
     requires: [],
     verify_commands: [
-      { name: 'test:builder-stage1', argv: ['npm', 'run', 'test:builder-stage1'] },
+      { name: 'test:builder-stage1-deterministic', argv: ['npm', 'run', 'test:builder-stage1-deterministic'] },
     ],
     acceptance_tests: [
       '#48 Cursor builder cannot merge failed CI',
@@ -70,7 +70,7 @@ export const RELEASE_GATES = Object.freeze([
       { name: 'privacy', argv: ['npm', 'run', 'test:f14'] },
       { name: 'capability-registry', argv: ['npm', 'run', 'test:phase2'] },
       { name: 'connector-registry', argv: ['npm', 'run', 'test:f11'] },
-      { name: 'test:builder-stage1', argv: ['npm', 'run', 'test:builder-stage1'] },
+      { name: 'test:builder-stage1-deterministic', argv: ['npm', 'run', 'test:builder-stage1-deterministic'] },
     ],
     acceptance_tests: [
       '#1-#8 tenant isolation',
@@ -212,6 +212,15 @@ export const LIVE_VERIFICATION_ITEMS = Object.freeze([
     ready_after: ['V1.0C'],
     owner_gate: false,
     claim_via: 'run-next-phase',
+  },
+  {
+    id: 'github-live-candidate-smoke',
+    title: 'Live GitHub candidate/PR/CI smoke (write access required)',
+    live_status: 'OPEN',
+    sot_ref: '04_LIVE_VERIFICATION_BACKLOG.md#Read-only-connectors',
+    ready_after: ['BUILDER_STAGE_1'],
+    owner_gate: true,
+    claim_via: 'WAITING_ON_OWNER',
   },
   {
     id: 'read-only-connectors',
@@ -469,7 +478,7 @@ function buildReadyWork(gates, nextSlice) {
   return ready;
 }
 
-function buildClaimTask(root, headSha, nextSlice, current) {
+function buildClaimTask(root, headSha, nextSlice, current, gates) {
   if (nextSlice) {
     return {
       via: 'run-next-phase',
@@ -479,17 +488,11 @@ function buildClaimTask(root, headSha, nextSlice, current) {
       contract: buildPhaseContract(root, nextSlice, headSha),
     };
   }
-  if (current?.test_result === 'WAITING_ON_OWNER') {
-    return {
-      via: 'WAITING_ON_OWNER',
-      command: null,
-      dispatch: false,
-      reason: current.blockers[0] || (current.gate_id + ' requires owner'),
-      contract: null,
-    };
-  }
   const live = LIVE_VERIFICATION_ITEMS.find((item) =>
-    item.live_status === 'OPEN' && item.claim_via === 'EXECUTE_SOFTWARE_TASK' && !item.owner_gate
+    item.live_status === 'OPEN' &&
+    item.claim_via === 'EXECUTE_SOFTWARE_TASK' &&
+    !item.owner_gate &&
+    itemReady(item, gates)
   );
   if (live) {
     return {
@@ -501,6 +504,15 @@ function buildClaimTask(root, headSha, nextSlice, current) {
         intent: live.title,
         acceptance_ref: live.sot_ref,
       },
+    };
+  }
+  if (current?.test_result === 'WAITING_ON_OWNER') {
+    return {
+      via: 'WAITING_ON_OWNER',
+      command: null,
+      dispatch: false,
+      reason: current.blockers[0] || (current.gate_id + ' requires owner'),
+      contract: null,
     };
   }
   return {
@@ -567,7 +579,7 @@ export async function buildOrientationBrief(root, opts = {}) {
   const current = currentReleasePhase(gates);
   const currentPhase = current?.gate_id || 'COMPLETE';
   const readyWork = buildReadyWork(gates, nextSlice);
-  const claimTask = buildClaimTask(root, headSha, nextSlice, current);
+  const claimTask = buildClaimTask(root, headSha, nextSlice, current, gates);
   const { advance_allowed, advance_blockers } = buildAdvance(gates, current);
   const evidencePath = GATE_EVIDENCE_FILE;
   const brief = {

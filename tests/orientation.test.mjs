@@ -150,7 +150,9 @@ test('orientation brief answers the six automation questions and never dispatche
     assert.equal(brief.current_phase, 'V1.1');
     assert.ok(Array.isArray(brief.ready_work) && brief.ready_work.length > 0);
     assert.equal(brief.claim_task.dispatch, false);
-    assert.ok(brief.claim_task.via === 'WAITING_ON_OWNER' || brief.claim_task.via === 'EXECUTE_SOFTWARE_TASK' || brief.claim_task.via === 'run-next-phase');
+    assert.equal(brief.claim_task.via, 'EXECUTE_SOFTWARE_TASK');
+    assert.equal(brief.claim_task.command, 'node scripts/jarvis-task.mjs');
+    assert.match(brief.claim_task.reason, /Postgres \/ tenant boundary/);
     assert.ok(brief.completion_proof);
     assert.ok(Array.isArray(brief.unblocks_after));
     assert.equal(brief.advance_allowed, false);
