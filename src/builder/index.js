@@ -30,7 +30,15 @@ export {
   assertCommitSha,
 } from './contracts.js';
 
-export { BuilderStore, openBuilderStore } from './store.js';
+export { BuilderStore, openBuilderStore, openAuthoritativeBuilderStore } from './store.js';
+export { BuilderStoreError, isUniqueViolation } from './store-errors.js';
+export {
+  STORE_KIND,
+  resolveBuilderStoreTarget,
+  redactConnectionString,
+} from './store-target.js';
+export { BUILDER_SCHEMA_VERSION, BUILDER_DATABASE_URL_ENV, BUILDER_STORE_KIND_ENV, BUILDER_SQLITE_PATH_ENV, BUILDER_ALLOW_SQLITE_ENV } from './store-schema.js';
+export { PostgresBuilderStoreAsync } from './store-pg-async.js';
 export {
   TaskLockError,
   normalizeOwnerIntent,
@@ -40,7 +48,7 @@ export {
   assertTaskMutable,
   verifyTaskHash,
 } from './task-lock.js';
-export { BuilderCore, BuilderCoreError, createBuilderCore } from './core.js';
+export { BuilderCore, BuilderCoreError, createBuilderCore, createBuilderCoreAsync } from './core.js';
 export {
   WorkerProvider,
   WorkerProviderError,

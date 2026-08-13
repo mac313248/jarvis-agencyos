@@ -14,7 +14,7 @@ import {
   newApprovalId,
   newFactoryRunId,
 } from './contracts.js';
-import { openBuilderStore } from './store.js';
+import { openAuthoritativeBuilderStore, openBuilderStore } from './store.js';
 import {
   TaskLockError,
   assertTaskMutable,
@@ -763,4 +763,9 @@ export class BuilderCore {
 
 export function createBuilderCore(options) {
   return new BuilderCore(options);
+}
+
+export async function createBuilderCoreAsync(options = {}) {
+  const store = options.store || await openAuthoritativeBuilderStore(options);
+  return new BuilderCore({ ...options, store });
 }
