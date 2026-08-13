@@ -6,7 +6,8 @@
 #   cd /Users/sashairis/Projects/jarvis-agencyos
 #   ./scripts/run-next-phase            # real run (Cursor writer + Codex reviewer)
 #   ./scripts/run-next-phase --dry-run  # contract next slice only, no app changes
-#   ./scripts/run-next-phase --orientation --json  # read-only gate briefing; no dispatch
+#   ./scripts/run-next-phase --orientation --json  # read-only gate briefing; no writes, no dispatch
+#   npm run orientation:evidence                   # persist SHA/evaluation-scoped evidence only
 #
 # The runner verifies repo root + SOT + safe Git state, contracts the next
 # smallest V1.0 Foundation slice from SOT, then drives Cursor (sole writer)

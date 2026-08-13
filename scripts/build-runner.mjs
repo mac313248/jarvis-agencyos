@@ -20,9 +20,10 @@
 //   - is resumable via artifacts/build-runner/state.json;
 //   - stops only at WAITING_ON_OWNER | WAITING_ON_ARCHITECTURE |
 //     FAILED_ACCEPTANCE_GATE | READY_FOR_NEXT_V1_0_SLICE | V1_0_COMPLETE.
-//   - --orientation --json is a read-only Release Gate briefing (no dispatch,
-//     no Cursor/Codex, allowed on main). Implementation-slice completion stays
-//     separate from release-gate completion.
+//   - --orientation [--json] is a read-only Release Gate briefing (no writes,
+//     no dispatch, no Cursor/Codex, allowed on main). Persist only with
+//     --persist-evidence. Implementation-slice markers stay separate from
+//     release-gate completion.
 //
 // Cursor is the ONLY writer. Codex is REVIEW-ONLY. The runner never auto-merges
 // and never modifies docs/master-sot. Business-write autonomy stays DISABLED
@@ -337,8 +338,14 @@ export function currentHead(root) {
 // Next-slice determination (from SOT + evidence markers, not phase count)
 // ---------------------------------------------------------------------------
 
-export function sliceIsComplete(root, slice) {
+/** File-marker presence only. Not a release-gate PASS. */
+export function sliceHasEvidenceMarker(root, slice) {
   return existsSync(join(root, slice.evidence_marker));
+}
+
+/** @deprecated Use sliceHasEvidenceMarker — this is not release-gate completion. */
+export function sliceIsComplete(root, slice) {
+  return sliceHasEvidenceMarker(root, slice);
 }
 
 export function acceptedPhaseIdsFromState(state) {
@@ -379,7 +386,7 @@ function appendAcceptedPhaseHistory(state, phaseId, acceptedSha) {
 export function determineNextSlice(root, acceptedPhaseIds = []) {
   const accepted = new Set(acceptedPhaseIds);
   for (const slice of FOUNDATION_SLICES) {
-    if (!accepted.has(slice.phase_id) && !sliceIsComplete(root, slice)) return slice;
+    if (!accepted.has(slice.phase_id) && !sliceHasEvidenceMarker(root, slice)) return slice;
   }
   return null; // V1_0_COMPLETE
 }
@@ -1075,9 +1082,15 @@ export async function main(argv) {
       // build-runner slice/SOT helpers, and this CLI entrypoint is the only
       // build-runner caller of orientation.
       const { runOrientation, formatOrientationBrief } = await import('./orientation.mjs');
-      const brief = await runOrientation(root, { json: args.includes('--json') });
-      if (args.includes('--json')) console.log(JSON.stringify(brief, null, 2));
-      else console.log(formatOrientationBrief(brief));
+      const persistEvidence =
+        args.includes('--persist-evidence') || args.includes('--write-evidence');
+      const brief = await runOrientation(root, { persistEvidence });
+      // Default orientation is machine-readable JSON. --human is the exception.
+      if (args.includes('--human') && !args.includes('--json')) {
+        console.log(formatOrientationBrief(brief));
+      } else {
+        console.log(JSON.stringify(brief, null, 2));
+      }
       process.exitCode = 0;
     } catch (e) {
       if (e instanceof BuildRunnerError) {
