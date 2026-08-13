@@ -17,7 +17,7 @@
     "test:f13": "node --test tests/backup-restore.test.mjs",
     "test:f14": "node --test tests/security-privacy-acceptance.test.mjs",
     "test:builder-stage1": "node --test tests/builder-stage1-*.test.mjs",
-    "test:builder-stage1-deterministic": "node --test --test-skip-pattern=\"live GitHub\" tests/builder-stage1-*.test.mjs",
+    "test:builder-store": "node --test tests/builder-store-shared.test.mjs",
     "test:builder-stage1-provider": "node --test tests/builder-stage1-provider.test.mjs",
     "test:builder-stage1-candidate": "node --test tests/builder-stage1-candidate-verifier.test.mjs",
     "test:builder-stage1-review": "node --test tests/builder-stage1-review-retry.test.mjs",

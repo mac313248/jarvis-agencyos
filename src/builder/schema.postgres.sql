@@ -1,15 +1,16 @@
--- Builder Core Stage-1 durable schema (SQLite).
--- Separate trust domain from AgencyOS Business Core (Postgres/RLS).
+-- Builder Core durable schema (PostgreSQL).
+-- Dedicated logical namespace, separate from AgencyOS business data.
 -- No tenant/customer/business-write authority lives here.
+-- No credentials belong in these tables.
 
-PRAGMA foreign_keys = ON;
+CREATE SCHEMA IF NOT EXISTS jarvis_builder;
 
-CREATE TABLE IF NOT EXISTS builder_meta (
+CREATE TABLE IF NOT EXISTS jarvis_builder.builder_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS tasks (
+CREATE TABLE IF NOT EXISTS jarvis_builder.tasks (
   task_id TEXT PRIMARY KEY,
   logical_work_id TEXT,
   intent TEXT NOT NULL,
@@ -34,12 +35,12 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_logical_work_id_uq
-  ON tasks(logical_work_id)
+  ON jarvis_builder.tasks(logical_work_id)
   WHERE logical_work_id IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS runs (
+CREATE TABLE IF NOT EXISTS jarvis_builder.runs (
   factory_run_id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  task_id TEXT NOT NULL REFERENCES jarvis_builder.tasks(task_id),
   provider TEXT NOT NULL,
   provider_run_id TEXT,
   provider_agent_id TEXT,
@@ -54,12 +55,16 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS runs_task_attempt_uq
-  ON runs(task_id, attempt);
+  ON jarvis_builder.runs(task_id, attempt);
 
-CREATE TABLE IF NOT EXISTS candidates (
+CREATE UNIQUE INDEX IF NOT EXISTS runs_one_active_per_task_uq
+  ON jarvis_builder.runs(task_id)
+  WHERE status IN ('PENDING', 'LAUNCHED', 'RUNNING');
+
+CREATE TABLE IF NOT EXISTS jarvis_builder.candidates (
   candidate_id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(task_id),
-  factory_run_id TEXT NOT NULL REFERENCES runs(factory_run_id),
+  task_id TEXT NOT NULL REFERENCES jarvis_builder.tasks(task_id),
+  factory_run_id TEXT NOT NULL REFERENCES jarvis_builder.runs(factory_run_id),
   provider_run_id TEXT,
   branch TEXT,
   commit_sha TEXT,
@@ -76,9 +81,9 @@ CREATE TABLE IF NOT EXISTS candidates (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS verifications (
+CREATE TABLE IF NOT EXISTS jarvis_builder.verifications (
   verification_id TEXT PRIMARY KEY,
-  candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+  candidate_id TEXT NOT NULL REFERENCES jarvis_builder.candidates(candidate_id),
   commit_sha TEXT NOT NULL,
   result TEXT NOT NULL,
   checks_json TEXT NOT NULL,
@@ -89,9 +94,9 @@ CREATE TABLE IF NOT EXISTS verifications (
   invalidation_reason TEXT
 );
 
-CREATE TABLE IF NOT EXISTS reviews (
+CREATE TABLE IF NOT EXISTS jarvis_builder.reviews (
   review_id TEXT PRIMARY KEY,
-  candidate_id TEXT NOT NULL REFERENCES candidates(candidate_id),
+  candidate_id TEXT NOT NULL REFERENCES jarvis_builder.candidates(candidate_id),
   commit_sha TEXT NOT NULL,
   review_status TEXT NOT NULL,
   findings_json TEXT NOT NULL,
@@ -101,9 +106,9 @@ CREATE TABLE IF NOT EXISTS reviews (
   invalidation_reason TEXT
 );
 
-CREATE TABLE IF NOT EXISTS approvals (
+CREATE TABLE IF NOT EXISTS jarvis_builder.approvals (
   approval_id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  task_id TEXT NOT NULL REFERENCES jarvis_builder.tasks(task_id),
   proposal_id TEXT NOT NULL,
   content_hash TEXT NOT NULL,
   candidate_id TEXT,
@@ -113,7 +118,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   status TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS events (
+CREATE TABLE IF NOT EXISTS jarvis_builder.events (
   event_id TEXT PRIMARY KEY,
   task_id TEXT,
   factory_run_id TEXT,
@@ -124,9 +129,9 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_task_ts_idx
-  ON events(task_id, timestamp);
+  ON jarvis_builder.events(task_id, timestamp);
 
-CREATE TABLE IF NOT EXISTS builder_leases (
+CREATE TABLE IF NOT EXISTS jarvis_builder.builder_leases (
   lease_key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
   task_id TEXT,

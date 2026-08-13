@@ -15,6 +15,7 @@ import {
 } from './contracts.js';
 import { BuilderCoreError } from './errors.js';
 import { VerifierError, isVerificationAuthoritative } from './verifier.js';
+import { co } from './thenable.js';
 
 const DEFAULT_SCHEMA = 'scripts/builder-codex-review.schema.json';
 const DEFAULT_CODEX_BIN = 'codex';
@@ -538,26 +539,28 @@ export function evaluateReviewGate({ task, verification, review }) {
 }
 
 export function invalidateReview(core, reviewId, reason) {
-  const review = core.store.getReview(reviewId);
-  if (!review) {
-    throw new CodexReviewError(`unknown review_id: ${reviewId}`, 'UNKNOWN_REVIEW');
-  }
-  const updated = core.store.updateReview(reviewId, {
-    invalidated_at: nowIso(),
-    invalidation_reason: reason || 'invalidated',
+  return co(function* () {
+    const review = yield core.store.getReview(reviewId);
+    if (!review) {
+      throw new CodexReviewError(`unknown review_id: ${reviewId}`, 'UNKNOWN_REVIEW');
+    }
+    const updated = yield core.store.updateReview(reviewId, {
+      invalidated_at: nowIso(),
+      invalidation_reason: reason || 'invalidated',
+    });
+    const candidate = yield core.store.getCandidate(review.candidate_id);
+    yield core.store.appendEvent({
+      task_id: candidate?.task_id,
+      factory_run_id: candidate?.factory_run_id,
+      event_type: EVENT_TYPE.REVIEW_INVALIDATED,
+      payload: {
+        review_id: reviewId,
+        commit_sha: review.commit_sha,
+        reason,
+      },
+    });
+    return updated;
   });
-  const candidate = core.store.getCandidate(review.candidate_id);
-  core.store.appendEvent({
-    task_id: candidate?.task_id,
-    factory_run_id: candidate?.factory_run_id,
-    event_type: EVENT_TYPE.REVIEW_INVALIDATED,
-    payload: {
-      review_id: reviewId,
-      commit_sha: review.commit_sha,
-      reason,
-    },
-  });
-  return updated;
 }
 
 export function isReviewAuthoritative(core, reviewId) {

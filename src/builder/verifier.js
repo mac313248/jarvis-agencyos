@@ -11,6 +11,7 @@ import {
   assertCommitSha,
   newId,
 } from './contracts.js';
+import { co } from './thenable.js';
 
 export { VERIFICATION_RESULT };
 
@@ -396,23 +397,26 @@ export async function verifyExactCandidate({
 }
 
 export function invalidateVerification(core, verificationId, reason) {
-  const v = core.store.getVerification(verificationId);
-  if (!v) throw new VerifierError(`unknown verification_id: ${verificationId}`);
-  if (v.invalidated_at) return v;
-  const updated = core.store.updateVerification(verificationId, {
-    invalidated_at: nowIso(),
-    invalidation_reason: reason || 'invalidated',
+  return co(function* () {
+    const v = yield core.store.getVerification(verificationId);
+    if (!v) throw new VerifierError(`unknown verification_id: ${verificationId}`);
+    if (v.invalidated_at) return v;
+    const updated = yield core.store.updateVerification(verificationId, {
+      invalidated_at: nowIso(),
+      invalidation_reason: reason || 'invalidated',
+    });
+    const candidate = yield core.store.getCandidate(v.candidate_id);
+    yield core.store.appendEvent({
+      task_id: candidate?.task_id,
+      event_type: EVENT_TYPE.VERIFICATION_INVALIDATED,
+      payload: {
+        verification_id: verificationId,
+        commit_sha: v.commit_sha,
+        reason,
+      },
+    });
+    return updated;
   });
-  core.store.appendEvent({
-    task_id: core.store.getCandidate(v.candidate_id)?.task_id,
-    event_type: EVENT_TYPE.VERIFICATION_INVALIDATED,
-    payload: {
-      verification_id: verificationId,
-      commit_sha: v.commit_sha,
-      reason,
-    },
-  });
-  return updated;
 }
 
 function landingSnapshotFromVerification(verification) {

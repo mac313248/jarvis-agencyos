@@ -398,7 +398,7 @@ describe('Stage-1 restart / recovery reconciliation (item 16)', () => {
     assert.deepEqual(snap.allowed_tool_manifest.providers, ['cursor', 'github']);
 
     const reconstructed = core2.reconstruct();
-    assert.equal(reconstructed.schema_version, 'builder-stage1-v5');
+    assert.equal(reconstructed.schema_version, 'builder-stage1-v6');
     assert.equal(reconstructed.current_factory_run_id, run.factory_run_id);
     assert.equal(reconstructed.ambiguous_active_runs, false);
     assert.equal(

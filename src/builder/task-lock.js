@@ -15,6 +15,7 @@ import {
   normalizeToolManifest,
   taskContentHash,
 } from './contracts.js';
+import { co } from './thenable.js';
 
 export class TaskLockError extends Error {
   constructor(reason) {
@@ -85,76 +86,82 @@ export function normalizeOwnerIntent(input) {
 
 export function createDraftTask(store, ownerIntent) {
   const normalized = normalizeOwnerIntent(ownerIntent);
-  const task = store.insertTask({
-    task_id: ownerIntent.task_id || newTaskId(),
-    intent: normalized.intent,
-    intent_version: normalized.intent_version,
-    acceptance_ref: normalized.acceptance_ref,
-    allowed_paths: normalized.allowed_paths,
-    tool_manifest: normalized.tool_manifest,
-    review_required: normalized.review_required,
-    priority: normalized.priority,
-    max_attempts: normalized.max_attempts,
-    max_runtime_ms: normalized.max_runtime_ms,
-    cost_budget_status: normalized.cost_budget_status,
-    status: TASK_STATUS.DRAFT,
+  return co(function* () {
+    const task = yield store.insertTask({
+      task_id: ownerIntent.task_id || newTaskId(),
+      logical_work_id: ownerIntent.logical_work_id ?? null,
+      intent: normalized.intent,
+      intent_version: normalized.intent_version,
+      acceptance_ref: normalized.acceptance_ref,
+      allowed_paths: normalized.allowed_paths,
+      tool_manifest: normalized.tool_manifest,
+      review_required: normalized.review_required,
+      priority: normalized.priority,
+      max_attempts: normalized.max_attempts,
+      max_runtime_ms: normalized.max_runtime_ms,
+      cost_budget_status: normalized.cost_budget_status,
+      status: TASK_STATUS.DRAFT,
+    });
+    yield store.appendEvent({
+      task_id: task.task_id,
+      event_type: EVENT_TYPE.TASK_CREATED,
+      payload: {
+        status: task.status,
+        acceptance_ref: task.acceptance_ref,
+        allowed_paths: task.allowed_paths,
+        logical_work_id: task.logical_work_id ?? null,
+      },
+    });
+    return task;
   });
-  store.appendEvent({
-    task_id: task.task_id,
-    event_type: EVENT_TYPE.TASK_CREATED,
-    payload: {
-      status: task.status,
-      acceptance_ref: task.acceptance_ref,
-      allowed_paths: task.allowed_paths,
-    },
-  });
-  return task;
 }
 
 export function lockTask(store, taskId) {
-  const task = store.getTask(taskId);
-  if (!task) throw new TaskLockError(`unknown task_id: ${taskId}`);
-  if (task.status === TASK_STATUS.LOCKED) {
-    return task;
-  }
-  if (task.status !== TASK_STATUS.DRAFT) {
-    throw new TaskLockError(
-      `cannot lock task in status ${task.status}; expected DRAFT`
-    );
-  }
+  return co(function* () {
+    const task = yield store.getTask(taskId);
+    if (!task) throw new TaskLockError(`unknown task_id: ${taskId}`);
+    if (task.status === TASK_STATUS.LOCKED) {
+      return task;
+    }
+    if (task.status !== TASK_STATUS.DRAFT) {
+      throw new TaskLockError(
+        `cannot lock task in status ${task.status}; expected DRAFT`
+      );
+    }
 
-  const proposal_id = newProposalId();
-  const lockPayload = buildTaskLockPayload({
-    task_id: task.task_id,
-    intent: task.intent,
-    intent_version: task.intent_version,
-    acceptance_ref: task.acceptance_ref,
-    allowed_paths: task.allowed_paths,
-    tool_manifest: task.tool_manifest,
-    review_required: task.review_required,
-  });
-  const content_hash = taskContentHash(lockPayload);
-  const locked_at = new Date().toISOString();
+    const proposal_id = newProposalId();
+    const lockPayload = buildTaskLockPayload({
+      task_id: task.task_id,
+      intent: task.intent,
+      intent_version: task.intent_version,
+      acceptance_ref: task.acceptance_ref,
+      allowed_paths: task.allowed_paths,
+      tool_manifest: task.tool_manifest,
+      review_required: task.review_required,
+    });
+    const content_hash = taskContentHash(lockPayload);
+    const locked_at = new Date().toISOString();
 
-  const locked = store.updateTask(taskId, {
-    status: TASK_STATUS.LOCKED,
-    proposal_id,
-    content_hash,
-    locked_at,
-  });
-
-  store.appendEvent({
-    task_id: locked.task_id,
-    event_type: EVENT_TYPE.TASK_LOCKED,
-    payload: {
+    const locked = yield store.updateTask(taskId, {
+      status: TASK_STATUS.LOCKED,
       proposal_id,
       content_hash,
-      acceptance_ref: locked.acceptance_ref,
-      lock_payload: lockPayload,
-    },
-  });
+      locked_at,
+    });
 
-  return locked;
+    yield store.appendEvent({
+      task_id: locked.task_id,
+      event_type: EVENT_TYPE.TASK_LOCKED,
+      payload: {
+        proposal_id,
+        content_hash,
+        acceptance_ref: locked.acceptance_ref,
+        lock_payload: lockPayload,
+      },
+    });
+
+    return locked;
+  });
 }
 
 // Fail closed: locked task fields that define the finish line are immutable.
@@ -234,6 +241,8 @@ export function verifyTaskHash(task) {
 }
 
 export function createAndLockTask(store, ownerIntent) {
-  const draft = createDraftTask(store, ownerIntent);
-  return lockTask(store, draft.task_id);
+  return co(function* () {
+    const draft = yield createDraftTask(store, ownerIntent);
+    return yield lockTask(store, draft.task_id);
+  });
 }
