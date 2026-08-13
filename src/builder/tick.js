@@ -14,6 +14,7 @@ import { beginRepairAttempt } from './retry.js';
 import { invalidateVerification } from './verifier.js';
 import { invalidateReview } from './codex-review.js';
 import { acquireTickLock, TickLockError } from './tick-lock.js';
+import { BuilderStoreError } from './store-errors.js';
 import { writeWorkerContract } from './worker-contract.js';
 import { assertNoBusinessCredentials } from './providers/cursor-provider.js';
 import { redactSecrets } from './secrets-redact.js';
@@ -320,18 +321,26 @@ function claimOrReuse(core, work) {
     }
     return existing;
   }
-  return core.createAndLockTask({
-    task_id: taskId,
-    intent: work.title,
-    acceptance_ref: work.acceptance_ref,
-    allowed_paths: work.allowed_paths,
-    tool_manifest: {
-      providers: ['cursor'],
-      tools: ['coding_worker', 'repo_read'],
-      mode: 'build',
-    },
-    review_required: true,
-  });
+  try {
+    return core.createAndLockTask({
+      task_id: taskId,
+      intent: work.title,
+      acceptance_ref: work.acceptance_ref,
+      allowed_paths: work.allowed_paths,
+      tool_manifest: {
+        providers: ['cursor'],
+        tools: ['coding_worker', 'repo_read'],
+        mode: 'build',
+      },
+      review_required: true,
+    });
+  } catch (err) {
+    if (err instanceof BuilderStoreError && err.code === 'DUPLICATE_CLAIM') {
+      const raced = core.getTask(taskId);
+      if (raced) return raced;
+    }
+    throw err;
+  }
 }
 
 function persistTickDecision(root, decision) {
@@ -493,7 +502,7 @@ export async function runJarvisTick({
 
   let lock;
   try {
-    lock = acquireTickLock(root);
+    lock = acquireTickLock(root, { store: core.store });
   } catch (err) {
     if (err instanceof TickLockError && err.code === 'DUPLICATE_TRIGGER') {
       return decisionFields({

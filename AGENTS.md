@@ -30,7 +30,8 @@ No business-write autonomy until applicable write-path gates pass.
 - **Full test suite**: `npm test` (PGlite-based; ~30s).
 - **PostgreSQL boundary tests**: `npm run test:v1.0a-postgres` (embedded-postgres, multi-process).
 - **Targeted suites**: `npm run test:v1.0b-agent0`, `npm run test:v1.0c-write-safe`, `npm run test:builder-stage1`.
-- **No external DATABASE_URL required** — tests spin up disposable PGlite or embedded-postgres clusters.
+- **No external DATABASE_URL required** — AgencyOS tests spin up disposable PGlite or embedded-postgres clusters.
+- **Builder control-plane store**: production authority is shared PostgreSQL via the Builder control-plane database URL (never reuse AgencyOS `DATABASE_URL`). Tests use disposable embedded-postgres or explicit SQLite. Production ticks fail closed without the Builder URL.
 - **GitHub live smoke test** (`builder-stage1-ci-wait`) requires GitHub credentials and may fail without them; other tests do not depend on it.
 - **Secrets**: add production/staging credentials via the Cursor Cloud dashboard, not in source.
 

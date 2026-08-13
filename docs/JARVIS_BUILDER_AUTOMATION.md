@@ -52,5 +52,5 @@ npm run orientation:evidence
 - Do not enable business-write autonomy.
 - Do not treat orientation slice markers as release-gate PASS.
 - Do not let Automation Memory override Git HEAD, `control/prd.json`, or
-  Builder Core SQLite state.
+  Builder Core authoritative store state.
 - Production credentials never belong in the worker, prompt, or evidence.

@@ -1,6 +1,6 @@
 // src/builder/store.js
-// Durable Builder Core state (SQLite). Restart-safe for task/run/candidate/
-// approval/event records. Not the AgencyOS business store.
+// Durable Builder Core state. SQLite is the local/test fallback.
+// Production authority is shared PostgreSQL behind this same API.
 
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,149 +16,38 @@ import {
   newEventId,
 } from './contracts.js';
 import { safeJsonStringify } from './secrets-redact.js';
+import {
+  nowIso,
+  rowToApproval,
+  rowToCandidate,
+  rowToEvent,
+  rowToLease,
+  rowToReview,
+  rowToRun,
+  rowToTask,
+  rowToVerification,
+} from './store-rows.js';
+import {
+  BuilderStoreError,
+  assertRunCannotRegainAuthority,
+  isUniqueViolation,
+} from './store-errors.js';
+import { STORE_KIND, resolveBuilderStoreTarget } from './store-target.js';
+import { BUILDER_SCHEMA_VERSION } from './store-schema.js';
+import { connectPostgresBuilderStore } from './store-pg.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-const SCHEMA_VERSION = 'builder-stage1-v5';
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function parseJson(text, fallback) {
-  if (text == null || text === '') return fallback;
-  return JSON.parse(text);
-}
+const SCHEMA_VERSION = BUILDER_SCHEMA_VERSION;
 
 function durableJson(value) {
   return value == null ? null : safeJsonStringify(value);
 }
 
-function rowToTask(row) {
-  if (!row) return null;
-  return {
-    task_id: row.task_id,
-    intent: row.intent,
-    intent_version: row.intent_version,
-    acceptance_ref: row.acceptance_ref,
-    allowed_paths: parseJson(row.allowed_paths_json, []),
-    tool_manifest: parseJson(row.tool_manifest_json, {}),
-    review_required: Boolean(row.review_required),
-    status: row.status,
-    priority: row.priority,
-    max_attempts: row.max_attempts == null ? 2 : Number(row.max_attempts),
-    max_runtime_ms:
-      row.max_runtime_ms == null ? 1800000 : Number(row.max_runtime_ms),
-    cost_budget_status: row.cost_budget_status || 'UNKNOWN',
-    proposal_id: row.proposal_id,
-    content_hash: row.content_hash,
-    locked_at: row.locked_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function rowToReview(row) {
-  if (!row) return null;
-  return {
-    review_id: row.review_id,
-    candidate_id: row.candidate_id,
-    commit_sha: row.commit_sha,
-    review_status: row.review_status,
-    findings: parseJson(row.findings_json, []),
-    evidence: parseJson(row.evidence_json, null),
-    reviewed_at: row.reviewed_at,
-    invalidated_at: row.invalidated_at,
-    invalidation_reason: row.invalidation_reason,
-  };
-}
-
-function rowToRun(row) {
-  if (!row) return null;
-  return {
-    factory_run_id: row.factory_run_id,
-    task_id: row.task_id,
-    provider: row.provider,
-    provider_run_id: row.provider_run_id,
-    provider_agent_id: row.provider_agent_id ?? null,
-    attempt: row.attempt,
-    status: row.status,
-    started_at: row.started_at,
-    ended_at: row.ended_at,
-    failure_class: row.failure_class,
-    evidence: parseJson(row.evidence_json, null),
-    created_at: row.created_at,
-  };
-}
-
-function rowToCandidate(row) {
-  if (!row) return null;
-  return {
-    candidate_id: row.candidate_id,
-    task_id: row.task_id,
-    factory_run_id: row.factory_run_id,
-    provider_run_id: row.provider_run_id ?? null,
-    branch: row.branch,
-    commit_sha: row.commit_sha,
-    pr_number: row.pr_number == null ? null : Number(row.pr_number),
-    pr_url: row.pr_url ?? null,
-    pr_ref: row.pr_ref,
-    verification_ref: row.verification_ref,
-    review_ref: row.review_ref,
-    ci_status: row.ci_status ?? null,
-    ci_conclusion: row.ci_conclusion ?? null,
-    ci_ref: row.ci_ref,
-    evidence_at: row.evidence_at ?? null,
-    status: row.status,
-    created_at: row.created_at,
-  };
-}
-
-function rowToVerification(row) {
-  if (!row) return null;
-  return {
-    verification_id: row.verification_id,
-    candidate_id: row.candidate_id,
-    commit_sha: row.commit_sha,
-    result: row.result,
-    checks: parseJson(row.checks_json, []),
-    worker_claim: row.worker_claim,
-    failure_class: row.failure_class,
-    created_at: row.created_at,
-    invalidated_at: row.invalidated_at,
-    invalidation_reason: row.invalidation_reason,
-  };
-}
-
-function rowToApproval(row) {
-  if (!row) return null;
-  return {
-    approval_id: row.approval_id,
-    task_id: row.task_id,
-    proposal_id: row.proposal_id,
-    content_hash: row.content_hash,
-    candidate_id: row.candidate_id,
-    commit_sha: row.commit_sha,
-    approved_by: row.approved_by,
-    approved_at: row.approved_at,
-    status: row.status,
-  };
-}
-
-function rowToEvent(row) {
-  if (!row) return null;
-  return {
-    event_id: row.event_id,
-    task_id: row.task_id,
-    factory_run_id: row.factory_run_id,
-    event_type: row.event_type,
-    evidence_ref: row.evidence_ref,
-    payload: parseJson(row.payload_json, null),
-    timestamp: row.timestamp,
-  };
-}
 
 export class BuilderStore {
   constructor(dbPath = ':memory:') {
+    this.kind = STORE_KIND.SQLITE;
+    this.backend = STORE_KIND.SQLITE;
     this.dbPath = dbPath;
     if (dbPath !== ':memory:') {
       mkdirSync(dirname(dbPath), { recursive: true });
@@ -206,6 +95,15 @@ export class BuilderStore {
         this.db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
       }
     }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS builder_leases (
+        lease_key TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        fencing_token INTEGER NOT NULL,
+        acquired_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )
+    `);
   }
 
   close() {
@@ -222,35 +120,57 @@ export class BuilderStore {
   insertTask(task) {
     assertTaskStatus(task.status);
     const ts = task.created_at || nowIso();
-    this.db
-      .prepare(
-        `INSERT INTO tasks(
-           task_id, intent, intent_version, acceptance_ref, allowed_paths_json,
-           tool_manifest_json, review_required, status, priority, max_attempts,
-           max_runtime_ms, cost_budget_status, proposal_id, content_hash,
-           locked_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        task.task_id,
-        task.intent,
-        task.intent_version,
-        task.acceptance_ref,
-        JSON.stringify(task.allowed_paths ?? []),
-        JSON.stringify(task.tool_manifest ?? {}),
-        task.review_required ? 1 : 0,
-        task.status,
-        task.priority ?? 100,
-        task.max_attempts ?? 2,
-        task.max_runtime_ms ?? 1800000,
-        task.cost_budget_status || 'UNKNOWN',
-        task.proposal_id ?? null,
-        task.content_hash ?? null,
-        task.locked_at ?? null,
-        ts,
-        task.updated_at || ts
-      );
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO tasks(
+             task_id, intent, intent_version, acceptance_ref, allowed_paths_json,
+             tool_manifest_json, review_required, status, priority, max_attempts,
+             max_runtime_ms, cost_budget_status, proposal_id, content_hash,
+             locked_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          task.task_id,
+          task.intent,
+          task.intent_version,
+          task.acceptance_ref,
+          JSON.stringify(task.allowed_paths ?? []),
+          JSON.stringify(task.tool_manifest ?? {}),
+          task.review_required ? 1 : 0,
+          task.status,
+          task.priority ?? 100,
+          task.max_attempts ?? 2,
+          task.max_runtime_ms ?? 1800000,
+          task.cost_budget_status || 'UNKNOWN',
+          task.proposal_id ?? null,
+          task.content_hash ?? null,
+          task.locked_at ?? null,
+          ts,
+          task.updated_at || ts
+        );
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new BuilderStoreError(
+          `duplicate task claim rejected: ${task.task_id}`,
+          'DUPLICATE_CLAIM'
+        );
+      }
+      throw err;
+    }
     return this.getTask(task.task_id);
+  }
+
+  tryInsertTask(task) {
+    try {
+      return this.insertTask(task);
+    } catch (err) {
+      if (err instanceof BuilderStoreError && err.code === 'DUPLICATE_CLAIM') {
+        return null;
+      }
+      if (isUniqueViolation(err)) return null;
+      throw err;
+    }
   }
 
   getTask(taskId) {
@@ -354,6 +274,7 @@ export class BuilderStore {
   updateRun(factoryRunId, patch) {
     const current = this.getRun(factoryRunId);
     if (!current) throw new Error(`unknown factory_run_id: ${factoryRunId}`);
+    assertRunCannotRegainAuthority(current, patch);
     const next = { ...current, ...patch, factory_run_id: current.factory_run_id };
     assertRunStatus(next.status);
     if (next.failure_class != null) assertFailureClass(next.failure_class);
@@ -719,6 +640,7 @@ export class BuilderStore {
     );
     return {
       schema_version: this.schemaVersion(),
+      store_backend: this.kind,
       tasks,
       nonterminal_tasks: nonterminal,
       runs: nonterminal.flatMap((t) => this.listRunsForTask(t.task_id)),
@@ -731,8 +653,44 @@ export class BuilderStore {
       events: nonterminal.flatMap((t) => this.listEventsForTask(t.task_id)),
     };
   }
+
+  tryAcquireLease(leaseKey, owner, { now = nowIso(), ttlMs = 30 * 60 * 1000 } = {}) {
+    const expiresAt = new Date(Date.parse(now) + ttlMs).toISOString();
+    const result = this.db
+      .prepare(
+        `INSERT INTO builder_leases(lease_key, owner, fencing_token, acquired_at, expires_at)
+         VALUES (?, ?, 1, ?, ?)
+         ON CONFLICT(lease_key) DO UPDATE SET
+           owner = excluded.owner,
+           fencing_token = builder_leases.fencing_token + 1,
+           acquired_at = excluded.acquired_at,
+           expires_at = excluded.expires_at
+         WHERE builder_leases.expires_at < excluded.acquired_at`
+      )
+      .run(leaseKey, String(owner), now, expiresAt);
+    if (!result.changes) return null;
+    return rowToLease(
+      this.db
+        .prepare(`SELECT * FROM builder_leases WHERE lease_key = ?`)
+        .get(leaseKey)
+    );
+  }
+
+  releaseLease(leaseKey, owner) {
+    this.db
+      .prepare(`DELETE FROM builder_leases WHERE lease_key = ? AND owner = ?`)
+      .run(leaseKey, String(owner));
+  }
 }
 
 export function openBuilderStore(dbPath = ':memory:') {
   return new BuilderStore(dbPath);
+}
+
+export async function openAuthoritativeBuilderStore(options = {}) {
+  const target = resolveBuilderStoreTarget(options);
+  if (target.kind === STORE_KIND.SQLITE) {
+    return new BuilderStore(target.dbPath);
+  }
+  return connectPostgresBuilderStore(target.databaseUrl);
 }

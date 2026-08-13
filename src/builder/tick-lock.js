@@ -14,7 +14,11 @@ export function tickLockDir(root) {
   return join(root, '.data/builder/jarvis-tick.lock');
 }
 
-export function acquireTickLock(root, { owner = process.pid, now = Date.now() } = {}) {
+export function acquireTickLock(root, {
+  owner = process.pid,
+  now = Date.now(),
+  store = null,
+} = {}) {
   const parent = join(root, '.data/builder');
   mkdirSync(parent, { recursive: true });
   const dir = tickLockDir(root);
@@ -30,9 +34,27 @@ export function acquireTickLock(root, { owner = process.pid, now = Date.now() } 
     owner,
     acquired_at: new Date(now).toISOString(),
   }) + '\n');
+  let lease = null;
+  if (store && typeof store.tryAcquireLease === 'function') {
+    lease = store.tryAcquireLease('jarvis-tick', String(owner), {
+      now: new Date(now).toISOString(),
+    });
+    if (!lease) {
+      releaseTickLock(root);
+      throw new TickLockError('duplicate trigger: tick lock already held', 'DUPLICATE_TRIGGER');
+    }
+  }
   return {
     dir,
+    lease,
     release() {
+      if (store && typeof store.releaseLease === 'function') {
+        try {
+          store.releaseLease('jarvis-tick', String(owner));
+        } catch {
+          // Best-effort durable release; filesystem lock still drops.
+        }
+      }
       releaseTickLock(root);
     },
   };

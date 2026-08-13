@@ -6,16 +6,17 @@
 // One owner submission. Jarvis/Builder owns the pipeline afterward.
 // No manual Cursor/Codex relay.
 
-import { readFileSync, existsSync, mkdirSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  createBuilderCore,
+  createBuilderCoreAsync,
   createCursorProvider,
   createDefaultOrchestrationDeps,
   createCodexReviewInvoker,
   createGhLandingClient,
+  BUILDER_SQLITE_PATH_ENV,
 } from '../src/builder/index.js';
 import { createJarvisInterface, JARVIS_COMMANDS } from '../src/jarvis/index.js';
 
@@ -59,9 +60,7 @@ async function main() {
   }
 
   const task = await readTaskInput(argv);
-  const dataDir = join(ROOT, '.data', 'builder');
-  mkdirSync(dataDir, { recursive: true });
-  const dbPath = process.env.JARVIS_BUILDER_DB || join(dataDir, 'jarvis-tasks.sqlite');
+  const dbPath = process.env[BUILDER_SQLITE_PATH_ENV] || null;
 
   // Draft PR is required for Stage-1 GitHub landing truth. Never merge here.
   const autoCreatePR = process.env.JARVIS_AUTO_CREATE_PR !== '0';
@@ -92,8 +91,9 @@ async function main() {
     });
   }
 
-  const builder = createBuilderCore({
-    dbPath,
+  const builder = await createBuilderCoreAsync({
+    dbPath: dbPath || undefined,
+    allowSqlite: Boolean(dbPath),
     workerProvider: provider,
     autoRecover: true,
   });

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // jarvis:tick — deterministic control-plane dispatcher.
 // Does not enable the live Jarvis Builder Automation.
-import { resolve } from 'node:path';
-import { createBuilderCore, createCursorProvider } from '../src/builder/index.js';
+import { createBuilderCoreAsync, createCursorProvider, BUILDER_SQLITE_PATH_ENV } from '../src/builder/index.js';
 import { runJarvisTick, TICK_TRIGGERS } from '../src/builder/tick.js';
 
 function parseArgs(argv) {
@@ -12,7 +11,8 @@ function parseArgs(argv) {
     dispatch: true,
     persistEvidence: false,
     fakeProvider: false,
-    db: process.env.JARVIS_BUILDER_DB || resolve(process.cwd(), '.data/builder/jarvis-tasks.sqlite'),
+    db: process.env[BUILDER_SQLITE_PATH_ENV] || null,
+    allowSqlite: false,
   };
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -40,6 +40,11 @@ function parseArgs(argv) {
     if (arg === '--db') {
       out.db = args[i + 1];
       i += 1;
+      continue;
+    }
+    if (arg === '--allow-sqlite') {
+      out.allowSqlite = true;
+      continue;
     }
   }
   return out;
@@ -110,8 +115,9 @@ async function main() {
         autoCreatePR: process.env.JARVIS_AUTO_CREATE_PR === '1',
       });
 
-  const core = createBuilderCore({
-    dbPath: opts.db,
+  const core = await createBuilderCoreAsync({
+    dbPath: opts.db || undefined,
+    allowSqlite: Boolean(opts.allowSqlite || opts.db),
     workerProvider: provider,
     autoRecover: true,
   });
