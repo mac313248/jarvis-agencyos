@@ -175,14 +175,18 @@ function openTasks(core) {
   return core.store.listTasks().filter((t) => OPEN_TASK_STATUSES.has(t.status));
 }
 
-function candidateIsAuthoritative(candidate) {
-  return candidate
-    && candidate.status !== CANDIDATE_STATUS.SUPERSEDED
-    && candidate.status !== CANDIDATE_STATUS.REJECTED;
+function candidateIsAuthoritative(core, candidate) {
+  if (!candidate) return false;
+  if (candidate.status === CANDIDATE_STATUS.SUPERSEDED) return false;
+  if (candidate.status === CANDIDATE_STATUS.REJECTED) return false;
+  const run = core.store.getRun(candidate.factory_run_id);
+  if (!run) return false;
+  if (run.status === RUN_STATUS.STALE || run.status === RUN_STATUS.CANCELLED) return false;
+  return true;
 }
 
-function candidateHasFailedCi(candidate) {
-  if (!candidateIsAuthoritative(candidate)) return false;
+function candidateHasFailedCi(core, candidate) {
+  if (!candidateIsAuthoritative(core, candidate)) return false;
   const conclusion = String(candidate?.ci_conclusion || '').toLowerCase();
   return ['failure', 'timed_out', 'action_required', 'cancelled'].includes(conclusion);
 }
@@ -190,7 +194,7 @@ function candidateHasFailedCi(candidate) {
 function findFailedCiWork(core) {
   for (const task of openTasks(core)) {
     const candidates = core.store.listCandidatesForTask(task.task_id);
-    const failed = [...candidates].reverse().find((c) => candidateHasFailedCi(c));
+    const failed = [...candidates].reverse().find((c) => candidateHasFailedCi(core, c));
     if (failed) {
       return { task, candidate: failed, reason: 'CI_FAILED', pr: failed.pr_number || null };
     }
@@ -216,7 +220,7 @@ function findChangesRequestedWork(core, githubReviews = []) {
       const requested = reviews.find((r) =>
         r.status === REVIEW_STATUS.REQUEST_CHANGES && !r.invalidated_at
       );
-      if (requested && candidateIsAuthoritative(candidate)) {
+      if (requested && candidateIsAuthoritative(core, candidate)) {
         return {
           task,
           candidate,
@@ -235,7 +239,7 @@ function latestRun(core, taskId) {
 }
 
 function taskHasAuthoritativeFailedCi(core, taskId) {
-  return core.store.listCandidatesForTask(taskId).some((candidate) => candidateHasFailedCi(candidate));
+  return core.store.listCandidatesForTask(taskId).some((candidate) => candidateHasFailedCi(core, candidate));
 }
 
 function findAwaitingHandoff(core) {
@@ -265,7 +269,19 @@ function findContinuation(core) {
     if (run?.status === RUN_STATUS.SUCCEEDED) return false;
     return true;
   });
-  if (running) return { task: running, repair: false, reason: 'CLAIMED_TASK_CONTINUATION' };
+  if (running) {
+    const run = latestRun(core, running.task_id);
+    const needsRepair = run && [
+      RUN_STATUS.FAILED,
+      RUN_STATUS.CANCELLED,
+      RUN_STATUS.STALE,
+    ].includes(run.status);
+    return {
+      task: running,
+      repair: Boolean(needsRepair),
+      reason: 'CLAIMED_TASK_CONTINUATION',
+    };
+  }
   return null;
 }
 
