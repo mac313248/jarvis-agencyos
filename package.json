@@ -24,6 +24,8 @@
     "test:builder-stage1-failure-battery": "node --test tests/builder-stage1-failure-battery.test.mjs",
     "test:builder-stage1-orchestration": "node --test tests/builder-stage1-orchestration.test.mjs",
     "test:v1.0a-postgres": "node --test tests/postgres-multiprocess-boundary.test.mjs",
+    "test:postgres-live-verification": "node --test tests/postgres-live-verification.test.mjs",
+    "verify:postgres-live": "node scripts/postgres-live-verification.mjs",
     "test:v1.0b-agent0": "node --test tests/agent0-v1.0b.test.mjs",
     "test:v1.0c-write-safe": "node --test tests/v1.0c-write-safe.test.mjs",
     "test:cursor-capabilities": "node --test tests/cursor-builder-capabilities.test.mjs",
