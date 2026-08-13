@@ -19,6 +19,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Install Codex CLI (independent review binary)
+        run: npm install -g @openai/codex
+
       - name: SOT mismatch guard
         run: node scripts/verify-sot.mjs
 
