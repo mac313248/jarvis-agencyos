@@ -246,9 +246,11 @@ describe('Cursor builder capabilities', () => {
     );
     assert.equal(env.install, 'npm ci && npm install -g @openai/codex');
 
-    const which = spawnSync('bash', ['-lc', 'command -v codex'], {
+    const which = spawnSync('command -v codex', {
       encoding: 'utf8',
       timeout: 5000,
+      shell: true,
+      env: process.env,
     });
     assert.equal(
       which.status,
