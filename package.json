@@ -26,6 +26,7 @@
     "test:v1.0b-agent0": "node --test tests/agent0-v1.0b.test.mjs",
     "test:v1.0c-write-safe": "node --test tests/v1.0c-write-safe.test.mjs",
     "test:cursor-capabilities": "node --test tests/cursor-builder-capabilities.test.mjs",
+    "orientation": "node scripts/build-runner.mjs --orientation --json",
     "jarvis:task": "node scripts/jarvis-task.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "evidence:phase2": "node scripts/build-evidence-phase2.mjs"

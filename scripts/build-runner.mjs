@@ -20,6 +20,9 @@
 //   - is resumable via artifacts/build-runner/state.json;
 //   - stops only at WAITING_ON_OWNER | WAITING_ON_ARCHITECTURE |
 //     FAILED_ACCEPTANCE_GATE | READY_FOR_NEXT_V1_0_SLICE | V1_0_COMPLETE.
+//   - --orientation --json is a read-only Release Gate briefing (no dispatch,
+//     no Cursor/Codex, allowed on main). Implementation-slice completion stays
+//     separate from release-gate completion.
 //
 // Cursor is the ONLY writer. Codex is REVIEW-ONLY. The runner never auto-merges
 // and never modifies docs/master-sot. Business-write autonomy stays DISABLED
@@ -1065,8 +1068,29 @@ function acceptPhase(root, state, _slice) {
 
 export async function main(argv) {
   const args = (argv || process.argv.slice(2)).filter((a) => a);
-  const dryRun = args.includes('--dry-run') || args.includes('--mock');
   const root = process.cwd();
+  if (args.includes('--orientation')) {
+    try {
+      // Dynamic import avoids a static cycle: orientation.mjs imports
+      // build-runner slice/SOT helpers, and this CLI entrypoint is the only
+      // build-runner caller of orientation.
+      const { runOrientation, formatOrientationBrief } = await import('./orientation.mjs');
+      const brief = await runOrientation(root, { json: args.includes('--json') });
+      if (args.includes('--json')) console.log(JSON.stringify(brief, null, 2));
+      else console.log(formatOrientationBrief(brief));
+      process.exitCode = 0;
+    } catch (e) {
+      if (e instanceof BuildRunnerError) {
+        console.error('ORIENTATION REFUSED code=' + e.code);
+        console.error('  ' + e.message);
+      } else {
+        console.error('ORIENTATION ERROR', e);
+      }
+      process.exitCode = 1;
+    }
+    return;
+  }
+  const dryRun = args.includes('--dry-run') || args.includes('--mock');
   try {
     const state = await run(root, { dryRun });
     console.log(formatStatusReport(state));

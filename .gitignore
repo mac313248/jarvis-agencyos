@@ -8,6 +8,8 @@ artifacts/build-runner/state.json
 artifacts/build-runner/current-phase.json
 artifacts/build-runner/.run.lock/
 artifacts/build-runner/transitions.jsonl
+artifacts/orientation/gate-evidence.json
+artifacts/orientation/orientation.json
 .data/builder/
 *.sqlite
 *.sqlite-journal
