@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "authority": "docs/master-sot",
+  "note": "Approved-work catalog only. Durable task/run/candidate state lives in Builder Core. This file is not a second queue.",
+  "durable_state": ".data/builder/jarvis-tasks.sqlite",
+  "orientation": "scripts/orientation.mjs",
+  "forbidden_scopes": [
+    "hermes",
+    "voice",
+    "obsidian",
+    "prime",
+    "extra_coding_workers",
+    "new_product_scope"
+  ],
+  "future_phases": ["V1.1"],
+  "approved_work_sources": [
+    "scripts/build-runner.mjs#FOUNDATION_SLICES",
+    "scripts/orientation.mjs#LIVE_VERIFICATION_ITEMS",
+    "scripts/orientation.mjs#RELEASE_GATES"
+  ],
+  "business_write_autonomy": "DISABLED"
+}

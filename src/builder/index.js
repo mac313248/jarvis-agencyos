@@ -136,3 +136,18 @@ export {
   detectAwaitingCi,
   CI_WAIT_OUTCOME,
 } from './ci-wait.js';
+export {
+  TICK_TRIGGERS,
+  TICK_DECISIONS,
+  FORBIDDEN_SCOPES,
+  runJarvisTick,
+  loadApprovedWorkCatalog,
+  stableTaskId,
+  isForbiddenScope,
+  nextEligibleApprovedWork,
+  tickProviderStatus,
+  tickProviderCancel,
+  tickProviderCollect,
+} from './tick.js';
+export { acquireTickLock, releaseTickLock, TickLockError } from './tick-lock.js';
+export { writeWorkerContract, buildWorkerContractMarkdown } from './worker-contract.js';
