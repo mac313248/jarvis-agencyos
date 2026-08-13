@@ -9,8 +9,9 @@
 // (sliceIsComplete / determineNextSlice in build-runner.mjs).
 // Release-gate completion is SHA-bound command evidence at HEAD.
 
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   APPROVED_MANIFEST_SHA256,
@@ -18,13 +19,21 @@ import {
   buildPhaseContract,
   currentHead,
   determineNextSlice,
-  sliceIsComplete,
+  sliceHasEvidenceMarker,
   verifyRepoRoot,
   verifySot,
 } from './build-runner.mjs';
 
+/** @deprecated Global overwrite paths. Persist uses SHA/evaluation files instead. */
 export const GATE_EVIDENCE_FILE = 'artifacts/orientation/gate-evidence.json';
 export const ORIENTATION_BRIEF_FILE = 'artifacts/orientation/orientation.json';
+
+export const EVIDENCE_CLASSIFICATION = Object.freeze({
+  kind: 'ORIENTATION_EVALUATION',
+  slice_markers: 'NOT_RELEASE_GATE_PROOF',
+  command_results: 'SHA_BOUND_TEST_EVIDENCE',
+  certifies_pass_done: false,
+});
 
 export const RELEASE_GATES = Object.freeze([
   {
@@ -280,11 +289,12 @@ export function defaultRunCommand(root, command) {
       maxBuffer: 64 * 1024 * 1024,
     });
     const counts = parseCounts(out);
-    return { ok: true, name: command.name, raw: out, ...counts };
+    return { ok: true, name: command.name, raw: out, exit_code: 0, ...counts };
   } catch (e) {
     const out = String(e.stdout || '') + String(e.stderr || '');
     const counts = parseCounts(out);
-    return { ok: false, name: command.name, raw: out, ...counts };
+    const exitCode = Number.isInteger(e.status) ? e.status : 1;
+    return { ok: false, name: command.name, raw: out, exit_code: exitCode, ...counts };
   }
 }
 
@@ -400,6 +410,7 @@ export async function evaluateReleaseGates(root, opts = {}) {
       commands.push({
         name: command.name,
         ok: commandOk,
+        exit_code: Number.isInteger(result?.exit_code) ? result.exit_code : (commandOk ? 0 : 1),
         passed: result?.passed || 0,
         failed: result?.failed || 0,
       });
@@ -428,12 +439,62 @@ export async function evaluateReleaseGates(root, opts = {}) {
   return results;
 }
 
-function currentReleasePhase(gates) {
+function lastCompletedAuthorizedGate(gates) {
+  let last = null;
+  for (const gate of gates) {
+    if (gate.test_result === 'PASS') last = gate;
+  }
+  return last;
+}
+
+function nextPhaseCandidate(gates) {
   for (const gate of gates) {
     if (gate.test_result === 'PASS' || gate.test_result === 'NOT_REQUIRED') continue;
     return gate;
   }
   return null;
+}
+
+function completedDeterministicGates(gates) {
+  return gates.filter((g) => g.test_result === 'PASS').map((g) => g.gate_id);
+}
+
+function openLiveVerificationItems() {
+  return LIVE_VERIFICATION_ITEMS.filter((item) => item.live_status === 'OPEN');
+}
+
+function liveVerificationBlockers() {
+  return openLiveVerificationItems().map((item) => ({
+    id: item.id,
+    title: item.title,
+    sot_ref: item.sot_ref,
+    owner_gate: Boolean(item.owner_gate),
+  }));
+}
+
+function ownerBlockers(gates) {
+  const blockers = [];
+  const v11 = gates.find((g) => g.gate_id === 'V1.1');
+  if (v11?.test_result === 'WAITING_ON_OWNER') {
+    blockers.push('owner must select the first bounded T2 routine');
+  }
+  for (const item of LIVE_VERIFICATION_ITEMS) {
+    if (item.live_status === 'OPEN' && item.owner_gate) {
+      blockers.push(item.title);
+    }
+  }
+  return uniqueStrings(blockers);
+}
+
+function buildActiveWorkState({ nextSlice, gates, liveBlockers, owner }) {
+  if (nextSlice) return 'IMPLEMENTATION_SLICE';
+  if (gates.some((g) => g.test_result === 'FAIL')) return 'RELEASE_GATE_REPAIR';
+  if (liveBlockers.length > 0) return 'LIVE_VERIFICATION_CLOSURE';
+  if (owner.length > 0 || gates.some((g) => g.test_result === 'WAITING_ON_OWNER')) {
+    return 'WAITING_ON_OWNER';
+  }
+  if (gates.some((g) => g.test_result === 'BLOCKED')) return 'RELEASE_GATE_REPAIR';
+  return 'NO_ELIGIBLE_WORK';
 }
 
 function itemReady(item, gates) {
@@ -524,19 +585,23 @@ function buildClaimTask(root, headSha, nextSlice, current, gates) {
   };
 }
 
-function buildAdvance(gates, current) {
+function buildAdvance({ gates, candidate, liveBlockers, owner }) {
   const blockers = [];
-  if (current) {
-    if (current.blockers.length) blockers.push(...current.blockers);
-    else blockers.push(current.gate_id + ' ' + current.test_result);
-  } else {
-    blockers.push('no remaining release gate');
+  if (liveBlockers.length > 0) {
+    blockers.push('live verification backlog remains');
+    for (const item of liveBlockers) blockers.push(item.title);
+  }
+  if (owner.length > 0) {
+    blockers.push(...owner);
+  }
+  if (candidate) {
+    if (candidate.blockers?.length) blockers.push(...candidate.blockers);
+    else blockers.push(candidate.gate_id + ' ' + candidate.test_result);
+  }
+  for (const gate of gates) {
+    if (gate.test_result === 'FAIL') blockers.push(gate.gate_id + ' command evidence failed');
   }
   blockers.push('Codex review not performed by read-only orientation');
-  const v11 = gates.find((g) => g.gate_id === 'V1.1');
-  if (v11?.test_result === 'WAITING_ON_OWNER') {
-    blockers.push('WAITING_ON_OWNER: V1.1 first bounded T2 routine not selected');
-  }
   blockers.push('orientation does not certify PASS/DONE');
   return {
     advance_allowed: false,
@@ -544,28 +609,62 @@ function buildAdvance(gates, current) {
   };
 }
 
-export function writeGateEvidence(root, brief) {
-  const dir = join(root, 'artifacts/orientation');
-  mkdirSync(dir, { recursive: true });
+function collectCommandsExecuted(gates) {
+  const out = [];
+  const seen = new Set();
+  for (const gate of gates) {
+    for (const command of gate.commands || []) {
+      if (seen.has(command.name)) continue;
+      seen.add(command.name);
+      out.push({
+        name: command.name,
+        ok: Boolean(command.ok),
+        exit_code: Number.isInteger(command.exit_code) ? command.exit_code : (command.ok ? 0 : 1),
+        passed: command.passed || 0,
+        failed: command.failed || 0,
+      });
+    }
+  }
+  return out;
+}
+
+function collectAcceptanceRefs(gates) {
+  return uniqueStrings(gates.flatMap((g) => g.acceptance_tests || []));
+}
+
+export function persistOrientationEvidence(root, brief) {
+  if (!brief?.head_sha || !brief?.evaluation_id) {
+    throw new Error('persistOrientationEvidence requires head_sha and evaluation_id');
+  }
+  const relDir = join('artifacts/orientation', brief.head_sha);
+  const relPath = join(relDir, brief.evaluation_id + '.json');
+  const absPath = join(root, relPath);
+  mkdirSync(join(root, relDir), { recursive: true });
+  if (existsSync(absPath)) return relPath;
   const evidence = {
+    evaluation_id: brief.evaluation_id,
     head_sha: brief.head_sha,
+    evaluated_at: brief.evaluated_at,
     sot_manifest_sha256: brief.sot_manifest_sha256,
     approved_manifest_sha256: APPROVED_MANIFEST_SHA256,
-    evaluated_at: brief.evaluated_at,
-    business_write_autonomy: 'DISABLED',
+    commands_executed: brief.commands_executed || collectCommandsExecuted(brief.release_gates || []),
+    acceptance_test_references: brief.acceptance_test_references || collectAcceptanceRefs(brief.release_gates || []),
+    live_verification_blockers: brief.live_verification_blockers || [],
+    owner_blockers: brief.owner_blockers || [],
+    advance_allowed: brief.advance_allowed,
+    advance_blockers: brief.advance_blockers || [],
+    evidence_classification: brief.evidence_classification || EVIDENCE_CLASSIFICATION,
     current_phase: brief.current_phase,
-    gates: (brief.release_gates || []).map((g) => ({
-      gate_id: g.gate_id,
-      test_result: g.test_result,
-      commands: g.commands,
-      blockers: g.blockers,
-    })),
+    next_phase_candidate: brief.next_phase_candidate,
+    active_work_state: brief.active_work_state,
+    completed_deterministic_gates: brief.completed_deterministic_gates,
+    completed_implementation_slices: brief.completed_implementation_slices,
+    release_gates: brief.release_gates || [],
     implementation_slices: brief.implementation_slices,
+    business_write_autonomy: 'DISABLED',
   };
-  const evidencePath = join(root, GATE_EVIDENCE_FILE);
-  writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');
-  writeFileSync(join(root, ORIENTATION_BRIEF_FILE), JSON.stringify(brief, null, 2) + '\n');
-  return evidencePath;
+  writeFileSync(absPath, JSON.stringify(evidence, null, 2) + '\n');
+  return relPath;
 }
 
 export async function buildOrientationBrief(root, opts = {}) {
@@ -574,15 +673,33 @@ export async function buildOrientationBrief(root, opts = {}) {
   const headSha = opts.headSha || currentHead(root);
   const git = inspectGit(root);
   const gates = await evaluateReleaseGates(root, opts);
-  const completed = FOUNDATION_SLICES.filter((slice) => sliceIsComplete(root, slice)).map((s) => s.phase_id);
+  const completed = FOUNDATION_SLICES.filter((slice) => sliceHasEvidenceMarker(root, slice)).map((s) => s.phase_id);
   const nextSlice = determineNextSlice(root, opts.acceptedPhaseIds || []);
-  const current = currentReleasePhase(gates);
-  const currentPhase = current?.gate_id || 'COMPLETE';
+  const authorized = lastCompletedAuthorizedGate(gates);
+  const candidate = nextPhaseCandidate(gates);
+  const currentPhase = authorized?.gate_id || null;
+  const liveBlockers = liveVerificationBlockers();
+  const owner = ownerBlockers(gates);
+  const completedGates = completedDeterministicGates(gates);
+  const activeWorkState = buildActiveWorkState({
+    nextSlice,
+    gates,
+    liveBlockers,
+    owner,
+  });
   const readyWork = buildReadyWork(gates, nextSlice);
-  const claimTask = buildClaimTask(root, headSha, nextSlice, current, gates);
-  const { advance_allowed, advance_blockers } = buildAdvance(gates, current);
-  const evidencePath = GATE_EVIDENCE_FILE;
+  const claimTask = buildClaimTask(root, headSha, nextSlice, candidate, gates);
+  const { advance_allowed, advance_blockers } = buildAdvance({
+    gates,
+    candidate,
+    liveBlockers,
+    owner,
+  });
+  const evaluationId = opts.evaluation_id || ('eval_' + randomUUID());
+  const commandsExecuted = collectCommandsExecuted(gates);
+  const acceptanceRefs = collectAcceptanceRefs(gates);
   const brief = {
+    evaluation_id: evaluationId,
     head_sha: headSha,
     git_branch: git.branch,
     git_dirty: git.dirty,
@@ -591,6 +708,15 @@ export async function buildOrientationBrief(root, opts = {}) {
     business_write_autonomy: 'DISABLED',
     dispatch: false,
     current_phase: currentPhase,
+    next_phase_candidate: candidate?.gate_id || null,
+    active_work_state: activeWorkState,
+    completed_deterministic_gates: completedGates,
+    completed_implementation_slices: completed,
+    live_verification_blockers: liveBlockers,
+    owner_blockers: owner,
+    commands_executed: commandsExecuted,
+    acceptance_test_references: acceptanceRefs,
+    evidence_classification: EVIDENCE_CLASSIFICATION,
     release_gates: gates,
     implementation_slices: {
       completed,
@@ -600,34 +726,42 @@ export async function buildOrientationBrief(root, opts = {}) {
     ready_work: readyWork,
     claim_task: claimTask,
     completion_proof: {
-      commands: current
-        ? (RELEASE_GATES.find((g) => g.gate_id === current.gate_id)?.verify_commands || []).map((c) => c.name)
+      commands: candidate
+        ? (RELEASE_GATES.find((g) => g.gate_id === candidate.gate_id)?.verify_commands || []).map((c) => c.name)
         : [],
-      acceptance_tests: current?.acceptance_tests || [],
-      evidence_path: evidencePath,
+      acceptance_tests: candidate?.acceptance_tests || [],
+      evidence_path: null,
       head_sha: headSha,
       note: 'Orientation reports test evidence only; it does not certify PASS/DONE',
     },
-    unblocks_after: current?.unblocks || [],
+    unblocks_after: candidate?.unblocks || [],
     advance_allowed,
     advance_blockers,
   };
-  if (opts.writeEvidence) writeGateEvidence(root, brief);
+  const shouldPersist = Boolean(opts.persistEvidence || opts.writeEvidence);
+  if (shouldPersist) {
+    const evidencePath = persistOrientationEvidence(root, brief);
+    brief.completion_proof.evidence_path = evidencePath;
+    brief.evidence_path = evidencePath;
+  }
   return brief;
 }
 
 export async function runOrientation(root, opts = {}) {
   return buildOrientationBrief(root, {
     ...opts,
-    writeEvidence: opts.writeEvidence !== false,
+    persistEvidence: Boolean(opts.persistEvidence || opts.writeEvidence),
   });
 }
 
 export function formatOrientationBrief(brief) {
   const lines = [
-    'ORIENTATION current_phase=' + brief.current_phase +
+    'ORIENTATION active_work_state=' + brief.active_work_state +
       ' advance_allowed=' + (brief.advance_allowed ? 'YES' : 'NO'),
     '  HEAD=' + brief.head_sha,
+    '  current_phase=' + (brief.current_phase || 'none'),
+    '  next_phase_candidate=' + (brief.next_phase_candidate || 'none'),
+    '  completed_deterministic_gates=' + (brief.completed_deterministic_gates || []).join(','),
     '  sot_manifest_sha256=' + brief.sot_manifest_sha256,
     '  slices=' + brief.implementation_slices.status,
     '  claim_via=' + brief.claim_task.via + ' dispatch=false',

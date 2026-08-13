@@ -337,8 +337,13 @@ export function currentHead(root) {
 // Next-slice determination (from SOT + evidence markers, not phase count)
 // ---------------------------------------------------------------------------
 
-export function sliceIsComplete(root, slice) {
+export function sliceHasEvidenceMarker(root, slice) {
   return existsSync(join(root, slice.evidence_marker));
+}
+
+/** File-marker existence only. Not release-gate PASS. */
+export function sliceIsComplete(root, slice) {
+  return sliceHasEvidenceMarker(root, slice);
 }
 
 export function acceptedPhaseIdsFromState(state) {
@@ -1075,7 +1080,10 @@ export async function main(argv) {
       // build-runner slice/SOT helpers, and this CLI entrypoint is the only
       // build-runner caller of orientation.
       const { runOrientation, formatOrientationBrief } = await import('./orientation.mjs');
-      const brief = await runOrientation(root, { json: args.includes('--json') });
+      const brief = await runOrientation(root, {
+        json: args.includes('--json'),
+        persistEvidence: args.includes('--persist-evidence'),
+      });
       if (args.includes('--json')) console.log(JSON.stringify(brief, null, 2));
       else console.log(formatOrientationBrief(brief));
       process.exitCode = 0;
