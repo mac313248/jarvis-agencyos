@@ -32,7 +32,8 @@ npm run orientation:evidence
 ```
 
 3. Parse the single JSON decision from `jarvis:tick`.
-4. If `decision` is `NOOP`, stop.
+4. If `decision` is `NOOP`, stop. `AWAITING_VERIFY_HANDOFF` and
+   `WORKER_IN_FLIGHT` are stable handoffs, not new work.
 5. If `decision` is `NEEDS_OWNER` or `BLOCKED`, report the exact `reason` /
    `owner_action` only. Do not invent work.
 6. If `decision` is `EXECUTE` or `REPAIR`, execute the emitted worker contract

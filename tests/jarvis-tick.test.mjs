@@ -508,6 +508,99 @@ test('in-flight worker is not killed and sequential ticks reuse the claimed task
   }
 });
 
+test('terminal succeeded run is not relaunched; it waits for verify handoff', async () => {
+  const root = makeRoot();
+  const provider = fakeProvider();
+  const core = coreWith(provider);
+  try {
+    const first = await tick({ root, trigger: 'hourly', core, dispatch: true });
+    assert.equal(first.decision, TICK_DECISIONS.EXECUTE);
+    core.store.updateRun(first.factory_run_id, {
+      status: RUN_STATUS.SUCCEEDED,
+      ended_at: new Date().toISOString(),
+    });
+    core._currentFactoryRunId = null;
+    const second = await tick({ root, trigger: 'hourly', core, dispatch: true });
+    assert.equal(second.decision, TICK_DECISIONS.NOOP);
+    assert.equal(second.reason, 'AWAITING_VERIFY_HANDOFF');
+    assert.equal(second.task_id, first.task_id);
+    assert.equal(provider.launches.length, 1);
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('superseded CI evidence cannot reclaim repair authority', async () => {
+  const root = makeRoot();
+  const core = coreWith();
+  try {
+    const task = core.createAndLockTask({
+      task_id: 'task_old_ci',
+      intent: 'old ci',
+      acceptance_ref: 'tests/jarvis-tick.test.mjs',
+      allowed_paths: ['src/builder/'],
+      tool_manifest: { providers: ['cursor'], tools: ['coding_worker'], mode: 'build' },
+    });
+    const run = core.createRun({ task_id: task.task_id, provider: 'cursor' });
+    core.store.updateRun(run.factory_run_id, {
+      status: RUN_STATUS.SUCCEEDED,
+      ended_at: new Date().toISOString(),
+    });
+    core.store.insertCandidate({
+      candidate_id: newCandidateId(),
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: 'cursor/old',
+      commit_sha: SHA,
+      pr_number: 9,
+      ci_status: 'completed',
+      ci_conclusion: 'failure',
+      status: CANDIDATE_STATUS.SUPERSEDED,
+    });
+    core.updateTaskStatus(task.task_id, TASK_STATUS.RUNNING);
+    const decision = await tick({ root, trigger: 'checks_failed', core, dispatch: true });
+    assert.notEqual(decision.reason, 'CI_FAILED');
+    assert.equal(decision.decision, TICK_DECISIONS.NOOP);
+    assert.equal(decision.reason, 'AWAITING_VERIFY_HANDOFF');
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('NEEDS_OWNER and BLOCKED tasks cannot be re-entered by a later tick', async () => {
+  const root = makeRoot();
+  const core = coreWith();
+  try {
+    const blocked = core.createAndLockTask({
+      task_id: stableTaskId('F-02'),
+      intent: 'exhausted',
+      acceptance_ref: 'tests/jarvis-tick.test.mjs',
+      allowed_paths: ['src/builder/'],
+      tool_manifest: { providers: ['cursor'], tools: ['coding_worker'], mode: 'build' },
+    });
+    core.updateTaskStatus(blocked.task_id, TASK_STATUS.NEEDS_OWNER);
+    const decision = await tick({ root, trigger: 'hourly', core, dispatch: true });
+    assert.equal(decision.decision, TICK_DECISIONS.NEEDS_OWNER);
+    assert.equal(decision.task_id, blocked.task_id);
+    assert.equal(core.store.listRunsForTask(blocked.task_id).length, 0);
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('live-verification claims do not grant write scope to master SOT', () => {
+  const work = nextEligibleApprovedWork(orientationFixture({
+    implementation_slices: { next: null, status: 'V1_0_COMPLETE' },
+    completed_implementation_slices: FOUNDATION_SLICES.map((s) => s.phase_id),
+    completed_deterministic_gates: ['BUILDER_STAGE_1', 'V1.0A', 'V1.0B', 'V1.0C'],
+  }), catalog());
+  assert.equal(work.kind, 'live_verification');
+  assert.equal((work.allowed_paths || []).includes('docs/master-sot/'), false);
+});
+
 test('changes-requested unfinished PR outranks new approved work', async () => {
   const root = makeRoot();
   const core = coreWith();
