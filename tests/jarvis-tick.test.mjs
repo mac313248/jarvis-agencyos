@@ -601,6 +601,82 @@ test('live-verification claims do not grant write scope to master SOT', () => {
   assert.equal((work.allowed_paths || []).includes('docs/master-sot/'), false);
 });
 
+test('provider-failed run on an open task uses bounded repair not a raw relaunch', async () => {
+  const root = makeRoot();
+  const provider = fakeProvider();
+  const core = coreWith(provider);
+  try {
+    const task = core.createAndLockTask({
+      task_id: 'task_failed_run',
+      intent: 'failed provider',
+      acceptance_ref: 'tests/jarvis-tick.test.mjs',
+      allowed_paths: ['src/builder/'],
+      tool_manifest: { providers: ['cursor'], tools: ['coding_worker'], mode: 'build' },
+      max_attempts: 2,
+    });
+    const run = core.createRun({ task_id: task.task_id, provider: 'cursor' });
+    core.store.updateRun(run.factory_run_id, {
+      status: RUN_STATUS.FAILED,
+      ended_at: new Date().toISOString(),
+    });
+    core.updateTaskStatus(task.task_id, TASK_STATUS.RUNNING);
+    core._currentFactoryRunId = null;
+    const decision = await tick({ root, trigger: 'hourly', core, dispatch: true });
+    assert.equal(decision.decision, TICK_DECISIONS.REPAIR);
+    assert.notEqual(decision.factory_run_id, run.factory_run_id);
+    assert.equal(core.getRun(run.factory_run_id).status, RUN_STATUS.FAILED);
+    const second = await tick({ root, trigger: 'hourly', core, dispatch: true });
+    assert.ok(
+      second.decision === TICK_DECISIONS.NEEDS_OWNER || second.reason === 'WORKER_IN_FLIGHT' || second.decision === TICK_DECISIONS.REPAIR
+    );
+    if (second.reason === 'WORKER_IN_FLIGHT') {
+      core.store.updateRun(second.factory_run_id, {
+        status: RUN_STATUS.FAILED,
+        ended_at: new Date().toISOString(),
+      });
+      core._currentFactoryRunId = null;
+      const third = await tick({ root, trigger: 'hourly', core, dispatch: true });
+      assert.equal(third.decision, TICK_DECISIONS.NEEDS_OWNER);
+    }
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('failed CI on a stale run cannot reclaim repair authority', async () => {
+  const root = makeRoot();
+  const core = coreWith();
+  try {
+    const task = core.createAndLockTask({
+      task_id: 'task_stale_ci',
+      intent: 'stale ci',
+      acceptance_ref: 'tests/jarvis-tick.test.mjs',
+      allowed_paths: ['src/builder/'],
+      tool_manifest: { providers: ['cursor'], tools: ['coding_worker'], mode: 'build' },
+    });
+    const run = core.createRun({ task_id: task.task_id, provider: 'cursor' });
+    core.store.insertCandidate({
+      candidate_id: newCandidateId(),
+      task_id: task.task_id,
+      factory_run_id: run.factory_run_id,
+      branch: 'cursor/stale',
+      commit_sha: SHA,
+      pr_number: 11,
+      ci_status: 'completed',
+      ci_conclusion: 'failure',
+      status: CANDIDATE_STATUS.PROPOSED,
+    });
+    core.markRunStale(run.factory_run_id);
+    core.updateTaskStatus(task.task_id, TASK_STATUS.LOCKED);
+    const decision = await tick({ root, trigger: 'checks_failed', core, dispatch: false });
+    assert.notEqual(decision.reason, 'CI_FAILED');
+  } finally {
+    core.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('changes-requested unfinished PR outranks new approved work', async () => {
   const root = makeRoot();
   const core = coreWith();
