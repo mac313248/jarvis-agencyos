@@ -223,15 +223,60 @@ describe('Cursor builder capabilities', () => {
     const env = JSON.parse(
       readFileSync(join(repoRoot, '.cursor/environment.json'), 'utf8')
     );
-    assert.equal(env.install, 'npm ci');
+    assert.match(String(env.install), /\bnpm ci\b/);
+    assert.match(String(env.install), /npm install -g @openai\/codex/);
     assert.equal(env.start, undefined);
     const envText = JSON.stringify(env);
-    assert.equal(/CURSOR_API_KEY|sk-|ghp_|ghl_/i.test(envText), false);
+    assert.equal(
+      /CURSOR_API_KEY|CODEX_API_KEY|sk-|ghp_|ghl_/i.test(envText),
+      false
+    );
     const docs = readFileSync(
       join(repoRoot, 'docs/CURSOR_BUILDER_CAPABILITIES.md'),
       'utf8'
     );
     assert.match(docs, /CLI binary optional\/not required/);
     assert.match(docs, /authority plane/);
+    assert.match(docs, /npm install -g @openai\/codex/);
+  });
+
+  it('F. Codex CLI readiness: command -v, --version, key presence only', () => {
+    const env = JSON.parse(
+      readFileSync(join(repoRoot, '.cursor/environment.json'), 'utf8')
+    );
+    assert.equal(env.install, 'npm ci && npm install -g @openai/codex');
+
+    const which = spawnSync('bash', ['-lc', 'command -v codex'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    assert.equal(
+      which.status,
+      0,
+      'command -v codex must succeed (durable Cloud install: npm install -g @openai/codex)'
+    );
+    const whichPath = (which.stdout || '').trim();
+    assert.match(whichPath, /codex/);
+
+    const version = spawnSync('codex', ['--version'], {
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    assert.equal(version.status, 0, 'codex --version must succeed');
+    const versionText = (version.stdout || version.stderr || '').trim();
+    assert.ok(versionText.length > 0, 'codex --version must print a version');
+    console.log(
+      `CODEX_CLI_AVAILABLE=YES version=${versionText.split('\n')[0]}`
+    );
+
+    const keyPresent =
+      typeof process.env.CODEX_API_KEY === 'string' &&
+      process.env.CODEX_API_KEY.trim().length > 0;
+    console.log(`CODEX_API_KEY_AVAILABLE=${keyPresent ? 'YES' : 'NO'}`);
+    if (keyPresent) {
+      const secret = process.env.CODEX_API_KEY;
+      assert.equal(whichPath.includes(secret), false);
+      assert.equal(versionText.includes(secret), false);
+    }
   });
 });

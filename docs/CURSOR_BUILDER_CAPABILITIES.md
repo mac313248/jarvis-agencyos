@@ -37,4 +37,4 @@ This repository does not claim slash-menu visibility in an Automation UI unless 
 
 ## Environment
 
-`.cursor/environment.json` remains `npm ci` on the default Cloud image. Checkout supplies skills; `npm ci` supplies `@cursor/sdk`. No production credentials in snapshots.
+`.cursor/environment.json` runs `npm ci && npm install -g @openai/codex` on the default Cloud image. Checkout supplies skills; `npm ci` supplies `@cursor/sdk`; the official Codex CLI install supplies the independent-review binary. No production credentials in snapshots. Secrets such as `CURSOR_API_KEY` and `CODEX_API_KEY` stay in the Cursor Cloud dashboard, never in source, logs, or environment snapshots.
