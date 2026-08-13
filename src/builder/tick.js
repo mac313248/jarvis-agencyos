@@ -12,6 +12,7 @@ import {
 } from './contracts.js';
 import { beginRepairAttempt } from './retry.js';
 import { invalidateVerification } from './verifier.js';
+import { invalidateReview } from './codex-review.js';
 import { acquireTickLock, TickLockError } from './tick-lock.js';
 import { writeWorkerContract } from './worker-contract.js';
 import { assertNoBusinessCredentials } from './providers/cursor-provider.js';
@@ -44,12 +45,16 @@ export const FORBIDDEN_SCOPES = Object.freeze([
 ]);
 
 const OPEN_TASK_STATUSES = new Set([
-  TASK_STATUS.DRAFT,
   TASK_STATUS.LOCKED,
   TASK_STATUS.RUNNING,
   TASK_STATUS.FAILED,
-  TASK_STATUS.BLOCKED,
+]);
+
+const STOP_TASK_STATUSES = new Set([
   TASK_STATUS.NEEDS_OWNER,
+  TASK_STATUS.BLOCKED,
+  TASK_STATUS.ACCEPTED,
+  TASK_STATUS.CANCELLED,
 ]);
 
 function assertTrigger(trigger) {
@@ -123,7 +128,7 @@ export function nextEligibleApprovedWork(orientation, catalog = {}) {
       kind: 'live_verification',
       title: item.title,
       acceptance_ref: item.sot_ref,
-      allowed_paths: ['src/', 'tests/', 'scripts/', 'docs/master-sot/'],
+      allowed_paths: ['src/', 'tests/', 'scripts/'],
       owner_gate: false,
       future_phase: false,
     };
@@ -170,7 +175,14 @@ function openTasks(core) {
   return core.store.listTasks().filter((t) => OPEN_TASK_STATUSES.has(t.status));
 }
 
+function candidateIsAuthoritative(candidate) {
+  return candidate
+    && candidate.status !== CANDIDATE_STATUS.SUPERSEDED
+    && candidate.status !== CANDIDATE_STATUS.REJECTED;
+}
+
 function candidateHasFailedCi(candidate) {
+  if (!candidateIsAuthoritative(candidate)) return false;
   const conclusion = String(candidate?.ci_conclusion || '').toLowerCase();
   return ['failure', 'timed_out', 'action_required', 'cancelled'].includes(conclusion);
 }
@@ -204,7 +216,7 @@ function findChangesRequestedWork(core, githubReviews = []) {
       const requested = reviews.find((r) =>
         r.status === REVIEW_STATUS.REQUEST_CHANGES && !r.invalidated_at
       );
-      if (requested) {
+      if (requested && candidateIsAuthoritative(candidate)) {
         return {
           task,
           candidate,
@@ -217,11 +229,42 @@ function findChangesRequestedWork(core, githubReviews = []) {
   return null;
 }
 
+function latestRun(core, taskId) {
+  const runs = core.store.listRunsForTask(taskId);
+  return runs.length ? runs[runs.length - 1] : null;
+}
+
+function taskHasAuthoritativeFailedCi(core, taskId) {
+  return core.store.listCandidatesForTask(taskId).some((candidate) => candidateHasFailedCi(candidate));
+}
+
+function findAwaitingHandoff(core) {
+  for (const task of core.store.listTasks()) {
+    if (STOP_TASK_STATUSES.has(task.status)) continue;
+    const run = latestRun(core, task.task_id);
+    if (!run) continue;
+    if (run.status === RUN_STATUS.SUCCEEDED && !taskHasAuthoritativeFailedCi(core, task.task_id)) {
+      return {
+        decision: TICK_DECISIONS.NOOP,
+        reason: 'AWAITING_VERIFY_HANDOFF',
+        task_id: task.task_id,
+        factory_run_id: run.factory_run_id,
+      };
+    }
+  }
+  return null;
+}
+
 function findContinuation(core) {
   const tasks = openTasks(core);
   const failed = tasks.find((t) => t.status === TASK_STATUS.FAILED);
   if (failed) return { task: failed, repair: true, reason: 'CLAIMED_TASK_CONTINUATION' };
-  const running = tasks.find((t) => t.status === TASK_STATUS.RUNNING || t.status === TASK_STATUS.LOCKED);
+  const running = tasks.find((t) => {
+    if (t.status !== TASK_STATUS.RUNNING && t.status !== TASK_STATUS.LOCKED) return false;
+    const run = latestRun(core, t.task_id);
+    if (run?.status === RUN_STATUS.SUCCEEDED) return false;
+    return true;
+  });
   if (running) return { task: running, repair: false, reason: 'CLAIMED_TASK_CONTINUATION' };
   return null;
 }
@@ -238,13 +281,29 @@ function invalidateTaskEvidence(core, taskId, reason) {
         invalidateVerification(core, verification.verification_id, reason);
       }
     }
+    for (const review of core.store.listReviewsForCandidate(candidate.candidate_id)) {
+      if (!review.invalidated_at) {
+        invalidateReview(core, review.review_id, reason);
+      }
+    }
   }
 }
 
 function claimOrReuse(core, work) {
   const taskId = stableTaskId(work.work_id);
   const existing = core.getTask(taskId);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.status === TASK_STATUS.NEEDS_OWNER) {
+      return { stop: TICK_DECISIONS.NEEDS_OWNER, task: existing, reason: 'TASK_NEEDS_OWNER' };
+    }
+    if (existing.status === TASK_STATUS.BLOCKED) {
+      return { stop: TICK_DECISIONS.BLOCKED, task: existing, reason: 'TASK_BLOCKED' };
+    }
+    if (existing.status === TASK_STATUS.ACCEPTED || existing.status === TASK_STATUS.CANCELLED) {
+      return null;
+    }
+    return existing;
+  }
   return core.createAndLockTask({
     task_id: taskId,
     intent: work.title,
@@ -326,6 +385,9 @@ function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
       reason: 'CHANGES_REQUESTED',
     };
   }
+
+  const handoff = findAwaitingHandoff(core);
+  if (handoff) return handoff;
 
   const continuation = findContinuation(core);
   if (continuation) {
@@ -453,7 +515,20 @@ export async function runJarvisTick({
 
     let task = selected.task;
     if (!task && selected.work) {
-      task = claimOrReuse(core, selected.work);
+      const claimed = claimOrReuse(core, selected.work);
+      if (claimed?.stop) {
+        const stopped = decisionFields({
+          decision: claimed.stop,
+          task_id: claimed.task.task_id,
+          reason: claimed.reason,
+          owner_action: claimed.stop === TICK_DECISIONS.NEEDS_OWNER
+            ? 'Owner must unblock or re-authorize this Builder task.'
+            : null,
+        }, orientation, normalizedTrigger);
+        if (persist) persistTickDecision(root, stopped);
+        return stopped;
+      }
+      task = claimed;
     }
     if (!task) {
       const out = decisionFields({
