@@ -63,7 +63,7 @@ export function redactSecrets(value, { extraSecrets = [], depth = 0 } = {}) {
         continue;
       }
       // SDK handles often nest apiKey under client/options — kill those shapes.
-      if (/^(apiKey|api_key|token|accessToken|authorization|password|secret)$/i.test(k)) {
+      if (/^(apiKey|api_key|token|accessToken|authorization|password|secret|databaseUrl|connectionString)$/i.test(k)) {
         out[k] = REDACTED;
         continue;
       }

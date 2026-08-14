@@ -2,6 +2,7 @@
 // but every method is async. Dedicated schema `jarvis_builder` — not AgencyOS.
 
 import { readFileSync } from 'node:fs';
+import { inspect } from 'node:util';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -50,13 +51,32 @@ function durableJson(value) {
 }
 
 export class PostgresBuilderStore {
-  constructor(pool, { schema = 'jarvis_builder', databaseUrl = null } = {}) {
+  constructor(pool, { schema = 'jarvis_builder' } = {}) {
     this.kind = BUILDER_STORE_KIND.POSTGRES;
     this.async = true;
     this.schema = assertSafeSchemaName(schema);
-    this.pool = pool;
-    this.databaseUrl = databaseUrl;
     this.dbPath = null;
+    // Pool holds the connection string. Keep it non-enumerable so JSON/inspect
+    // cannot leak Builder database credentials.
+    Object.defineProperty(this, 'pool', {
+      value: pool,
+      enumerable: false,
+      writable: false,
+      configurable: true,
+    });
+  }
+
+  toJSON() {
+    return {
+      kind: this.kind,
+      async: this.async,
+      schema: this.schema,
+      dbPath: this.dbPath,
+    };
+  }
+
+  [inspect.custom]() {
+    return `PostgresBuilderStore ${JSON.stringify(this.toJSON())}`;
   }
 
   async _query(text, params = []) {
@@ -815,5 +835,5 @@ export async function openPostgresBuilderStore(databaseUrl, { schema = 'jarvis_b
     wrapped.cause = err;
     throw wrapped;
   }
-  return new PostgresBuilderStore(pool, { schema: safeSchema, databaseUrl });
+  return new PostgresBuilderStore(pool, { schema: safeSchema });
 }

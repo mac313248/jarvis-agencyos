@@ -1,6 +1,7 @@
 // Shared Builder Core store: SQLite local + Postgres Automation authority.
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { inspect } from 'node:util';
 import { existsSync, mkdirSync, readFileSync, rmSync, cpSync } from 'node:fs';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,7 @@ import {
   openBuilderStore,
   openBuilderStoreFromConfig,
   openPostgresBuilderStore,
+  PostgresBuilderStore,
   resolveBuilderStoreConfig,
   blockedStoreDecision,
   BUILDER_STORE_KIND,
@@ -241,6 +243,22 @@ describe('PostgreSQL Builder store', () => {
     assert.equal(decision.decision, 'BLOCKED');
     assert.equal(decision.reason, 'SHARED_BUILDER_DATABASE_UNREACHABLE');
     assert.equal(decision.dispatched, false);
+  });
+
+  test('Postgres store instance does not expose connection URI', () => {
+    const secretUri = 'postgresql://builder:LEAK_ME_UNIQUE_9f3a@db.example:5432/jarvis_builder';
+    const fakePool = {
+      query: async () => ({ rows: [] }),
+      connect: async () => ({}),
+      end: async () => {},
+      connectionString: secretUri,
+    };
+    const store = new PostgresBuilderStore(fakePool, { schema: 'jarvis_builder' });
+    const blob = `${JSON.stringify(store)}\n${inspect(store)}`;
+    assert.equal(store.databaseUrl, undefined);
+    assert.equal(Object.prototype.propertyIsEnumerable.call(store, 'pool'), false);
+    assert.equal(blob.includes('LEAK_ME_UNIQUE_9f3a'), false);
+    assert.equal(blob.includes(secretUri), false);
   });
 
   test('2. Postgres store implements required Builder Store semantics', async () => {
