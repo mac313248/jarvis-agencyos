@@ -12,6 +12,7 @@ import {
 import { BuilderCoreError } from './errors.js';
 import { invalidateVerification } from './verifier.js';
 import { invalidateReview } from './codex-review.js';
+import { co, settle } from './thenable.js';
 
 export const CI_WAIT_OUTCOME = Object.freeze({
   SUCCESS: 'SUCCESS',
@@ -106,39 +107,41 @@ function buildCiEvidence({
  * Snapshot whether a task is mid CI-wait (safe to resume without worker launch).
  */
 export function detectAwaitingCi(core, taskId) {
-  const candidates = core.store.listCandidatesForTask(taskId);
-  const live = candidates
-    .filter((c) => c.status !== CANDIDATE_STATUS.SUPERSEDED)
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const candidate = live[0] || null;
-  if (!candidate) {
-    return { awaiting_ci: false, candidate: null, run: null };
-  }
-  const run = core.store.getRun(candidate.factory_run_id);
-  if (!run || run.status !== RUN_STATUS.SUCCEEDED) {
-    return { awaiting_ci: false, candidate, run };
-  }
-  const verification = candidate.verification_ref
-    ? core.store.getVerification(candidate.verification_ref)
-    : null;
-  if (
-    verification &&
-    verification.result === VERIFICATION_RESULT.PASS &&
-    !verification.invalidated_at
-  ) {
-    return { awaiting_ci: false, candidate, run, verification };
-  }
-  const pendingCi =
-    !candidate.ci_status ||
-    candidate.ci_status === 'pending' ||
-    candidate.ci_status === 'unknown' ||
-    (verification && verification.result === VERIFICATION_RESULT.BLOCKED);
-  return {
-    awaiting_ci: Boolean(pendingCi),
-    candidate,
-    run,
-    verification,
-  };
+  return co(function* () {
+    const candidates = yield core.store.listCandidatesForTask(taskId);
+    const live = candidates
+      .filter((c) => c.status !== CANDIDATE_STATUS.SUPERSEDED)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    const candidate = live[0] || null;
+    if (!candidate) {
+      return { awaiting_ci: false, candidate: null, run: null };
+    }
+    const run = yield core.store.getRun(candidate.factory_run_id);
+    if (!run || run.status !== RUN_STATUS.SUCCEEDED) {
+      return { awaiting_ci: false, candidate, run };
+    }
+    const verification = candidate.verification_ref
+      ? yield core.store.getVerification(candidate.verification_ref)
+      : null;
+    if (
+      verification &&
+      verification.result === VERIFICATION_RESULT.PASS &&
+      !verification.invalidated_at
+    ) {
+      return { awaiting_ci: false, candidate, run, verification };
+    }
+    const pendingCi =
+      !candidate.ci_status ||
+      candidate.ci_status === 'pending' ||
+      candidate.ci_status === 'unknown' ||
+      (verification && verification.result === VERIFICATION_RESULT.BLOCKED);
+    return {
+      awaiting_ci: Boolean(pendingCi),
+      candidate,
+      run,
+      verification,
+    };
+  });
 }
 
 /**
@@ -168,7 +171,7 @@ export async function waitForExactCandidateCi(
     throw new BuilderCoreError('ci timeout_ms must be >= 1', 'INVALID_CI_TIMEOUT');
   }
 
-  let candidate = core.store.getCandidate(candidate_id);
+  let candidate = await settle(core.store.getCandidate(candidate_id));
   if (!candidate) {
     throw new BuilderCoreError(
       `unknown candidate_id: ${candidate_id}`,
@@ -194,7 +197,7 @@ export async function waitForExactCandidateCi(
   let polls = 0;
   let lastEvidence = null;
 
-  core.store.appendEvent({
+  await settle(core.store.appendEvent({
     task_id: candidate.task_id,
     factory_run_id: candidate.factory_run_id,
     event_type: EVENT_TYPE.CI_WAIT_STARTED,
@@ -207,11 +210,11 @@ export async function waitForExactCandidateCi(
       timeout_ms,
       started_at,
     },
-  });
+  }));
 
   while (nowFn() < deadline) {
     polls += 1;
-    candidate = core.store.getCandidate(candidate_id);
+    candidate = await settle(core.store.getCandidate(candidate_id));
     const sha = assertCommitSha(candidate.commit_sha);
     if (sha !== boundSha) {
       // Bound SHA changed under us — fail closed for this wait.
@@ -226,12 +229,12 @@ export async function waitForExactCandidateCi(
         polls,
         outcome: CI_WAIT_OUTCOME.HEAD_CHANGED,
       });
-      core.store.appendEvent({
+      await settle(core.store.appendEvent({
         task_id: candidate.task_id,
         factory_run_id: candidate.factory_run_id,
         event_type: EVENT_TYPE.CI_WAIT_INVALIDATED,
         payload: evidence,
-      });
+      }));
       return {
         outcome: CI_WAIT_OUTCOME.HEAD_CHANGED,
         evidence,
@@ -261,17 +264,17 @@ export async function waitForExactCandidateCi(
         outcome: CI_WAIT_OUTCOME.PR_MISMATCH,
       });
       if (candidate.verification_ref) {
-        invalidateVerification(core, candidate.verification_ref, 'ci_pr_branch_mismatch');
+        await settle(invalidateVerification(core, candidate.verification_ref, 'ci_pr_branch_mismatch'));
       }
       if (candidate.review_ref) {
-        invalidateReview(core, candidate.review_ref, 'ci_pr_branch_mismatch');
+        await settle(invalidateReview(core, candidate.review_ref, 'ci_pr_branch_mismatch'));
       }
-      core.store.appendEvent({
+      await settle(core.store.appendEvent({
         task_id: candidate.task_id,
         factory_run_id: candidate.factory_run_id,
         event_type: EVENT_TYPE.CI_WAIT_FINISHED,
         payload: evidence,
-      });
+      }));
       return {
         outcome: CI_WAIT_OUTCOME.PR_MISMATCH,
         evidence,
@@ -280,10 +283,10 @@ export async function waitForExactCandidateCi(
     }
     if (pr.head_sha !== sha) {
       if (candidate.verification_ref) {
-        invalidateVerification(core, candidate.verification_ref, 'ci_pr_head_changed');
+        await settle(invalidateVerification(core, candidate.verification_ref, 'ci_pr_head_changed'));
       }
       if (candidate.review_ref) {
-        invalidateReview(core, candidate.review_ref, 'ci_pr_head_changed');
+        await settle(invalidateReview(core, candidate.review_ref, 'ci_pr_head_changed'));
       }
       const evidence = buildCiEvidence({
         candidate,
@@ -296,7 +299,7 @@ export async function waitForExactCandidateCi(
         polls,
         outcome: CI_WAIT_OUTCOME.HEAD_CHANGED,
       });
-      core.store.appendEvent({
+      await settle(core.store.appendEvent({
         task_id: candidate.task_id,
         factory_run_id: candidate.factory_run_id,
         event_type: EVENT_TYPE.CI_WAIT_INVALIDATED,
@@ -305,7 +308,7 @@ export async function waitForExactCandidateCi(
           new_head_sha: pr.head_sha,
           bound_sha: sha,
         },
-      });
+      }));
       return {
         outcome: CI_WAIT_OUTCOME.HEAD_CHANGED,
         evidence: { ...evidence, new_head_sha: pr.head_sha },
@@ -343,7 +346,7 @@ export async function waitForExactCandidateCi(
       outcome: null,
     });
 
-    core.store.updateCandidate(candidate_id, {
+    await settle(core.store.updateCandidate(candidate_id, {
       pr_number: pr.number,
       pr_url: pr.html_url,
       pr_ref: String(pr.number),
@@ -351,9 +354,9 @@ export async function waitForExactCandidateCi(
       ci_conclusion: summary.ci_conclusion,
       ci_ref: JSON.stringify(lastEvidence),
       evidence_at: summary.captured_at,
-    });
+    }));
 
-    core.store.appendEvent({
+    await settle(core.store.appendEvent({
       task_id: candidate.task_id,
       factory_run_id: candidate.factory_run_id,
       event_type: EVENT_TYPE.CI_WAIT_PROGRESS,
@@ -367,7 +370,7 @@ export async function waitForExactCandidateCi(
         check_run_ids: lastEvidence.check_run_ids,
         captured_at: summary.captured_at,
       },
-    });
+    }));
 
     const classified = classifyCiSummary(summary);
     if (classified.terminal) {
@@ -377,20 +380,20 @@ export async function waitForExactCandidateCi(
         finished_at,
         outcome: classified.outcome,
       };
-      core.store.updateCandidate(candidate_id, {
+      await settle(core.store.updateCandidate(candidate_id, {
         ci_ref: JSON.stringify(evidence),
         evidence_at: finished_at,
-      });
-      core.store.appendEvent({
+      }));
+      await settle(core.store.appendEvent({
         task_id: candidate.task_id,
         factory_run_id: candidate.factory_run_id,
         event_type: EVENT_TYPE.CI_WAIT_FINISHED,
         payload: evidence,
-      });
+      }));
       return {
         outcome: classified.outcome,
         evidence,
-        candidate: core.store.getCandidate(candidate_id),
+        candidate: await settle(core.store.getCandidate(candidate_id)),
       };
     }
 
@@ -414,19 +417,19 @@ export async function waitForExactCandidateCi(
     finished_at,
     outcome: CI_WAIT_OUTCOME.TIMEOUT,
   };
-  core.store.updateCandidate(candidate_id, {
+  await settle(core.store.updateCandidate(candidate_id, {
     ci_ref: JSON.stringify(evidence),
     evidence_at: finished_at,
-  });
-  core.store.appendEvent({
+  }));
+  await settle(core.store.appendEvent({
     task_id: candidate.task_id,
     factory_run_id: candidate.factory_run_id,
     event_type: EVENT_TYPE.CI_WAIT_FINISHED,
     payload: evidence,
-  });
+  }));
   return {
     outcome: CI_WAIT_OUTCOME.TIMEOUT,
     evidence,
-    candidate: core.store.getCandidate(candidate_id),
+    candidate: await settle(core.store.getCandidate(candidate_id)),
   };
 }

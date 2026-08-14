@@ -3,6 +3,7 @@
   "authority": "docs/master-sot",
   "note": "Approved-work catalog only. Durable task/run/candidate state lives in Builder Core. This file is not a second queue.",
   "durable_state": ".data/builder/jarvis-tasks.sqlite",
+  "durable_state_shared": "JARVIS_BUILDER_STORE=postgres + JARVIS_BUILDER_DATABASE_URL (schema jarvis_builder). Required for unattended Automation. Local SQLite is not Automation authority.",
   "orientation": "scripts/orientation.mjs",
   "forbidden_scopes": [
     "hermes",

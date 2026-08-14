@@ -14,151 +14,42 @@ import {
   assertRunStatus,
   assertTaskStatus,
   newEventId,
+  newFactoryRunId,
 } from './contracts.js';
 import { safeJsonStringify } from './secrets-redact.js';
+import {
+  rowToApproval,
+  rowToCandidate,
+  rowToEvent,
+  rowToLease,
+  rowToReview,
+  rowToRun,
+  rowToTask,
+  rowToVerification,
+} from './store-mappers.js';
+import {
+  ACTIVE_CODING_LEASE_KEY,
+  BUILDER_STORE_KIND,
+  isUniqueViolation,
+} from './store-config.js';
+import { createAndLockTask } from './task-lock.js';
 
 const SCHEMA_PATH = join(dirname(fileURLToPath(import.meta.url)), 'schema.sql');
-const SCHEMA_VERSION = 'builder-stage1-v5';
+export const SCHEMA_VERSION = 'builder-stage1-v6';
+const ACTIVE_RUN_STATUSES = new Set(['PENDING', 'LAUNCHED', 'RUNNING']);
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function parseJson(text, fallback) {
-  if (text == null || text === '') return fallback;
-  return JSON.parse(text);
 }
 
 function durableJson(value) {
   return value == null ? null : safeJsonStringify(value);
 }
 
-function rowToTask(row) {
-  if (!row) return null;
-  return {
-    task_id: row.task_id,
-    intent: row.intent,
-    intent_version: row.intent_version,
-    acceptance_ref: row.acceptance_ref,
-    allowed_paths: parseJson(row.allowed_paths_json, []),
-    tool_manifest: parseJson(row.tool_manifest_json, {}),
-    review_required: Boolean(row.review_required),
-    status: row.status,
-    priority: row.priority,
-    max_attempts: row.max_attempts == null ? 2 : Number(row.max_attempts),
-    max_runtime_ms:
-      row.max_runtime_ms == null ? 1800000 : Number(row.max_runtime_ms),
-    cost_budget_status: row.cost_budget_status || 'UNKNOWN',
-    proposal_id: row.proposal_id,
-    content_hash: row.content_hash,
-    locked_at: row.locked_at,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function rowToReview(row) {
-  if (!row) return null;
-  return {
-    review_id: row.review_id,
-    candidate_id: row.candidate_id,
-    commit_sha: row.commit_sha,
-    review_status: row.review_status,
-    findings: parseJson(row.findings_json, []),
-    evidence: parseJson(row.evidence_json, null),
-    reviewed_at: row.reviewed_at,
-    invalidated_at: row.invalidated_at,
-    invalidation_reason: row.invalidation_reason,
-  };
-}
-
-function rowToRun(row) {
-  if (!row) return null;
-  return {
-    factory_run_id: row.factory_run_id,
-    task_id: row.task_id,
-    provider: row.provider,
-    provider_run_id: row.provider_run_id,
-    provider_agent_id: row.provider_agent_id ?? null,
-    attempt: row.attempt,
-    status: row.status,
-    started_at: row.started_at,
-    ended_at: row.ended_at,
-    failure_class: row.failure_class,
-    evidence: parseJson(row.evidence_json, null),
-    created_at: row.created_at,
-  };
-}
-
-function rowToCandidate(row) {
-  if (!row) return null;
-  return {
-    candidate_id: row.candidate_id,
-    task_id: row.task_id,
-    factory_run_id: row.factory_run_id,
-    provider_run_id: row.provider_run_id ?? null,
-    branch: row.branch,
-    commit_sha: row.commit_sha,
-    pr_number: row.pr_number == null ? null : Number(row.pr_number),
-    pr_url: row.pr_url ?? null,
-    pr_ref: row.pr_ref,
-    verification_ref: row.verification_ref,
-    review_ref: row.review_ref,
-    ci_status: row.ci_status ?? null,
-    ci_conclusion: row.ci_conclusion ?? null,
-    ci_ref: row.ci_ref,
-    evidence_at: row.evidence_at ?? null,
-    status: row.status,
-    created_at: row.created_at,
-  };
-}
-
-function rowToVerification(row) {
-  if (!row) return null;
-  return {
-    verification_id: row.verification_id,
-    candidate_id: row.candidate_id,
-    commit_sha: row.commit_sha,
-    result: row.result,
-    checks: parseJson(row.checks_json, []),
-    worker_claim: row.worker_claim,
-    failure_class: row.failure_class,
-    created_at: row.created_at,
-    invalidated_at: row.invalidated_at,
-    invalidation_reason: row.invalidation_reason,
-  };
-}
-
-function rowToApproval(row) {
-  if (!row) return null;
-  return {
-    approval_id: row.approval_id,
-    task_id: row.task_id,
-    proposal_id: row.proposal_id,
-    content_hash: row.content_hash,
-    candidate_id: row.candidate_id,
-    commit_sha: row.commit_sha,
-    approved_by: row.approved_by,
-    approved_at: row.approved_at,
-    status: row.status,
-  };
-}
-
-function rowToEvent(row) {
-  if (!row) return null;
-  return {
-    event_id: row.event_id,
-    task_id: row.task_id,
-    factory_run_id: row.factory_run_id,
-    event_type: row.event_type,
-    evidence_ref: row.evidence_ref,
-    payload: parseJson(row.payload_json, null),
-    timestamp: row.timestamp,
-  };
-}
-
 export class BuilderStore {
   constructor(dbPath = ':memory:') {
+    this.kind = BUILDER_STORE_KIND.SQLITE;
+    this.async = false;
     this.dbPath = dbPath;
     if (dbPath !== ':memory:') {
       mkdirSync(dirname(dbPath), { recursive: true });
@@ -201,11 +92,26 @@ export class BuilderStore {
       ['max_attempts', 'INTEGER NOT NULL DEFAULT 2'],
       ['max_runtime_ms', 'INTEGER NOT NULL DEFAULT 1800000'],
       ['cost_budget_status', "TEXT NOT NULL DEFAULT 'UNKNOWN'"],
+      ['logical_work_id', 'TEXT'],
     ]) {
       if (!taskCols.includes(col)) {
         this.db.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`);
       }
     }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS builder_leases (
+        lease_key TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        task_id TEXT,
+        factory_run_id TEXT,
+        acquired_at TEXT NOT NULL
+      );
+    `);
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS tasks_logical_work_id_uq
+        ON tasks(logical_work_id)
+        WHERE logical_work_id IS NOT NULL;
+    `);
   }
 
   close() {
@@ -225,14 +131,15 @@ export class BuilderStore {
     this.db
       .prepare(
         `INSERT INTO tasks(
-           task_id, intent, intent_version, acceptance_ref, allowed_paths_json,
-           tool_manifest_json, review_required, status, priority, max_attempts,
-           max_runtime_ms, cost_budget_status, proposal_id, content_hash,
-           locked_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           task_id, logical_work_id, intent, intent_version, acceptance_ref,
+           allowed_paths_json, tool_manifest_json, review_required, status,
+           priority, max_attempts, max_runtime_ms, cost_budget_status,
+           proposal_id, content_hash, locked_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         task.task_id,
+        task.logical_work_id ?? null,
         task.intent,
         task.intent_version,
         task.acceptance_ref,
@@ -259,6 +166,15 @@ export class BuilderStore {
     );
   }
 
+  getTaskByLogicalWorkId(logicalWorkId) {
+    if (!logicalWorkId) return null;
+    return rowToTask(
+      this.db
+        .prepare(`SELECT * FROM tasks WHERE logical_work_id = ?`)
+        .get(logicalWorkId)
+    );
+  }
+
   listTasks() {
     return this.db
       .prepare(`SELECT * FROM tasks ORDER BY created_at ASC`)
@@ -279,7 +195,7 @@ export class BuilderStore {
     this.db
       .prepare(
         `UPDATE tasks SET
-           intent = ?, intent_version = ?, acceptance_ref = ?,
+           logical_work_id = ?, intent = ?, intent_version = ?, acceptance_ref = ?,
            allowed_paths_json = ?, tool_manifest_json = ?, review_required = ?,
            status = ?, priority = ?, max_attempts = ?, max_runtime_ms = ?,
            cost_budget_status = ?, proposal_id = ?, content_hash = ?,
@@ -287,6 +203,7 @@ export class BuilderStore {
          WHERE task_id = ?`
       )
       .run(
+        next.logical_work_id ?? null,
         next.intent,
         next.intent_version,
         next.acceptance_ref,
@@ -377,6 +294,22 @@ export class BuilderStore {
         durableJson(next.evidence),
         factoryRunId
       );
+    if (!ACTIVE_RUN_STATUSES.has(next.status)) {
+      this.releaseControlLeaseByRun(factoryRunId);
+    }
+    return this.getRun(factoryRunId);
+  }
+
+  tryClaimPendingDispatch(factoryRunId) {
+    const result = this.db
+      .prepare(
+        `UPDATE runs SET status = 'LAUNCHED'
+         WHERE factory_run_id = ?
+           AND status = 'PENDING'
+           AND (provider_run_id IS NULL OR provider_run_id = '')`
+      )
+      .run(factoryRunId);
+    if (!result.changes) return null;
     return this.getRun(factoryRunId);
   }
 
@@ -708,6 +641,196 @@ export class BuilderStore {
       )
       .all(taskId)
       .map(rowToEvent);
+  }
+
+  tx(fn) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (err) {
+      try { this.db.exec('ROLLBACK'); } catch { /* ignore */ }
+      throw err;
+    }
+  }
+
+  getControlLease(leaseKey) {
+    return rowToLease(
+      this.db
+        .prepare(`SELECT * FROM builder_leases WHERE lease_key = ?`)
+        .get(leaseKey)
+    );
+  }
+
+  acquireControlLease({
+    key = ACTIVE_CODING_LEASE_KEY,
+    owner,
+    task_id = null,
+    factory_run_id = null,
+  }) {
+    return this.tx(() => {
+      const existing = this.getControlLease(key);
+      if (existing) {
+        if (existing.owner === owner) {
+          this.db
+            .prepare(
+              `UPDATE builder_leases SET task_id = ?, factory_run_id = ?, acquired_at = ?
+               WHERE lease_key = ?`
+            )
+            .run(
+              task_id ?? existing.task_id,
+              factory_run_id ?? existing.factory_run_id,
+              nowIso(),
+              key
+            );
+          return { acquired: true, refreshed: true, lease: this.getControlLease(key) };
+        }
+        return { acquired: false, reason: 'LEASE_HELD', lease: existing };
+      }
+      this.db
+        .prepare(
+          `INSERT INTO builder_leases(lease_key, owner, task_id, factory_run_id, acquired_at)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(key, owner, task_id, factory_run_id, nowIso());
+      return { acquired: true, refreshed: false, lease: this.getControlLease(key) };
+    });
+  }
+
+  releaseControlLease(key = ACTIVE_CODING_LEASE_KEY, owner = null) {
+    if (owner) {
+      this.db
+        .prepare(`DELETE FROM builder_leases WHERE lease_key = ? AND owner = ?`)
+        .run(key, owner);
+      return;
+    }
+    this.db.prepare(`DELETE FROM builder_leases WHERE lease_key = ?`).run(key);
+  }
+
+  releaseControlLeaseByRun(factoryRunId) {
+    this.db
+      .prepare(`DELETE FROM builder_leases WHERE factory_run_id = ?`)
+      .run(factoryRunId);
+  }
+
+  claimLogicalWork(input) {
+    try {
+      return this.tx(() => {
+        const existing =
+          this.getTask(input.task_id) ||
+          this.getTaskByLogicalWorkId(input.logical_work_id);
+        if (existing) {
+          return {
+            claimed: false,
+            already_claimed: true,
+            task: existing,
+            reason: 'ALREADY_CLAIMED',
+          };
+        }
+        const task = createAndLockTask(this, input);
+        return { claimed: true, already_claimed: false, task };
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const task =
+          this.getTask(input.task_id) ||
+          this.getTaskByLogicalWorkId(input.logical_work_id);
+        return {
+          claimed: false,
+          already_claimed: true,
+          task,
+          reason: 'ALREADY_CLAIMED',
+        };
+      }
+      throw err;
+    }
+  }
+
+  tryInsertActiveRun({
+    task_id,
+    provider,
+    owner,
+    factory_run_id = null,
+    provider_run_id = null,
+    provider_agent_id = null,
+    attempt = null,
+  }) {
+    try {
+      return this.tx(() => {
+        const lease = this.getControlLease(ACTIVE_CODING_LEASE_KEY);
+        if (lease && lease.owner !== owner) {
+          const existing = lease.factory_run_id
+            ? this.getRun(lease.factory_run_id)
+            : this.listActiveRuns()[0] || null;
+          return {
+            inserted: false,
+            reason: 'LEASE_HELD',
+            run: existing,
+            lease,
+          };
+        }
+        const existingActive = this.listRunsForTask(task_id).filter((r) =>
+          ACTIVE_RUN_STATUSES.has(r.status)
+        );
+        if (existingActive.length > 0) {
+          return {
+            inserted: false,
+            reason: 'ACTIVE_RUN_EXISTS',
+            run: existingActive[0],
+            lease,
+          };
+        }
+        const existing = this.listRunsForTask(task_id);
+        const nextAttempt = attempt ?? existing.length + 1;
+        const run = this.insertRun({
+          factory_run_id: factory_run_id || newFactoryRunId(),
+          task_id,
+          provider,
+          provider_run_id,
+          provider_agent_id,
+          attempt: nextAttempt,
+          status: 'PENDING',
+          started_at: null,
+          ended_at: null,
+          failure_class: null,
+          evidence: null,
+        });
+        if (lease && lease.owner === owner) {
+          this.db
+            .prepare(
+              `UPDATE builder_leases SET task_id = ?, factory_run_id = ?, acquired_at = ?
+               WHERE lease_key = ?`
+            )
+            .run(task_id, run.factory_run_id, nowIso(), ACTIVE_CODING_LEASE_KEY);
+        } else {
+          this.db
+            .prepare(
+              `INSERT INTO builder_leases(lease_key, owner, task_id, factory_run_id, acquired_at)
+               VALUES (?, ?, ?, ?, ?)`
+            )
+            .run(
+              ACTIVE_CODING_LEASE_KEY,
+              owner,
+              task_id,
+              run.factory_run_id,
+              nowIso()
+            );
+        }
+        return { inserted: true, run };
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const active = this.listActiveRuns()[0] || null;
+        const taskRuns = this.listRunsForTask(task_id);
+        return {
+          inserted: false,
+          reason: 'UNIQUE_CONSTRAINT',
+          run: active || taskRuns[taskRuns.length - 1] || null,
+        };
+      }
+      throw err;
+    }
   }
 
   // Reconstruct nonterminal Builder state after restart.

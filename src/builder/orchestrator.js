@@ -22,6 +22,7 @@ import {
   detectAwaitingCi,
 } from './ci-wait.js';
 import { redactSecrets, redactString } from './secrets-redact.js';
+import { settle } from './thenable.js';
 
 export const ORCHESTRATION_DECISION = Object.freeze({
   DONE: 'DONE',
@@ -229,7 +230,7 @@ async function registerAndVerify(core, {
   const maxRebinds = 2;
   for (let rebind = 0; rebind <= maxRebinds; rebind += 1) {
     const sha = assertCommitSha(resolved.commit_sha);
-    candidate = core.recordCandidate({
+    candidate = await settle(core.recordCandidate({
       task_id: task.task_id,
       factory_run_id: run.factory_run_id,
       branch: resolved.branch,
@@ -237,7 +238,7 @@ async function registerAndVerify(core, {
       pr_number: resolved.pr_number,
       pr_url: resolved.pr_url,
       evidence_at: nowIso(),
-    });
+    }));
 
     if (githubClient) {
       await core.refreshCandidateLanding(candidate.candidate_id, githubClient);
@@ -279,12 +280,12 @@ async function registerAndVerify(core, {
     break;
   }
 
-  const verified = await core.verifyCandidate(candidate.candidate_id, {
+  const verified = await settle(core.verifyCandidate(candidate.candidate_id, {
     githubClient,
     runTaskTests,
     runBuildChecks,
     worker_claim: null,
-  });
+  }));
   return { candidate, verified, ci_wait: ciWait };
 }
 
@@ -296,10 +297,10 @@ async function maybeReview(core, {
   getDiff,
 }) {
   if (!task.review_required) {
-    return core.reviewCandidate(candidate.candidate_id, {
+    return await settle(core.reviewCandidate(candidate.candidate_id, {
       invoker: null,
       verification: verified.verification,
-    });
+    }));
   }
   if (!invoker) {
     throw new OrchestratorError(
@@ -307,11 +308,11 @@ async function maybeReview(core, {
       'CODEX_UNAVAILABLE'
     );
   }
-  return core.reviewCandidate(candidate.candidate_id, {
+  return await settle(core.reviewCandidate(candidate.candidate_id, {
     invoker,
     getDiff,
     verification: verified.verification,
-  });
+  }));
 }
 
 function decideAfterGates({ task, verified, review, gate }) {
@@ -388,7 +389,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
   };
 
   // 1–5: receive, normalize, lock, mint ids, enforce immutable manifest.
-  const task = core.createAndLockTask(ownerTask);
+  const task = await settle(core.createAndLockTask(ownerTask));
   push('task_locked', {
     task_id: task.task_id,
     proposal_id: task.proposal_id,
@@ -396,7 +397,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     review_required: task.review_required,
     allowed_tool_manifest: workerApprovedTools(task).allowed_tool_manifest,
   });
-  core.store.appendEvent({
+  await settle(core.store.appendEvent({
     task_id: task.task_id,
     event_type: EVENT_TYPE.ORCHESTRATION_STARTED,
     payload: {
@@ -404,9 +405,9 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
       intent: task.intent,
       acceptance_ref: task.acceptance_ref,
     },
-  });
+  }));
 
-  const policy = core.getRetryPolicy(task.task_id);
+  const policy = await settle(core.getRetryPolicy(task.task_id));
   const cycleCap = max_cycles == null ? policy.max_attempts : Number(max_cycles);
   let attempt = 0;
   let last = {
@@ -421,11 +422,11 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
 
   while (attempt < cycleCap) {
     attempt += 1;
-    const prompt = buildWorkerPrompt(core.getTask(task.task_id), { owner_prompt });
+    const prompt = buildWorkerPrompt(await settle(core.getTask(task.task_id)), { owner_prompt });
 
     // 6–9: launch exactly one worker, persist provider ids, monitor, collect.
     let launched;
-    const current = core.getCurrentCodingRun();
+    const current = await settle(core.getCurrentCodingRun());
     if (current && current.status === RUN_STATUS.PENDING && current.task_id === task.task_id) {
       launched = await core.launchCodingWorkerOnRun({
         factory_run_id: current.factory_run_id,
@@ -465,10 +466,10 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
       });
     } catch (err) {
       push('worker_wait_failed', { code: err.code, message: err.message });
-      const repair = core.beginRepairAttempt(task.task_id, {
+      const repair = await settle(core.beginRepairAttempt(task.task_id, {
         failure_class: FAILURE_CLASS.TIMEOUT,
         reason: err.message,
-      });
+      }));
       if (!repair.allowed) {
         return finalize(core, {
           task_id: task.task_id,
@@ -498,10 +499,10 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
         status: terminal.run.status,
         failure_class: terminal.run.failure_class,
       });
-      const repair = core.beginRepairAttempt(task.task_id, {
+      const repair = await settle(core.beginRepairAttempt(task.task_id, {
         failure_class: terminal.run.failure_class || FAILURE_CLASS.WORKER_CRASH,
         reason: `worker_${terminal.run.status}`,
-      });
+      }));
       if (!repair.allowed) {
         return finalize(core, {
           task_id: task.task_id,
@@ -532,7 +533,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     });
 
     // Stale/cancelled cannot complete task.
-    const runNow = core.getRun(launched.run.factory_run_id);
+    const runNow = await settle(core.getRun(launched.run.factory_run_id));
     if (
       runNow.status === RUN_STATUS.STALE ||
       runNow.status === RUN_STATUS.CANCELLED
@@ -551,7 +552,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     let ci_wait = null;
     try {
       ({ candidate, verified, ci_wait } = await registerAndVerify(core, {
-        task: core.getTask(task.task_id),
+        task: await settle(core.getTask(task.task_id)),
         run: runNow,
         landing,
         githubClient,
@@ -573,10 +574,10 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
         code: err.code,
         message: err.message,
       });
-      const repair = core.beginRepairAttempt(task.task_id, {
+      const repair = await settle(core.beginRepairAttempt(task.task_id, {
         failure_class: FAILURE_CLASS.CI_FAIL,
         reason: err.message,
-      });
+      }));
       if (!repair.allowed) {
         return finalize(core, {
           task_id: task.task_id,
@@ -618,8 +619,8 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     if (verified.result === VERIFICATION_RESULT.PASS) {
       try {
         ({ review, gate } = await maybeReview(core, {
-          task: core.getTask(task.task_id),
-          candidate: core.store.getCandidate(candidate.candidate_id),
+          task: await settle(core.getTask(task.task_id)),
+          candidate: await settle(core.store.getCandidate(candidate.candidate_id)),
           verified,
           invoker: codexInvoker,
           getDiff,
@@ -647,7 +648,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     }
 
     const decision = decideAfterGates({
-      task: core.getTask(task.task_id),
+      task: await settle(core.getTask(task.task_id)),
       verified,
       review,
       gate,
@@ -655,7 +656,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     push('decision', decision);
 
     if (decision.decision === ORCHESTRATION_DECISION.DONE) {
-      core.updateTaskStatus(task.task_id, TASK_STATUS.ACCEPTED);
+      await settle(core.updateTaskStatus(task.task_id, TASK_STATUS.ACCEPTED));
       return finalize(core, {
         task_id: task.task_id,
         decision: ORCHESTRATION_DECISION.DONE,
@@ -669,8 +670,8 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     }
 
     if (decision.decision === ORCHESTRATION_DECISION.BLOCKED) {
-      if (core.getTask(task.task_id).status !== TASK_STATUS.BLOCKED) {
-        core.updateTaskStatus(task.task_id, TASK_STATUS.BLOCKED);
+      if ((await settle(core.getTask(task.task_id))).status !== TASK_STATUS.BLOCKED) {
+        await settle(core.updateTaskStatus(task.task_id, TASK_STATUS.BLOCKED));
       }
       return finalize(core, {
         task_id: task.task_id,
@@ -685,10 +686,10 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     }
 
     // RETRY via existing bounded repair policy (fresh factory_run_id).
-    const repair = core.beginRepairAttempt(task.task_id, {
+    const repair = await settle(core.beginRepairAttempt(task.task_id, {
       failure_class: decision.failure_class || FAILURE_CLASS.TEST_FAIL,
       reason: decision.reason,
-    });
+    }));
     if (!repair.allowed) {
       return finalize(core, {
         task_id: task.task_id,
@@ -712,7 +713,7 @@ export async function runOwnerSoftwareTask(core, ownerTask, options = {}) {
     });
   }
 
-  core.updateTaskStatus(task.task_id, TASK_STATUS.NEEDS_OWNER);
+  await settle(core.updateTaskStatus(task.task_id, TASK_STATUS.NEEDS_OWNER));
   return finalize(core, {
     task_id: task.task_id,
     decision: ORCHESTRATION_DECISION.NEEDS_OWNER,
@@ -744,7 +745,7 @@ export async function resumeExactCandidateCiAndVerify(
     sleepFn = sleep,
   } = {}
 ) {
-  const awaiting = detectAwaitingCi(core, task_id);
+  const awaiting = await settle(detectAwaitingCi(core, task_id));
   if (!awaiting.awaiting_ci || !awaiting.candidate) {
     throw new OrchestratorError(
       'task is not awaiting exact CI for an existing candidate',
@@ -771,21 +772,21 @@ export async function resumeExactCandidateCiAndVerify(
       'CI_PR_MISMATCH'
     );
   }
-  const verified = await core.verifyCandidate(candidate.candidate_id, {
+  const verified = await settle(core.verifyCandidate(candidate.candidate_id, {
     githubClient,
     runTaskTests,
     runBuildChecks,
     worker_claim: null,
-  });
+  }));
   return {
-    candidate: core.store.getCandidate(candidate.candidate_id),
+    candidate: await settle(core.store.getCandidate(candidate.candidate_id)),
     verified,
     ci_wait,
     duplicate_worker_launch: false,
   };
 }
 
-function finalize(core, {
+async function finalize(core, {
   task_id,
   decision,
   reason,
@@ -796,7 +797,7 @@ function finalize(core, {
   gate = null,
   repair = null,
 }) {
-  const task = core.getTask(task_id);
+  const task = await settle(core.getTask(task_id));
   const result = {
     ok: decision === ORCHESTRATION_DECISION.DONE,
     decision,
@@ -836,7 +837,7 @@ function finalize(core, {
     completed_at: nowIso(),
   };
 
-  core.store.appendEvent({
+  await settle(core.store.appendEvent({
     task_id,
     factory_run_id: last.factory_run_id,
     event_type: EVENT_TYPE.ORCHESTRATION_DECIDED,
@@ -849,7 +850,7 @@ function finalize(core, {
       verification: result.verification,
       review: result.review,
     },
-  });
+  }));
   return result;
 }
 

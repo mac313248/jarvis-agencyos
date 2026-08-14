@@ -38,6 +38,9 @@ describe('Stage-1 secret redaction', () => {
     assert.equal(isSensitiveKey('GHL_API_KEY'), true);
     assert.equal(isSensitiveKey('META_ACCESS_TOKEN'), true);
     assert.equal(isSensitiveKey('STRIPE_SECRET_KEY'), true);
+    assert.equal(isSensitiveKey('JARVIS_BUILDER_DATABASE_URL'), true);
+    assert.equal(isSensitiveKey('DATABASE_URL'), true);
+    assert.equal(isSensitiveKey('JARVIS_BUILDER_STORE'), false);
     assert.equal(isSensitiveKey('branch'), false);
 
     const obj = redactSecrets({
@@ -46,6 +49,7 @@ describe('Stage-1 secret redaction', () => {
       GITHUB_TOKEN: FAKE_GH,
       GHL_API_KEY: FAKE_GHL,
       apiKey: FAKE_CURSOR_KEY,
+      databaseUrl: 'postgresql://builder:LEAK_ME_UNIQUE_9f3a@db.example:5432/jarvis_builder',
       nested: { client: { apiKey: FAKE_CURSOR_KEY, baseUrl: 'https://api.cursor.com' } },
       note: `token=${FAKE_CURSOR_KEY}`,
     });
@@ -54,6 +58,7 @@ describe('Stage-1 secret redaction', () => {
     assert.equal(obj.GITHUB_TOKEN, REDACTED);
     assert.equal(obj.GHL_API_KEY, REDACTED);
     assert.equal(obj.apiKey, REDACTED);
+    assert.equal(obj.databaseUrl, REDACTED);
     assert.equal(obj.nested.client.apiKey, REDACTED);
     assert.equal(obj.nested.client.baseUrl, 'https://api.cursor.com');
     assertNoLeak(JSON.stringify(obj));

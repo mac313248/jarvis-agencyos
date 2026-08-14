@@ -11,17 +11,28 @@ import {
 } from '../worker-provider.js';
 import { createCursorSdkAdapter } from './cursor-sdk-adapter.js';
 import { loadCursorApiKey } from './cursor-api-key.js';
-import { redactSecrets, safeErrorFields, REDACTED } from '../secrets-redact.js';
+import { isSensitiveKey, redactSecrets, safeErrorFields, REDACTED } from '../secrets-redact.js';
 
 const FORBIDDEN_ENV_NAME =
-  /^(GHL_|HIGHLEVEL_|META_|FACEBOOK_|STRIPE_|PAYMENT_|PAYPAL_|TWILIO_|CUSTOMER_|CRM_|PROD_|PRODUCTION_)/i;
+  /^(GHL_|HIGHLEVEL_|META_|FACEBOOK_|STRIPE_|PAYMENT_|PAYPAL_|TWILIO_|CUSTOMER_|CRM_|PROD_|PRODUCTION_|JARVIS_BUILDER_|POSTGRES_|PG)/i;
 
 const FORBIDDEN_ENV_VALUE_HINT =
-  /(GHL|HIGHLEVEL|META_ACCESS|FACEBOOK|STRIPE|PAYMENT|CUSTOMER_SECRET)/i;
+  /(GHL|HIGHLEVEL|META_ACCESS|FACEBOOK|STRIPE|PAYMENT|CUSTOMER_SECRET|postgresql:\/\/|postgres:\/\/)/i;
 
 export function assertNoBusinessCredentials(envVars = {}) {
   for (const [name, value] of Object.entries(envVars || {})) {
-    if (FORBIDDEN_ENV_NAME.test(name) || FORBIDDEN_ENV_VALUE_HINT.test(name)) {
+    if (/^CURSOR_/.test(name)) {
+      throw new WorkerProviderError(
+        `CURSOR_* env vars are reserved and cannot be passed to cloud workers: ${name}`,
+        { code: 'RESERVED_ENV' }
+      );
+    }
+    if (
+      isSensitiveKey(name)
+      || FORBIDDEN_ENV_NAME.test(name)
+      || FORBIDDEN_ENV_VALUE_HINT.test(name)
+      || /DATABASE_URL/i.test(name)
+    ) {
       throw new WorkerProviderError(
         `refusing production/business credential env var: ${name}`,
         { code: 'BUSINESS_CREDENTIAL_FORBIDDEN' }
@@ -31,12 +42,6 @@ export function assertNoBusinessCredentials(envVars = {}) {
       throw new WorkerProviderError(
         `refusing env var value that looks like a business credential: ${name}`,
         { code: 'BUSINESS_CREDENTIAL_FORBIDDEN' }
-      );
-    }
-    if (/^CURSOR_/.test(name)) {
-      throw new WorkerProviderError(
-        `CURSOR_* env vars are reserved and cannot be passed to cloud workers: ${name}`,
-        { code: 'RESERVED_ENV' }
       );
     }
   }

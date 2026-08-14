@@ -12,6 +12,7 @@ import {
 } from './contracts.js';
 import { BuilderCoreError } from './errors.js';
 import { TaskLockError, verifyTaskHash } from './task-lock.js';
+import { settle } from './thenable.js';
 
 export class ToolPolicyError extends Error {
   constructor(message, code = 'TOOL_POLICY_VIOLATION') {
@@ -163,7 +164,7 @@ export async function invokeTaskTool(core, {
   availability = {},
   invoke,
 }) {
-  const task = core.store.getTask(task_id);
+  const task = await settle(core.store.getTask(task_id));
   if (!task) throw new ToolPolicyError(`unknown task_id: ${task_id}`, 'UNKNOWN_TASK');
   verifyTaskHash(task);
 
@@ -173,7 +174,7 @@ export async function invokeTaskTool(core, {
     resolved = resolvePermittedProvider(task, { provider, availability });
   } catch (err) {
     const code = err.code || 'TOOL_POLICY_VIOLATION';
-    core.store.appendEvent({
+    await settle(core.store.appendEvent({
       task_id,
       event_type: EVENT_TYPE.TOOL_DENIED,
       payload: {
@@ -183,7 +184,7 @@ export async function invokeTaskTool(core, {
         message: err.message,
         failure_class: FAILURE_CLASS.POLICY_VIOLATION,
       },
-    });
+    }));
     if (
       code === 'UNAUTHORIZED_TOOL' ||
       code === 'PROVIDER_UNAVAILABLE' ||
@@ -191,7 +192,7 @@ export async function invokeTaskTool(core, {
       code === 'RESEARCH_AUTHORITY_VIOLATION'
     ) {
       if (task.status !== TASK_STATUS.BLOCKED && task.status !== TASK_STATUS.FAILED) {
-        core.updateTaskStatus(task_id, TASK_STATUS.BLOCKED);
+        await settle(core.updateTaskStatus(task_id, TASK_STATUS.BLOCKED));
       }
     }
     throw err;
@@ -213,7 +214,7 @@ export async function invokeTaskTool(core, {
       fallback: resolved.fallback,
     });
   } catch (err) {
-    core.store.appendEvent({
+    await settle(core.store.appendEvent({
       task_id,
       event_type: EVENT_TYPE.TOOL_DENIED,
       payload: {
@@ -223,14 +224,14 @@ export async function invokeTaskTool(core, {
         message: String(err.message || err),
         failure_class: FAILURE_CLASS.PROVIDER_ERROR,
       },
-    });
+    }));
     throw err;
   }
 
   try {
     assertResearchCannotMutateAuthority(raw);
   } catch (err) {
-    core.store.appendEvent({
+    await settle(core.store.appendEvent({
       task_id,
       event_type: EVENT_TYPE.TOOL_DENIED,
       payload: {
@@ -240,9 +241,9 @@ export async function invokeTaskTool(core, {
         message: err.message,
         failure_class: FAILURE_CLASS.POLICY_VIOLATION,
       },
-    });
+    }));
     if (task.status !== TASK_STATUS.BLOCKED) {
-      core.updateTaskStatus(task_id, TASK_STATUS.BLOCKED);
+      await settle(core.updateTaskStatus(task_id, TASK_STATUS.BLOCKED));
     }
     throw err;
   }
@@ -263,15 +264,15 @@ export async function invokeTaskTool(core, {
     started_at,
   };
 
-  core.store.appendEvent({
+  await settle(core.store.appendEvent({
     task_id,
     event_type: EVENT_TYPE.RESEARCH_RECORDED,
     evidence_ref: evidence_id,
     payload: evidence,
-  });
+  }));
 
   // Worker/tool path cannot mark DONE or mutate locked finish-line fields.
-  const after = core.store.getTask(task_id);
+  const after = await settle(core.store.getTask(task_id));
   verifyTaskHash(after);
   if (after.status === TASK_STATUS.ACCEPTED) {
     throw new BuilderCoreError(

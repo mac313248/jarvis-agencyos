@@ -30,7 +30,18 @@ export {
   assertCommitSha,
 } from './contracts.js';
 
-export { BuilderStore, openBuilderStore } from './store.js';
+export { BuilderStore, openBuilderStore, SCHEMA_VERSION } from './store.js';
+export {
+  BUILDER_STORE_KIND,
+  DEFAULT_SQLITE_PATH,
+  BUILDER_PG_SCHEMA,
+  BuilderStoreConfigError,
+  resolveBuilderStoreConfig,
+  isUnattendedBuilderMode,
+  blockedStoreDecision,
+} from './store-config.js';
+export { PostgresBuilderStore, openPostgresBuilderStore } from './store-postgres.js';
+export { openBuilderStoreFromConfig, sandboxOwnerId } from './store-open.js';
 export {
   TaskLockError,
   normalizeOwnerIntent,

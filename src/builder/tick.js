@@ -5,10 +5,12 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   CANDIDATE_STATUS,
+  EVENT_TYPE,
   FAILURE_CLASS,
   REVIEW_STATUS,
   RUN_STATUS,
   TASK_STATUS,
+  newFactoryRunId,
 } from './contracts.js';
 import { beginRepairAttempt } from './retry.js';
 import { invalidateVerification } from './verifier.js';
@@ -19,6 +21,13 @@ import { assertNoBusinessCredentials } from './providers/cursor-provider.js';
 import { redactSecrets } from './secrets-redact.js';
 import { FOUNDATION_SLICES } from '../../scripts/build-runner.mjs';
 import { LIVE_VERIFICATION_ITEMS, runOrientation } from '../../scripts/orientation.mjs';
+import { settle } from './thenable.js';
+import {
+  blockedStoreDecision,
+  BUILDER_STORE_KIND,
+  isUnattendedBuilderMode,
+} from './store-config.js';
+import { sandboxOwnerId } from './store-open.js';
 
 export const TICK_TRIGGERS = Object.freeze([
   'hourly',
@@ -171,41 +180,43 @@ function decisionFields(partial, orientation, trigger) {
   });
 }
 
-function openTasks(core) {
-  return core.store.listTasks().filter((t) => OPEN_TASK_STATUSES.has(t.status));
+async function openTasks(core) {
+  const tasks = await settle(core.store.listTasks());
+  return tasks.filter((t) => OPEN_TASK_STATUSES.has(t.status));
 }
 
-function candidateIsAuthoritative(core, candidate) {
+async function candidateIsAuthoritative(core, candidate) {
   if (!candidate) return false;
   if (candidate.status === CANDIDATE_STATUS.SUPERSEDED) return false;
   if (candidate.status === CANDIDATE_STATUS.REJECTED) return false;
-  const run = core.store.getRun(candidate.factory_run_id);
+  const run = await settle(core.store.getRun(candidate.factory_run_id));
   if (!run) return false;
   if (run.status === RUN_STATUS.STALE || run.status === RUN_STATUS.CANCELLED) return false;
   return true;
 }
 
-function candidateHasFailedCi(core, candidate) {
-  if (!candidateIsAuthoritative(core, candidate)) return false;
+async function candidateHasFailedCi(core, candidate) {
+  if (!(await candidateIsAuthoritative(core, candidate))) return false;
   const conclusion = String(candidate?.ci_conclusion || '').toLowerCase();
   return ['failure', 'timed_out', 'action_required', 'cancelled'].includes(conclusion);
 }
 
-function findFailedCiWork(core) {
-  for (const task of openTasks(core)) {
-    const candidates = core.store.listCandidatesForTask(task.task_id);
-    const failed = [...candidates].reverse().find((c) => candidateHasFailedCi(core, c));
-    if (failed) {
-      return { task, candidate: failed, reason: 'CI_FAILED', pr: failed.pr_number || null };
+async function findFailedCiWork(core) {
+  for (const task of await openTasks(core)) {
+    const candidates = await settle(core.store.listCandidatesForTask(task.task_id));
+    for (const candidate of [...candidates].reverse()) {
+      if (await candidateHasFailedCi(core, candidate)) {
+        return { task, candidate, reason: 'CI_FAILED', pr: candidate.pr_number || null };
+      }
     }
   }
   return null;
 }
 
-function findChangesRequestedWork(core, githubReviews = []) {
+async function findChangesRequestedWork(core, githubReviews = []) {
   for (const review of githubReviews) {
     if (!review?.task_id) continue;
-    const task = core.getTask(review.task_id);
+    const task = await settle(core.getTask(review.task_id));
     if (task && OPEN_TASK_STATUSES.has(task.status)) {
       return {
         task,
@@ -214,13 +225,14 @@ function findChangesRequestedWork(core, githubReviews = []) {
       };
     }
   }
-  for (const task of openTasks(core)) {
-    for (const candidate of core.store.listCandidatesForTask(task.task_id)) {
-      const reviews = core.store.listReviewsForCandidate(candidate.candidate_id);
+  for (const task of await openTasks(core)) {
+    const candidates = await settle(core.store.listCandidatesForTask(task.task_id));
+    for (const candidate of candidates) {
+      const reviews = await settle(core.store.listReviewsForCandidate(candidate.candidate_id));
       const requested = reviews.find((r) =>
         r.status === REVIEW_STATUS.REQUEST_CHANGES && !r.invalidated_at
       );
-      if (requested && candidateIsAuthoritative(core, candidate)) {
+      if (requested && await candidateIsAuthoritative(core, candidate)) {
         return {
           task,
           candidate,
@@ -233,21 +245,26 @@ function findChangesRequestedWork(core, githubReviews = []) {
   return null;
 }
 
-function latestRun(core, taskId) {
-  const runs = core.store.listRunsForTask(taskId);
+async function latestRun(core, taskId) {
+  const runs = await settle(core.store.listRunsForTask(taskId));
   return runs.length ? runs[runs.length - 1] : null;
 }
 
-function taskHasAuthoritativeFailedCi(core, taskId) {
-  return core.store.listCandidatesForTask(taskId).some((candidate) => candidateHasFailedCi(core, candidate));
+async function taskHasAuthoritativeFailedCi(core, taskId) {
+  const candidates = await settle(core.store.listCandidatesForTask(taskId));
+  for (const candidate of candidates) {
+    if (await candidateHasFailedCi(core, candidate)) return true;
+  }
+  return false;
 }
 
-function findAwaitingHandoff(core) {
-  for (const task of core.store.listTasks()) {
+async function findAwaitingHandoff(core) {
+  const tasks = await settle(core.store.listTasks());
+  for (const task of tasks) {
     if (STOP_TASK_STATUSES.has(task.status)) continue;
-    const run = latestRun(core, task.task_id);
+    const run = await latestRun(core, task.task_id);
     if (!run) continue;
-    if (run.status === RUN_STATUS.SUCCEEDED && !taskHasAuthoritativeFailedCi(core, task.task_id)) {
+    if (run.status === RUN_STATUS.SUCCEEDED && !(await taskHasAuthoritativeFailedCi(core, task.task_id))) {
       return {
         decision: TICK_DECISIONS.NOOP,
         reason: 'AWAITING_VERIFY_HANDOFF',
@@ -259,18 +276,14 @@ function findAwaitingHandoff(core) {
   return null;
 }
 
-function findContinuation(core) {
-  const tasks = openTasks(core);
+async function findContinuation(core) {
+  const tasks = await openTasks(core);
   const failed = tasks.find((t) => t.status === TASK_STATUS.FAILED);
   if (failed) return { task: failed, repair: true, reason: 'CLAIMED_TASK_CONTINUATION' };
-  const running = tasks.find((t) => {
-    if (t.status !== TASK_STATUS.RUNNING && t.status !== TASK_STATUS.LOCKED) return false;
-    const run = latestRun(core, t.task_id);
-    if (run?.status === RUN_STATUS.SUCCEEDED) return false;
-    return true;
-  });
-  if (running) {
-    const run = latestRun(core, running.task_id);
+  for (const running of tasks) {
+    if (running.status !== TASK_STATUS.RUNNING && running.status !== TASK_STATUS.LOCKED) continue;
+    const run = await latestRun(core, running.task_id);
+    if (run?.status === RUN_STATUS.SUCCEEDED) continue;
     const needsRepair = run && [
       RUN_STATUS.FAILED,
       RUN_STATUS.CANCELLED,
@@ -285,29 +298,60 @@ function findContinuation(core) {
   return null;
 }
 
-function invalidateTaskEvidence(core, taskId, reason) {
-  for (const candidate of core.store.listCandidatesForTask(taskId)) {
+async function invalidateTaskEvidence(core, taskId, reason) {
+  const candidates = await settle(core.store.listCandidatesForTask(taskId));
+  for (const candidate of candidates) {
     if (candidate.status !== CANDIDATE_STATUS.SUPERSEDED) {
-      core.store.updateCandidate(candidate.candidate_id, {
+      await settle(core.store.updateCandidate(candidate.candidate_id, {
         status: CANDIDATE_STATUS.SUPERSEDED,
-      });
+      }));
     }
-    for (const verification of core.store.listVerificationsForCandidate(candidate.candidate_id)) {
+    const verifications = await settle(
+      core.store.listVerificationsForCandidate(candidate.candidate_id)
+    );
+    for (const verification of verifications) {
       if (!verification.invalidated_at) {
-        invalidateVerification(core, verification.verification_id, reason);
+        await settle(invalidateVerification(core, verification.verification_id, reason));
       }
     }
-    for (const review of core.store.listReviewsForCandidate(candidate.candidate_id)) {
+    const reviews = await settle(core.store.listReviewsForCandidate(candidate.candidate_id));
+    for (const review of reviews) {
       if (!review.invalidated_at) {
-        invalidateReview(core, review.review_id, reason);
+        await settle(invalidateReview(core, review.review_id, reason));
       }
     }
   }
 }
 
-function claimOrReuse(core, work) {
+async function claimOrReuse(core, work) {
   const taskId = stableTaskId(work.work_id);
-  const existing = core.getTask(taskId);
+  if (typeof core.store.claimLogicalWork === 'function') {
+    const claimed = await settle(core.store.claimLogicalWork({
+      task_id: taskId,
+      logical_work_id: work.work_id,
+      intent: work.title,
+      acceptance_ref: work.acceptance_ref,
+      allowed_paths: work.allowed_paths,
+      tool_manifest: {
+        providers: ['cursor'],
+        tools: ['coding_worker', 'repo_read'],
+        mode: 'build',
+      },
+      review_required: true,
+    }));
+    const existing = claimed.task;
+    if (existing?.status === TASK_STATUS.NEEDS_OWNER) {
+      return { stop: TICK_DECISIONS.NEEDS_OWNER, task: existing, reason: 'TASK_NEEDS_OWNER' };
+    }
+    if (existing?.status === TASK_STATUS.BLOCKED) {
+      return { stop: TICK_DECISIONS.BLOCKED, task: existing, reason: 'TASK_BLOCKED' };
+    }
+    if (existing?.status === TASK_STATUS.ACCEPTED || existing?.status === TASK_STATUS.CANCELLED) {
+      return null;
+    }
+    return { task: existing, already_claimed: Boolean(claimed.already_claimed) };
+  }
+  const existing = await settle(core.getTask(taskId));
   if (existing) {
     if (existing.status === TASK_STATUS.NEEDS_OWNER) {
       return { stop: TICK_DECISIONS.NEEDS_OWNER, task: existing, reason: 'TASK_NEEDS_OWNER' };
@@ -318,10 +362,11 @@ function claimOrReuse(core, work) {
     if (existing.status === TASK_STATUS.ACCEPTED || existing.status === TASK_STATUS.CANCELLED) {
       return null;
     }
-    return existing;
+    return { task: existing, already_claimed: true };
   }
-  return core.createAndLockTask({
+  const created = await settle(core.createAndLockTask({
     task_id: taskId,
+    logical_work_id: work.work_id,
     intent: work.title,
     acceptance_ref: work.acceptance_ref,
     allowed_paths: work.allowed_paths,
@@ -331,7 +376,8 @@ function claimOrReuse(core, work) {
       mode: 'build',
     },
     review_required: true,
-  });
+  }));
+  return { task: created, already_claimed: false };
 }
 
 function persistTickDecision(root, decision) {
@@ -345,7 +391,7 @@ function persistTickDecision(root, decision) {
   }
 }
 
-function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
+async function selectOne({ core, orientation, catalog, githubReviews, recovery, owner }) {
   if (recovery?.status === 'BLOCKED') {
     return {
       decision: TICK_DECISIONS.BLOCKED,
@@ -355,7 +401,7 @@ function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
 
   let current = null;
   try {
-    current = core.getCurrentCodingRun();
+    current = await settle(core.getCurrentCodingRun());
   } catch (err) {
     return {
       decision: TICK_DECISIONS.BLOCKED,
@@ -364,11 +410,23 @@ function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
   }
 
   if (current && [RUN_STATUS.PENDING, RUN_STATUS.LAUNCHED, RUN_STATUS.RUNNING].includes(current.status)) {
-    const task = core.getTask(current.task_id);
-    if (!current.provider_run_id) {
+    const lease = typeof core.store.getControlLease === 'function'
+      ? await settle(core.store.getControlLease('active_coding_run'))
+      : null;
+    if (lease && lease.owner && lease.owner !== owner && !current.provider_run_id) {
+      return {
+        decision: TICK_DECISIONS.NOOP,
+        reason: 'WORKER_IN_FLIGHT',
+        task_id: current.task_id,
+        factory_run_id: current.factory_run_id,
+        provider_run_id: current.provider_run_id || null,
+        head_sha: orientation.head_sha,
+      };
+    }
+    if (!current.provider_run_id && (!lease || lease.owner === owner)) {
       return {
         decision: TICK_DECISIONS.EXECUTE,
-        task,
+        task: await settle(core.getTask(current.task_id)),
         reason: 'CLAIMED_TASK_CONTINUATION',
         factory_run_id: current.factory_run_id,
       };
@@ -378,11 +436,12 @@ function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
       reason: 'WORKER_IN_FLIGHT',
       task_id: current.task_id,
       factory_run_id: current.factory_run_id,
+      provider_run_id: current.provider_run_id || null,
       head_sha: orientation.head_sha,
     };
   }
 
-  const ciFailed = findFailedCiWork(core);
+  const ciFailed = await findFailedCiWork(core);
   if (ciFailed) {
     return {
       decision: TICK_DECISIONS.REPAIR,
@@ -392,7 +451,7 @@ function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
     };
   }
 
-  const changes = findChangesRequestedWork(core, githubReviews);
+  const changes = await findChangesRequestedWork(core, githubReviews);
   if (changes) {
     return {
       decision: TICK_DECISIONS.REPAIR,
@@ -402,10 +461,10 @@ function selectOne({ core, orientation, catalog, githubReviews, recovery }) {
     };
   }
 
-  const handoff = findAwaitingHandoff(core);
+  const handoff = await findAwaitingHandoff(core);
   if (handoff) return handoff;
 
-  const continuation = findContinuation(core);
+  const continuation = await findContinuation(core);
   if (continuation) {
     return {
       decision: continuation.repair ? TICK_DECISIONS.REPAIR : TICK_DECISIONS.EXECUTE,
@@ -444,22 +503,38 @@ async function maybeDispatch({
   if (!dispatch || !core.workerProvider) {
     return { dispatched: false, provider_run_id: null, provider: null };
   }
-  const launched = factoryRunId
-    ? await core.launchCodingWorkerOnRun({
-        factory_run_id: factoryRunId,
-        prompt,
-      })
-    : await core.launchCodingWorker({
-        task_id: task.task_id,
-        prompt,
-      });
-  return {
-    dispatched: true,
-    provider_run_id: launched.run?.provider_run_id || launched.provider_run_id || null,
-    provider: launched.run?.provider || core.workerProvider.name,
-    factory_run_id: launched.run?.factory_run_id || launched.factory_run_id || factoryRunId,
-    provider_agent_id: launched.run?.provider_agent_id || null,
-  };
+  try {
+    const launched = factoryRunId
+      ? await core.launchCodingWorkerOnRun({
+          factory_run_id: factoryRunId,
+          prompt,
+        })
+      : await core.launchCodingWorker({
+          task_id: task.task_id,
+          prompt,
+        });
+    return {
+      dispatched: true,
+      provider_run_id: launched.run?.provider_run_id || launched.provider_run_id || null,
+      provider: launched.run?.provider || core.workerProvider.name,
+      factory_run_id: launched.run?.factory_run_id || launched.factory_run_id || factoryRunId,
+      provider_agent_id: launched.run?.provider_agent_id || null,
+    };
+  } catch (err) {
+    if (err.code === 'ALREADY_DISPATCHING' || err.code === 'INVALID_RUN_STATUS') {
+      const existing = factoryRunId ? await settle(core.getRun(factoryRunId)) : null;
+      if (existing && ['LAUNCHED', 'RUNNING'].includes(existing.status)) {
+        return {
+          dispatched: false,
+          provider_run_id: existing.provider_run_id || null,
+          provider: existing.provider || core.workerProvider.name,
+          factory_run_id: existing.factory_run_id,
+          provider_agent_id: existing.provider_agent_id || null,
+        };
+      }
+    }
+    throw err;
+  }
 }
 
 function buildPrompt(task, contractPath) {
@@ -486,10 +561,17 @@ export async function runJarvisTick({
   envVars = {},
   chatMemory = null,
   persist = true,
+  requireSharedStore = false,
 } = {}) {
   void chatMemory; // Chat/automation memory cannot override Git/control state.
   const normalizedTrigger = assertTrigger(trigger);
   assertNoBusinessCredentials(envVars);
+
+  const owner = sandboxOwnerId(process.env);
+  const sharedRequired = requireSharedStore || isUnattendedBuilderMode(process.env);
+  if (sharedRequired && core?.store?.kind !== BUILDER_STORE_KIND.POSTGRES) {
+    return blockedStoreDecision('SHARED_STORE_REQUIRED');
+  }
 
   let lock;
   try {
@@ -511,12 +593,13 @@ export async function runJarvisTick({
     });
     const approved = catalog || loadApprovedWorkCatalog(root);
     const recovery = await core.recover();
-    const selected = selectOne({
+    const selected = await selectOne({
       core,
       orientation,
       catalog: approved,
       githubReviews,
       recovery,
+      owner,
     });
 
     if (
@@ -530,8 +613,9 @@ export async function runJarvisTick({
     }
 
     let task = selected.task;
+    let alreadyClaimed = false;
     if (!task && selected.work) {
-      const claimed = claimOrReuse(core, selected.work);
+      const claimed = await claimOrReuse(core, selected.work);
       if (claimed?.stop) {
         const stopped = decisionFields({
           decision: claimed.stop,
@@ -544,7 +628,8 @@ export async function runJarvisTick({
         if (persist) persistTickDecision(root, stopped);
         return stopped;
       }
-      task = claimed;
+      task = claimed?.task || claimed;
+      alreadyClaimed = Boolean(claimed?.already_claimed);
     }
     if (!task) {
       const out = decisionFields({
@@ -555,16 +640,32 @@ export async function runJarvisTick({
       return out;
     }
 
+    if (alreadyClaimed) {
+      const current = await settle(core.getCurrentCodingRun());
+      if (current) {
+        const out = decisionFields({
+          decision: TICK_DECISIONS.NOOP,
+          reason: current.provider_run_id ? 'WORKER_IN_FLIGHT' : 'ALREADY_CLAIMED',
+          task_id: task.task_id,
+          factory_run_id: current.factory_run_id,
+          provider_run_id: current.provider_run_id || null,
+          logical_work_id: selected.work?.work_id || task.logical_work_id || task.task_id,
+        }, orientation, normalizedTrigger);
+        if (persist) persistTickDecision(root, out);
+        return out;
+      }
+    }
+
     let factoryRunId = selected.factory_run_id || null;
     if (selected.decision === TICK_DECISIONS.REPAIR) {
-      invalidateTaskEvidence(core, task.task_id, selected.reason || 'repair');
-      const repair = beginRepairAttempt(core, task.task_id, {
+      await invalidateTaskEvidence(core, task.task_id, selected.reason || 'repair');
+      const repair = await settle(beginRepairAttempt(core, task.task_id, {
         failure_class: selected.reason === 'CI_FAILED'
           ? FAILURE_CLASS.CI_FAIL
           : FAILURE_CLASS.UNKNOWN,
         reason: selected.reason || 'repair',
         provider: 'cursor',
-      });
+      }));
       if (!repair.allowed) {
         const blocked = decisionFields({
           decision: repair.stop_status === TASK_STATUS.NEEDS_OWNER
@@ -579,11 +680,33 @@ export async function runJarvisTick({
       factoryRunId = repair.run.factory_run_id;
       task = repair.task;
     } else if (!factoryRunId) {
-      const run = core.createRun({
+      const inserted = await settle(core.store.tryInsertActiveRun({
         task_id: task.task_id,
         provider: 'cursor',
-      });
-      factoryRunId = run.factory_run_id;
+        owner,
+        factory_run_id: newFactoryRunId(),
+      }));
+      if (!inserted.inserted) {
+        const existingRun = inserted.run;
+        const out = decisionFields({
+          decision: TICK_DECISIONS.NOOP,
+          reason: existingRun?.provider_run_id ? 'WORKER_IN_FLIGHT' : (inserted.reason || 'ALREADY_CLAIMED'),
+          task_id: task.task_id,
+          factory_run_id: existingRun?.factory_run_id || null,
+          provider_run_id: existingRun?.provider_run_id || null,
+          logical_work_id: selected.work?.work_id || task.logical_work_id || task.task_id,
+        }, orientation, normalizedTrigger);
+        if (persist) persistTickDecision(root, out);
+        return out;
+      }
+      factoryRunId = inserted.run.factory_run_id;
+      core._currentFactoryRunId = factoryRunId;
+      await settle(core.store.appendEvent({
+        task_id: task.task_id,
+        factory_run_id: factoryRunId,
+        event_type: EVENT_TYPE.RUN_CREATED,
+        payload: { attempt: inserted.run.attempt, provider: 'cursor' },
+      }));
     }
 
     const contractPath = writeWorkerContract(root, {
@@ -614,7 +737,7 @@ export async function runJarvisTick({
       pr: selected.pr || null,
       head_sha: orientation.head_sha,
       reason: selected.reason,
-      logical_work_id: selected.work?.work_id || task.task_id,
+      logical_work_id: selected.work?.work_id || task.logical_work_id || task.task_id,
       dispatched: launched.dispatched,
     }, orientation, normalizedTrigger);
     if (persist) persistTickDecision(root, out);

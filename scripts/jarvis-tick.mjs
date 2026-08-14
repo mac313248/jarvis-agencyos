@@ -2,7 +2,14 @@
 // jarvis:tick — deterministic control-plane dispatcher.
 // Does not enable the live Jarvis Builder Automation.
 import { resolve } from 'node:path';
-import { createBuilderCore, createCursorProvider } from '../src/builder/index.js';
+import {
+  createBuilderCore,
+  createCursorProvider,
+  openBuilderStoreFromConfig,
+  resolveBuilderStoreConfig,
+  blockedStoreDecision,
+  BUILDER_STORE_KIND,
+} from '../src/builder/index.js';
 import { runJarvisTick, TICK_TRIGGERS } from '../src/builder/tick.js';
 
 function parseArgs(argv) {
@@ -103,6 +110,34 @@ async function main() {
     return;
   }
 
+  const resolved = resolveBuilderStoreConfig(process.env, { dbPath: opts.db });
+  if (!resolved.ok) {
+    const decision = blockedStoreDecision(resolved.reason);
+    console.log(JSON.stringify(decision, null, 2));
+    process.exitCode = 3;
+    return;
+  }
+
+  let store;
+  try {
+    store = await openBuilderStoreFromConfig(resolved);
+  } catch (err) {
+    const reason = err.code === 'MISSING_SHARED_BUILDER_DATABASE'
+      ? 'MISSING_SHARED_BUILDER_DATABASE'
+      : 'SHARED_BUILDER_DATABASE_UNREACHABLE';
+    const decision = blockedStoreDecision(reason);
+    console.log(JSON.stringify(decision, null, 2));
+    process.exitCode = 3;
+    return;
+  }
+
+  if (resolved.kind === BUILDER_STORE_KIND.POSTGRES && store.kind !== BUILDER_STORE_KIND.POSTGRES) {
+    const decision = blockedStoreDecision('SHARED_STORE_REQUIRED');
+    console.log(JSON.stringify(decision, null, 2));
+    process.exitCode = 3;
+    return;
+  }
+
   const useFake = opts.fakeProvider || process.env.JARVIS_TICK_PROVIDER === 'fake';
   const provider = useFake
     ? createFakeProvider()
@@ -111,9 +146,9 @@ async function main() {
       });
 
   const core = createBuilderCore({
-    dbPath: opts.db,
+    store,
     workerProvider: provider,
-    autoRecover: true,
+    autoRecover: !store.async,
   });
 
   try {
@@ -122,6 +157,7 @@ async function main() {
       trigger: opts.trigger,
       core,
       dispatch: opts.dispatch,
+      requireSharedStore: resolved.kind === BUILDER_STORE_KIND.POSTGRES,
       orientationOpts: {
         persistEvidence: opts.persistEvidence,
       },
@@ -131,7 +167,7 @@ async function main() {
     else if (decision.decision === 'NEEDS_OWNER') process.exitCode = 4;
     else process.exitCode = 0;
   } finally {
-    core.close();
+    await Promise.resolve(core.close());
   }
 }
 
