@@ -1,4 +1,4 @@
 {
   "name": "jarvis-agencyos",
-  "install": "npm ci"
+  "install": "npm ci && npm install -g @openai/codex"
 }

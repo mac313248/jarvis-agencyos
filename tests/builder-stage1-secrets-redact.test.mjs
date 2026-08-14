@@ -32,6 +32,7 @@ function assertNoLeak(text) {
 describe('Stage-1 secret redaction', () => {
   it('redacts sensitive keys and known secret value shapes', () => {
     assert.equal(isSensitiveKey('CURSOR_API_KEY'), true);
+    assert.equal(isSensitiveKey('CODEX_API_KEY'), true);
     assert.equal(isSensitiveKey('OPENAI_API_KEY'), true);
     assert.equal(isSensitiveKey('GITHUB_TOKEN'), true);
     assert.equal(isSensitiveKey('GHL_API_KEY'), true);

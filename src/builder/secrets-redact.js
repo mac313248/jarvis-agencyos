@@ -4,7 +4,7 @@
 export const REDACTED = '[REDACTED]';
 
 const SENSITIVE_KEY_RE =
-  /^(?:CURSOR_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|GITHUB_TOKEN|GH_TOKEN|DATABASE_URL|.*_DATABASE_URL|JARVIS_BUILDER_DATABASE_URL|PGPASSWORD|PGUSER|PGHOST|PGDATABASE|POSTGRES_.*|GHL_.*|HIGHLEVEL_.*|META_.*|FACEBOOK_.*|STRIPE_.*|PAYMENT_.*|PAYPAL_.*|TWILIO_.*|.*(?:_KEY|_TOKEN|_SECRET|_PASSWORD|_PASSWD|_CREDENTIALS?))$/i;
+  /^(?:CURSOR_API_KEY|CODEX_API_KEY|OPENAI_API_KEY|GITHUB_TOKEN|GH_TOKEN|DATABASE_URL|.*_DATABASE_URL|JARVIS_BUILDER_DATABASE_URL|PGPASSWORD|PGUSER|PGHOST|PGDATABASE|POSTGRES_.*|GHL_.*|HIGHLEVEL_.*|META_.*|FACEBOOK_.*|STRIPE_.*|PAYMENT_.*|PAYPAL_.*|TWILIO_.*|.*(?:_KEY|_TOKEN|_SECRET|_PASSWORD|_PASSWD|_CREDENTIALS?))$/i;
 
 const SENSITIVE_VALUE_HINT_RE =
   /\b(?:crsr_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|ghl_[A-Za-z0-9_]+|xox[baprs]-[A-Za-z0-9-]+)\b/g;
@@ -23,11 +23,11 @@ export function redactString(text, extraSecrets = []) {
   out = out.replace(SENSITIVE_VALUE_HINT_RE, REDACTED);
   // Key=value and JSON "key":"value" forms for common secret names.
   out = out.replace(
-    /((?:CURSOR_API_KEY|OPENAI_API_KEY|GITHUB_TOKEN|GH_TOKEN|[A-Z0-9_]+(?:_KEY|_TOKEN|_SECRET|_PASSWORD))\s*[=:]\s*)(["']?)([^"',\s}]+)(\2)/gi,
+    /((?:CURSOR_API_KEY|CODEX_API_KEY|OPENAI_API_KEY|GITHUB_TOKEN|GH_TOKEN|[A-Z0-9_]+(?:_KEY|_TOKEN|_SECRET|_PASSWORD))\s*[=:]\s*)(["']?)([^"',\s}]+)(\2)/gi,
     `$1$2${REDACTED}$4`
   );
   out = out.replace(
-    /("(?:CURSOR_API_KEY|OPENAI_API_KEY|GITHUB_TOKEN|GH_TOKEN|[A-Za-z0-9_]+(?:_KEY|_TOKEN|_SECRET|_PASSWORD))"\s*:\s*)(")(?:\\.|[^"\\])*(")/gi,
+    /("(?:CURSOR_API_KEY|CODEX_API_KEY|OPENAI_API_KEY|GITHUB_TOKEN|GH_TOKEN|[A-Za-z0-9_]+(?:_KEY|_TOKEN|_SECRET|_PASSWORD))"\s*:\s*)(")(?:\\.|[^"\\])*(")/gi,
     `$1$2${REDACTED}$3`
   );
   return out;
