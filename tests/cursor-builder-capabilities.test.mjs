@@ -39,6 +39,21 @@ const EXPECTED_SKILLS = [
   'weekly-review',
   'what-did-i-get-done',
   'workflow-from-chats',
+  // Superpowers (repo-native vendor)
+  'brainstorming',
+  'dispatching-parallel-agents',
+  'executing-plans',
+  'finishing-a-development-branch',
+  'receiving-code-review',
+  'requesting-code-review',
+  'subagent-driven-development',
+  'systematic-debugging',
+  'test-driven-development',
+  'using-git-worktrees',
+  'using-superpowers',
+  'verification-before-completion',
+  'writing-plans',
+  'writing-skills',
 ];
 
 const EXPECTED_SDK_REFS = [
@@ -220,6 +235,14 @@ describe('Cursor builder capabilities', () => {
     for (const lic of provenance.license_files) {
       assert.equal(existsSync(join(repoRoot, lic)), true, `missing ${lic}`);
     }
+    const pluginNames = provenance.plugins.map((p) => p.plugin_name);
+    assert.equal(pluginNames.includes('cursor-sdk'), true, 'cursor-sdk plugin must be vendored');
+    assert.equal(pluginNames.includes('cli-for-agent'), true, 'cli-for-agent plugin must be vendored');
+    assert.equal(pluginNames.includes('cursor-team-kit'), true, 'cursor-team-kit plugin must be vendored');
+    assert.equal(pluginNames.includes('superpowers'), true, 'superpowers plugin must be vendored');
+    const cursorSdk = provenance.plugins.find((p) => p.plugin_name === 'cursor-sdk');
+    assert.deepEqual(cursorSdk.imported_skills, ['cursor-sdk']);
+    assert.equal(cursorSdk.imported_references.length, EXPECTED_SDK_REFS.length);
     const env = JSON.parse(
       readFileSync(join(repoRoot, '.cursor/environment.json'), 'utf8')
     );
@@ -238,6 +261,7 @@ describe('Cursor builder capabilities', () => {
     assert.match(docs, /CLI binary optional\/not required/);
     assert.match(docs, /authority plane/);
     assert.match(docs, /npm install -g @openai\/codex/);
+    assert.match(docs, /Cursor SDK guidance/);
   });
 
   it('F. Codex CLI readiness: command -v, --version, key presence only', () => {

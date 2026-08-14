@@ -124,6 +124,10 @@
         {
           "path": "scripts/",
           "reason": "Upstream packaging/lint scripts for the plugin repo itself."
+        },
+        {
+          "path": "skills/writing-skills/anthropic-best-practices.md",
+          "reason": "Upstream copy contains illustrative relative links (FORMS.md, REFERENCE.md, etc.) that are not real skill assets; they fail repo-native relative-reference verification. Point SKILL.md at the official Anthropic URL instead."
         }
       ]
     }
@@ -146,6 +150,12 @@
       "plugin": "local",
       "change": "Named Superpowers convenience skills as help-only (same hard boundary as Team Kit)",
       "reason": "Superpowers process skills (TDD, debugging, plans, reviews, worktrees) may guide execution but cannot set Jarvis PASS/DONE, merge eligibility, or new product scope. AGENTS.md and locked SOT remain first."
+    },
+    {
+      "path": ".cursor/skills/writing-skills/SKILL.md",
+      "plugin": "superpowers",
+      "change": "Replaced anthropic-best-practices.md pointer with official Anthropic Agent Skills overview URL",
+      "reason": "anthropic-best-practices.md omitted; keep agents pointed at live official guidance."
     }
   ],
   "intentionally_not_installed": [
