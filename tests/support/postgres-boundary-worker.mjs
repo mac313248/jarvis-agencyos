@@ -15,6 +15,7 @@ const PROTECTED_TABLES = [
   'users',
   'memberships',
   'authority_grants',
+  'authority_control',
   'action_proposals',
   'approval_decisions',
   'canonical_events',

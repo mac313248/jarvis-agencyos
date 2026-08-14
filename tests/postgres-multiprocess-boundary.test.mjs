@@ -8,7 +8,15 @@ import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startRealPostgresServer } from './support/postgres-real-server.mjs';
 import { createDb } from '../src/db/index.js';
-import { seedTwoTenants } from './_helpers.mjs';
+import { asRuntimeTenant, seedTwoTenants } from './_helpers.mjs';
+import {
+  AuthorityUnavailableError,
+  readFreshAuthorityFor,
+} from '../src/contracts/authority.js';
+import {
+  REQUIRED_BACKUP_SURFACES,
+  createBackupRestoreRuntime,
+} from '../src/runtime/backup-restore.js';
 
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
@@ -19,6 +27,7 @@ const PROTECTED_TABLES = [
   'users',
   'memberships',
   'authority_grants',
+  'authority_control',
   'action_proposals',
   'approval_decisions',
   'canonical_events',
@@ -33,7 +42,14 @@ function runWorker(mode, payload) {
   return new Promise((resolve, reject) => {
     const child = fork(workerPath, [mode, JSON.stringify(payload)], {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: { ...process.env, NODE_OPTIONS: '' },
+      env: (() => {
+        const env = { ...process.env, NODE_OPTIONS: '' };
+        delete env.DATABASE_URL;
+        for (const key of Object.keys(env)) {
+          if (/_DATABASE_URL$/.test(key)) delete env[key];
+        }
+        return env;
+      })(),
     });
     let out = '';
     let err = '';
@@ -164,5 +180,65 @@ describe('SOT 04 Postgres / tenant boundary — real PostgreSQL attack battery',
     assert.equal(results[1].blocked, true);
     assert.equal(results[2], '1');
     assert.equal(results[3], '1');
+  });
+
+  test('authority_control is in the FORCE RLS / ownership battery', async () => {
+    const flags = await runWorkerJson('force_rls_flags', { databaseUrl });
+    const auth = flags.find((row) => row.relname === 'authority_control');
+    assert.ok(auth, 'authority_control must be inspected');
+    assert.equal(auth.rls, true);
+    assert.equal(auth.force_rls, true);
+    const posture = await runWorkerJson('role_posture', { databaseUrl });
+    const owner = posture.table_owners.find((row) => row.relname === 'authority_control');
+    assert.ok(owner);
+    assert.notEqual(owner.owner, 'app_runtime');
+  });
+
+  test('missing authority_control row fails closed on the real server', async () => {
+    const C = '33333333-3333-3333-3333-333333333333';
+    const db = await createDb({ databaseUrl });
+    try {
+      await assert.rejects(
+        () => readFreshAuthorityFor(db, C),
+        (err) => err instanceof AuthorityUnavailableError
+      );
+    } finally {
+      await db.close();
+    }
+  });
+
+  test('unreachable authority store fails closed', async () => {
+    const deadUrl = databaseUrl.replace(/:\d+\//, ':1/');
+    await assert.rejects(
+      () => runWorker('authority_no_context_fails_closed', { databaseUrl: deadUrl }),
+      /failed|ECONNREFUSED|connect|timeout/i
+    );
+  });
+
+  test('PITR restore rehearsal runs against the real server', async () => {
+    const db = await createDb({ databaseUrl });
+    try {
+      await asRuntimeTenant(db, 'app_runtime', A, async (tx) => {
+        await tx.query(
+          `INSERT INTO authority_control (tenant_id, active_authority, revocation_epoch, kill_epoch)
+           VALUES ($1, true, 0, 0)
+           ON CONFLICT (tenant_id) DO NOTHING;`,
+          [A]
+        );
+      });
+      const runtime = createBackupRestoreRuntime(db, { trustedTenantId: A });
+      await runtime.seedDurableFixture({
+        stateKey: 'live.pg.pitr.marker',
+        value: { marker: 'real-pg-pitr', n: 4 },
+      });
+      const backup = await runtime.createBackupSet({ label: 'sot04-real-pg' });
+      assert.equal(backup.artifacts.length, REQUIRED_BACKUP_SURFACES.length);
+      const result = await runtime.runRestoreRehearsal({ backupEpoch: backup.backup_epoch });
+      assert.equal(result.status, 'SUCCESS');
+      const proof = await runtime.assertRestoreRehearsed({ backupEpoch: backup.backup_epoch });
+      assert.equal(proof.status, 'SUCCESS');
+    } finally {
+      await db.close();
+    }
   });
 });
