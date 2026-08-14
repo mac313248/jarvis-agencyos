@@ -285,6 +285,18 @@ export class PostgresBuilderStore {
     return this.getRun(factoryRunId);
   }
 
+  async tryClaimPendingDispatch(factoryRunId) {
+    const result = await this._query(
+      `UPDATE runs SET status = 'LAUNCHED'
+       WHERE factory_run_id = $1
+         AND status = 'PENDING'
+         AND provider_run_id IS NULL
+       RETURNING *`,
+      [factoryRunId]
+    );
+    return result.rows[0] ? rowToRun(result.rows[0]) : null;
+  }
+
   async listActiveRuns() {
     const result = await this._query(
       `SELECT * FROM runs

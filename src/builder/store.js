@@ -300,6 +300,19 @@ export class BuilderStore {
     return this.getRun(factoryRunId);
   }
 
+  tryClaimPendingDispatch(factoryRunId) {
+    const result = this.db
+      .prepare(
+        `UPDATE runs SET status = 'LAUNCHED'
+         WHERE factory_run_id = ?
+           AND status = 'PENDING'
+           AND (provider_run_id IS NULL OR provider_run_id = '')`
+      )
+      .run(factoryRunId);
+    if (!result.changes) return null;
+    return this.getRun(factoryRunId);
+  }
+
   listActiveRuns() {
     return this.db
       .prepare(

@@ -503,22 +503,38 @@ async function maybeDispatch({
   if (!dispatch || !core.workerProvider) {
     return { dispatched: false, provider_run_id: null, provider: null };
   }
-  const launched = factoryRunId
-    ? await core.launchCodingWorkerOnRun({
-        factory_run_id: factoryRunId,
-        prompt,
-      })
-    : await core.launchCodingWorker({
-        task_id: task.task_id,
-        prompt,
-      });
-  return {
-    dispatched: true,
-    provider_run_id: launched.run?.provider_run_id || launched.provider_run_id || null,
-    provider: launched.run?.provider || core.workerProvider.name,
-    factory_run_id: launched.run?.factory_run_id || launched.factory_run_id || factoryRunId,
-    provider_agent_id: launched.run?.provider_agent_id || null,
-  };
+  try {
+    const launched = factoryRunId
+      ? await core.launchCodingWorkerOnRun({
+          factory_run_id: factoryRunId,
+          prompt,
+        })
+      : await core.launchCodingWorker({
+          task_id: task.task_id,
+          prompt,
+        });
+    return {
+      dispatched: true,
+      provider_run_id: launched.run?.provider_run_id || launched.provider_run_id || null,
+      provider: launched.run?.provider || core.workerProvider.name,
+      factory_run_id: launched.run?.factory_run_id || launched.factory_run_id || factoryRunId,
+      provider_agent_id: launched.run?.provider_agent_id || null,
+    };
+  } catch (err) {
+    if (err.code === 'ALREADY_DISPATCHING' || err.code === 'INVALID_RUN_STATUS') {
+      const existing = factoryRunId ? await settle(core.getRun(factoryRunId)) : null;
+      if (existing && ['LAUNCHED', 'RUNNING'].includes(existing.status)) {
+        return {
+          dispatched: false,
+          provider_run_id: existing.provider_run_id || null,
+          provider: existing.provider || core.workerProvider.name,
+          factory_run_id: existing.factory_run_id,
+          provider_agent_id: existing.provider_agent_id || null,
+        };
+      }
+    }
+    throw err;
+  }
 }
 
 function buildPrompt(task, contractPath) {

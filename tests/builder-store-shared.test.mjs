@@ -614,6 +614,34 @@ describe('PostgreSQL Builder store', () => {
     }
   });
 
+  test('tryClaimPendingDispatch allows only one winner', async () => {
+    await resetBuilderTables(databaseUrl);
+    const store = await openPostgresBuilderStore(databaseUrl);
+    try {
+      const claimed = await store.claimLogicalWork({
+        task_id: 'task_dispatch_cas',
+        logical_work_id: 'work_dispatch_cas',
+        ...lockedIntent({ intent: 'dispatch cas' }),
+      });
+      const inserted = await store.tryInsertActiveRun({
+        task_id: claimed.task.task_id,
+        provider: 'cursor',
+        owner: 'owner-cas',
+      });
+      assert.equal(inserted.inserted, true);
+      const [a, b] = await Promise.all([
+        store.tryClaimPendingDispatch(inserted.run.factory_run_id),
+        store.tryClaimPendingDispatch(inserted.run.factory_run_id),
+      ]);
+      const winners = [a, b].filter(Boolean);
+      assert.equal(winners.length, 1);
+      assert.equal(winners[0].status, RUN_STATUS.LAUNCHED);
+      assert.equal(winners[0].provider_run_id, null);
+    } finally {
+      await store.close();
+    }
+  });
+
   test('core reconstruct/getTask settle Postgres store Promises into real data', async () => {
     await resetBuilderTables(databaseUrl);
     const store = await openPostgresBuilderStore(databaseUrl);

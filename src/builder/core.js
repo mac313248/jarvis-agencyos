@@ -227,7 +227,10 @@ export class BuilderCore {
   }
 
   getRun(factoryRunId) {
-    return this.store.getRun(factoryRunId);
+    const self = this;
+    return co(function* () {
+      return yield self.store.getRun(factoryRunId);
+    });
   }
 
   getCurrentCodingRun() {
@@ -408,6 +411,15 @@ export class BuilderCore {
       throw new BuilderCoreError(
         `launchCodingWorkerOnRun requires PENDING run, got ${run.status}`,
         'INVALID_RUN_STATUS'
+      );
+    }
+    const claimed = typeof this.store.tryClaimPendingDispatch === 'function'
+      ? await settle(this.store.tryClaimPendingDispatch(factory_run_id))
+      : run;
+    if (!claimed) {
+      throw new BuilderCoreError(
+        `launch already claimed for ${factory_run_id}`,
+        'ALREADY_DISPATCHING'
       );
     }
     const task = await settle(this.verifyLockedTask(run.task_id));
@@ -766,15 +778,27 @@ export class BuilderCore {
   }
 
   getAllowedToolManifest(taskId) {
-    return getAllowedToolManifest(this.verifyLockedTask(taskId));
+    const self = this;
+    return co(function* () {
+      const task = yield self.verifyLockedTask(taskId);
+      return getAllowedToolManifest(task);
+    });
   }
 
   assertToolAllowed(taskId, request) {
-    return assertToolAllowed(this.verifyLockedTask(taskId), request);
+    const self = this;
+    return co(function* () {
+      const task = yield self.verifyLockedTask(taskId);
+      return assertToolAllowed(task, request);
+    });
   }
 
   resolvePermittedProvider(taskId, options) {
-    return resolvePermittedProvider(this.verifyLockedTask(taskId), options);
+    const self = this;
+    return co(function* () {
+      const task = yield self.verifyLockedTask(taskId);
+      return resolvePermittedProvider(task, options);
+    });
   }
 
   async invokeTool(input) {
