@@ -12,6 +12,7 @@ Cursor is the execution plane. Jarvis / Builder Core remains the authority plane
 | CLI for Agents guidance | `.cursor/skills/cli-for-agents/` | How to design agent-friendly CLIs |
 | Cursor Team Kit skills | `.cursor/skills/<name>/` | Workflow library (CI, review, shipping, verify, cleanup) |
 | Superpowers skills | `.cursor/skills/<name>/` | Process library (brainstorm, plans, TDD, debugging, reviews) |
+| Multitask | `.cursor/skills/multitask/` | Cloud Agent `/multitask` — parallel Task fan-out (desktop `/multitask` is IDE-only) |
 | Team Kit subagents | `.cursor/agents/` | `ci-watcher`, `thermo-nuclear-code-quality-review` |
 | Team Kit rules | `.cursor/rules/` | `no-inline-imports`, `typescript-exhaustive-switch` (TS globs only) |
 | Jarvis authority overlay | `.cursor/rules/jarvis-authority.mdc` | Always-on; convenience workflows cannot set PASS/DONE |

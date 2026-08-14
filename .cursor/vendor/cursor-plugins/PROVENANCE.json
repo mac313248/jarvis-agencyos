@@ -156,6 +156,12 @@
       "plugin": "superpowers",
       "change": "Replaced anthropic-best-practices.md pointer with official Anthropic Agent Skills overview URL",
       "reason": "anthropic-best-practices.md omitted; keep agents pointed at live official guidance."
+    },
+    {
+      "path": ".cursor/skills/multitask/SKILL.md",
+      "plugin": "local",
+      "change": "Added repo-native multitask skill",
+      "reason": "Desktop Cursor /multitask is a first-party Agents Window command, not a marketplace plugin. Cloud Agents need a checkout-backed /multitask skill that fans out via Task + dispatching-parallel-agents without claiming Jarvis authority."
     }
   ],
   "intentionally_not_installed": [

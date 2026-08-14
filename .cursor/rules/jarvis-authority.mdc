@@ -52,6 +52,7 @@ These Superpowers skills may guide process (brainstorm, plan, TDD, debug, review
 - `finishing-a-development-branch`
 - `requesting-code-review`
 - `receiving-code-review`
+- `multitask` (and `dispatching-parallel-agents`)
 
 `verify-this` and `verification-before-completion` produce local evidence only. That is not Jarvis PASS/DONE.
 

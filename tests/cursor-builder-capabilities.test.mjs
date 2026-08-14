@@ -54,6 +54,8 @@ const EXPECTED_SKILLS = [
   'verification-before-completion',
   'writing-plans',
   'writing-skills',
+  // Repo-native Cloud Agent equivalent of desktop /multitask
+  'multitask',
 ];
 
 const EXPECTED_SDK_REFS = [
