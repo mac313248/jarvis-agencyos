@@ -15,7 +15,7 @@ import {
 } from './contracts.js';
 import { BuilderCoreError } from './errors.js';
 import { VerifierError, isVerificationAuthoritative } from './verifier.js';
-import { co } from './thenable.js';
+import { co, settle } from './thenable.js';
 
 const DEFAULT_SCHEMA = 'scripts/builder-codex-review.schema.json';
 const DEFAULT_CODEX_BIN = 'codex';
@@ -263,21 +263,21 @@ export async function reviewExactCandidate({
   // Optional: pass already-computed verification; otherwise require stored PASS.
   verification = null,
 }) {
-  const candidate = core.store.getCandidate(candidate_id);
+  const candidate = await settle(core.store.getCandidate(candidate_id));
   if (!candidate) {
     throw new CodexReviewError(`unknown candidate_id: ${candidate_id}`, 'UNKNOWN_CANDIDATE');
   }
-  const task = core.store.getTask(candidate.task_id);
+  const task = await settle(core.store.getTask(candidate.task_id));
   if (!task) {
     throw new CodexReviewError(`unknown task_id: ${candidate.task_id}`, 'UNKNOWN_TASK');
   }
 
-  const run = core.store.getRun(candidate.factory_run_id);
+  const run = await settle(core.store.getRun(candidate.factory_run_id));
   if (!run) {
     throw new CodexReviewError('candidate factory_run_id missing', 'MISSING_RUN');
   }
   if (run.status === 'STALE' || run.status === 'CANCELLED') {
-    core.store.appendEvent({
+    await settle(core.store.appendEvent({
       task_id: task.task_id,
       factory_run_id: run.factory_run_id,
       event_type: EVENT_TYPE.STALE_RUN_REJECTED,
@@ -286,7 +286,7 @@ export async function reviewExactCandidate({
         status: run.status,
         candidate_id,
       },
-    });
+    }));
     throw new BuilderCoreError(
       `cancelled/stale run cannot authorize review: ${run.factory_run_id}`,
       'STALE_RUN'
@@ -306,9 +306,9 @@ export async function reviewExactCandidate({
     }
   }
   const ver = candidate.verification_ref
-    ? core.store.getVerification(candidate.verification_ref)
+    ? await settle(core.store.getVerification(candidate.verification_ref))
     : null;
-  if (!ver || !isVerificationAuthoritative(core, ver.verification_id)) {
+  if (!ver || !(await settle(isVerificationAuthoritative(core, ver.verification_id)))) {
     throw new VerifierError(
       'Codex review requires prior deterministic PASS on the exact candidate',
       'VERIFIER_REQUIRED_FIRST'
@@ -323,7 +323,7 @@ export async function reviewExactCandidate({
 
   // review_required=false: skip Codex, return bypass evidence (verifier still mandatory above).
   if (!task.review_required) {
-    const bypass = core.store.insertReview({
+    const bypass = await settle(core.store.insertReview({
       review_id: newId('rev'),
       candidate_id,
       commit_sha: sha,
@@ -335,9 +335,9 @@ export async function reviewExactCandidate({
         verification_id: ver.verification_id,
       },
       reviewed_at: nowIso(),
-    });
-    core.store.updateCandidate(candidate_id, { review_ref: bypass.review_id });
-    core.store.appendEvent({
+    }));
+    await settle(core.store.updateCandidate(candidate_id, { review_ref: bypass.review_id }));
+    await settle(core.store.appendEvent({
       task_id: task.task_id,
       factory_run_id: candidate.factory_run_id,
       event_type: EVENT_TYPE.REVIEW_BYPASSED,
@@ -346,7 +346,7 @@ export async function reviewExactCandidate({
         candidate_id,
         commit_sha: sha,
       },
-    });
+    }));
     return {
       review: bypass,
       gate: evaluateReviewGate({ task, verification: ver, review: bypass }),
@@ -354,7 +354,7 @@ export async function reviewExactCandidate({
   }
 
   if (!invoker || typeof invoker.review !== 'function') {
-    const blocked = core.store.insertReview({
+    const blocked = await settle(core.store.insertReview({
       review_id: newId('rev'),
       candidate_id,
       commit_sha: sha,
@@ -362,8 +362,8 @@ export async function reviewExactCandidate({
       findings: ['Codex invoker unavailable'],
       evidence: { error: { code: 'INVOKER_MISSING' } },
       reviewed_at: nowIso(),
-    });
-    core.store.updateCandidate(candidate_id, { review_ref: blocked.review_id });
+    }));
+    await settle(core.store.updateCandidate(candidate_id, { review_ref: blocked.review_id }));
     return {
       review: blocked,
       gate: evaluateReviewGate({ task, verification: ver, review: blocked }),
@@ -393,7 +393,7 @@ export async function reviewExactCandidate({
     attempts: invoked?.attempts ?? 1,
   };
   if (!invoked?.ok) {
-    const blocked = core.store.insertReview({
+    const blocked = await settle(core.store.insertReview({
       review_id: newId('rev'),
       candidate_id,
       commit_sha: sha,
@@ -407,9 +407,9 @@ export async function reviewExactCandidate({
         ...modelEvidence,
       },
       reviewed_at: nowIso(),
-    });
-    core.store.updateCandidate(candidate_id, { review_ref: blocked.review_id });
-    core.store.appendEvent({
+    }));
+    await settle(core.store.updateCandidate(candidate_id, { review_ref: blocked.review_id }));
+    await settle(core.store.appendEvent({
       task_id: task.task_id,
       factory_run_id: candidate.factory_run_id,
       event_type: EVENT_TYPE.REVIEW_RECORDED,
@@ -419,19 +419,23 @@ export async function reviewExactCandidate({
         commit_sha: sha,
         review_status: REVIEW_STATUS.BLOCKED,
       },
-    });
+    }));
     if (task.status !== TASK_STATUS.BLOCKED) {
-      core.updateTaskStatus(task.task_id, TASK_STATUS.BLOCKED);
+      await settle(core.updateTaskStatus(task.task_id, TASK_STATUS.BLOCKED));
     }
     return {
       review: blocked,
-      gate: evaluateReviewGate({ task: core.getTask(task.task_id), verification: ver, review: blocked }),
+      gate: evaluateReviewGate({
+        task: await settle(core.getTask(task.task_id)),
+        verification: ver,
+        review: blocked,
+      }),
     };
   }
 
   const parsed = parseCodexReviewOutput(invoked.raw);
   if (!parsed.ok) {
-    const blocked = core.store.insertReview({
+    const blocked = await settle(core.store.insertReview({
       review_id: newId('rev'),
       candidate_id,
       commit_sha: sha,
@@ -443,18 +447,22 @@ export async function reviewExactCandidate({
         ...modelEvidence,
       },
       reviewed_at: nowIso(),
-    });
-    core.store.updateCandidate(candidate_id, { review_ref: blocked.review_id });
+    }));
+    await settle(core.store.updateCandidate(candidate_id, { review_ref: blocked.review_id }));
     if (task.status !== TASK_STATUS.BLOCKED) {
-      core.updateTaskStatus(task.task_id, TASK_STATUS.BLOCKED);
+      await settle(core.updateTaskStatus(task.task_id, TASK_STATUS.BLOCKED));
     }
     return {
       review: blocked,
-      gate: evaluateReviewGate({ task: core.getTask(task.task_id), verification: ver, review: blocked }),
+      gate: evaluateReviewGate({
+        task: await settle(core.getTask(task.task_id)),
+        verification: ver,
+        review: blocked,
+      }),
     };
   }
 
-  const review = core.store.insertReview({
+  const review = await settle(core.store.insertReview({
     review_id: newId('rev'),
     candidate_id,
     commit_sha: sha,
@@ -467,9 +475,9 @@ export async function reviewExactCandidate({
       ...modelEvidence,
     },
     reviewed_at: nowIso(),
-  });
-  core.store.updateCandidate(candidate_id, { review_ref: review.review_id });
-  core.store.appendEvent({
+  }));
+  await settle(core.store.updateCandidate(candidate_id, { review_ref: review.review_id }));
+  await settle(core.store.appendEvent({
     task_id: task.task_id,
     factory_run_id: candidate.factory_run_id,
     event_type: EVENT_TYPE.REVIEW_RECORDED,
@@ -479,17 +487,17 @@ export async function reviewExactCandidate({
       commit_sha: sha,
       review_status: review.review_status,
     },
-  });
+  }));
 
   const gate = evaluateReviewGate({
-    task: core.getTask(task.task_id),
+    task: await settle(core.getTask(task.task_id)),
     verification: ver,
     review,
   });
   if (!gate.ok && parsed.review_status === REVIEW_STATUS.REQUEST_CHANGES) {
-    core.store.updateCandidate(candidate_id, {
+    await settle(core.store.updateCandidate(candidate_id, {
       status: CANDIDATE_STATUS.REJECTED,
-    });
+    }));
   }
   return { review, gate };
 }
@@ -564,21 +572,23 @@ export function invalidateReview(core, reviewId, reason) {
 }
 
 export function isReviewAuthoritative(core, reviewId) {
-  const review = core.store.getReview(reviewId);
-  if (!review || review.invalidated_at) return false;
-  if (review.review_status !== REVIEW_STATUS.PASS) return false;
-  const candidate = core.store.getCandidate(review.candidate_id);
-  if (!candidate) return false;
-  if (candidate.status !== CANDIDATE_STATUS.VERIFIED) return false;
-  if (candidate.review_ref !== reviewId) return false;
-  if (candidate.commit_sha !== review.commit_sha) return false;
-  if (!candidate.verification_ref) return false;
-  const boundVerificationId = review.evidence?.verification_id;
-  if (!boundVerificationId || boundVerificationId !== candidate.verification_ref) {
-    return false;
-  }
-  if (!isVerificationAuthoritative(core, candidate.verification_ref)) return false;
-  return true;
+  return co(function* () {
+    const review = yield core.store.getReview(reviewId);
+    if (!review || review.invalidated_at) return false;
+    if (review.review_status !== REVIEW_STATUS.PASS) return false;
+    const candidate = yield core.store.getCandidate(review.candidate_id);
+    if (!candidate) return false;
+    if (candidate.status !== CANDIDATE_STATUS.VERIFIED) return false;
+    if (candidate.review_ref !== reviewId) return false;
+    if (candidate.commit_sha !== review.commit_sha) return false;
+    if (!candidate.verification_ref) return false;
+    const boundVerificationId = review.evidence?.verification_id;
+    if (!boundVerificationId || boundVerificationId !== candidate.verification_ref) {
+      return false;
+    }
+    if (!(yield isVerificationAuthoritative(core, candidate.verification_ref))) return false;
+    return true;
+  });
 }
 
 /** Reviewer path must never mutate task/candidate/acceptance locked fields. */

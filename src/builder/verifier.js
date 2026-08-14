@@ -11,7 +11,7 @@ import {
   assertCommitSha,
   newId,
 } from './contracts.js';
-import { co } from './thenable.js';
+import { co, settle } from './thenable.js';
 
 export { VERIFICATION_RESULT };
 
@@ -40,31 +40,35 @@ export function assertExactShaBinding(candidate, commitSha) {
 }
 
 function invalidatePriorVerifications(core, candidateId, reason) {
-  const prior = core.store.listVerificationsForCandidate(candidateId);
-  for (const v of prior) {
-    if (v.invalidated_at) continue;
-    invalidateVerification(core, v.verification_id, reason);
-  }
+  return co(function* () {
+    const prior = yield core.store.listVerificationsForCandidate(candidateId);
+    for (const v of prior) {
+      if (v.invalidated_at) continue;
+      yield invalidateVerification(core, v.verification_id, reason);
+    }
+  });
 }
 
 function invalidatePriorReviews(core, candidateId, reason) {
-  const prior = core.store.listReviewsForCandidate(candidateId);
-  for (const r of prior) {
-    if (r.invalidated_at) continue;
-    // Prefer core wrapper when present to avoid circular imports with codex-review.
-    if (typeof core.invalidateReview === 'function') {
-      core.invalidateReview(r.review_id, reason);
-    } else {
-      core.store.updateReview(r.review_id, {
-        invalidated_at: nowIso(),
-        invalidation_reason: reason || 'invalidated',
-      });
+  return co(function* () {
+    const prior = yield core.store.listReviewsForCandidate(candidateId);
+    for (const r of prior) {
+      if (r.invalidated_at) continue;
+      // Prefer core wrapper when present to avoid circular imports with codex-review.
+      if (typeof core.invalidateReview === 'function') {
+        yield core.invalidateReview(r.review_id, reason);
+      } else {
+        yield core.store.updateReview(r.review_id, {
+          invalidated_at: nowIso(),
+          invalidation_reason: reason || 'invalidated',
+        });
+      }
     }
-  }
-  const candidate = core.store.getCandidate(candidateId);
-  if (candidate?.review_ref) {
-    core.store.updateCandidate(candidateId, { review_ref: null });
-  }
+    const candidate = yield core.store.getCandidate(candidateId);
+    if (candidate?.review_ref) {
+      yield core.store.updateCandidate(candidateId, { review_ref: null });
+    }
+  });
 }
 
 /**
@@ -79,7 +83,7 @@ export async function verifyExactCandidate({
   runBuildChecks = null,
   worker_claim = null,
 }) {
-  const candidate = core.store.getCandidate(candidate_id);
+  const candidate = await settle(core.store.getCandidate(candidate_id));
   if (!candidate) {
     throw new VerifierError(`unknown candidate_id: ${candidate_id}`, 'UNKNOWN_CANDIDATE');
   }
@@ -96,12 +100,12 @@ export async function verifyExactCandidate({
     );
   }
 
-  const run = core.store.getRun(candidate.factory_run_id);
+  const run = await settle(core.store.getRun(candidate.factory_run_id));
   if (!run) {
     throw new VerifierError('candidate factory_run_id missing', 'MISSING_RUN');
   }
   if (run.status === 'STALE' || run.status === 'CANCELLED') {
-    core.store.appendEvent({
+    await settle(core.store.appendEvent({
       task_id: candidate.task_id,
       factory_run_id: candidate.factory_run_id,
       event_type: EVENT_TYPE.STALE_RUN_REJECTED,
@@ -110,7 +114,7 @@ export async function verifyExactCandidate({
         status: run.status,
         candidate_id,
       },
-    });
+    }));
     throw new VerifierError(
       `cancelled/stale run cannot authorize candidate: ${candidate.factory_run_id}`,
       'STALE_RUN'
@@ -118,19 +122,19 @@ export async function verifyExactCandidate({
   }
 
   // Re-verification or landing-evidence refresh must invalidate prior authority.
-  invalidatePriorVerifications(
+  await settle(invalidatePriorVerifications(
     core,
     candidate_id,
     're-verification_or_landing_evidence_change'
-  );
-  invalidatePriorReviews(
+  ));
+  await settle(invalidatePriorReviews(
     core,
     candidate_id,
     're-verification_or_landing_evidence_change'
-  );
+  ));
 
   const sha = assertCommitSha(candidate.commit_sha);
-  const task = core.getTask(candidate.task_id);
+  const task = await settle(core.getTask(candidate.task_id));
   const checks = [];
   let landingSnapshot = null;
   let ciSummary = null;
@@ -240,7 +244,7 @@ export async function verifyExactCandidate({
         captured_at: ciSummary.captured_at,
       };
 
-      core.store.updateCandidate(candidate_id, {
+      await settle(core.store.updateCandidate(candidate_id, {
         pr_number: pr.number,
         pr_url: pr.html_url,
         pr_ref: String(pr.number),
@@ -248,7 +252,7 @@ export async function verifyExactCandidate({
         ci_conclusion: ciSummary.ci_conclusion,
         ci_ref: JSON.stringify(landingSnapshot),
         evidence_at: ciSummary.captured_at,
-      });
+      }));
 
       checks.push({
         name: 'github_landing',
@@ -330,7 +334,7 @@ export async function verifyExactCandidate({
     result = VERIFICATION_RESULT.BLOCKED;
   }
 
-  const verification = core.store.insertVerification({
+  const verification = await settle(core.store.insertVerification({
     verification_id: newId('ver'),
     candidate_id,
     commit_sha: sha,
@@ -351,7 +355,7 @@ export async function verifyExactCandidate({
     worker_claim: worker_claim == null ? null : String(worker_claim),
     failure_class,
     created_at: nowIso(),
-  });
+  }));
 
   const nextCandidateStatus =
     result === VERIFICATION_RESULT.PASS
@@ -360,20 +364,20 @@ export async function verifyExactCandidate({
         ? CANDIDATE_STATUS.REJECTED
         : CANDIDATE_STATUS.VERIFYING;
 
-  core.store.updateCandidate(candidate_id, {
+  await settle(core.store.updateCandidate(candidate_id, {
     status: nextCandidateStatus,
     verification_ref: verification.verification_id,
-  });
+  }));
 
   if (result === VERIFICATION_RESULT.PASS) {
     // Task becomes verified candidate-ready; never ACCEPTED by verifier alone.
-    const taskRow = core.getTask(candidate.task_id);
+    const taskRow = await settle(core.getTask(candidate.task_id));
     if (taskRow && taskRow.status !== TASK_STATUS.ACCEPTED) {
-      core.updateTaskStatus(candidate.task_id, TASK_STATUS.VERIFIED);
+      await settle(core.updateTaskStatus(candidate.task_id, TASK_STATUS.VERIFIED));
     }
   }
 
-  core.store.appendEvent({
+  await settle(core.store.appendEvent({
     task_id: candidate.task_id,
     factory_run_id: candidate.factory_run_id,
     event_type: EVENT_TYPE.VERIFICATION_RECORDED,
@@ -385,12 +389,12 @@ export async function verifyExactCandidate({
       worker_claim_ignored_for_authority: true,
       landing_required: true,
     },
-  });
+  }));
 
   return {
     result,
     verification,
-    candidate: core.store.getCandidate(candidate_id),
+    candidate: await settle(core.store.getCandidate(candidate_id)),
     ci: ciSummary,
     landing: landingSnapshot,
   };
@@ -431,22 +435,24 @@ function landingSnapshotFromVerification(verification) {
 }
 
 export function isVerificationAuthoritative(core, verificationId) {
-  const v = core.store.getVerification(verificationId);
-  if (!v || v.invalidated_at) return false;
-  if (v.result !== VERIFICATION_RESULT.PASS) return false;
-  const candidate = core.store.getCandidate(v.candidate_id);
-  if (!candidate) return false;
-  if (candidate.status !== CANDIDATE_STATUS.VERIFIED) return false;
-  if (candidate.verification_ref !== verificationId) return false;
-  if (candidate.commit_sha !== v.commit_sha) return false;
+  return co(function* () {
+    const v = yield core.store.getVerification(verificationId);
+    if (!v || v.invalidated_at) return false;
+    if (v.result !== VERIFICATION_RESULT.PASS) return false;
+    const candidate = yield core.store.getCandidate(v.candidate_id);
+    if (!candidate) return false;
+    if (candidate.status !== CANDIDATE_STATUS.VERIFIED) return false;
+    if (candidate.verification_ref !== verificationId) return false;
+    if (candidate.commit_sha !== v.commit_sha) return false;
 
-  // Authority is bound to the immutable landing evidence snapshot captured at PASS.
-  const snap = landingSnapshotFromVerification(v);
-  if (!snap) return false;
-  if (snap.commit_sha !== candidate.commit_sha) return false;
-  if (snap.branch !== candidate.branch) return false;
-  if (Number(snap.pr_number) !== Number(candidate.pr_number)) return false;
-  if (snap.ci_status !== candidate.ci_status) return false;
-  if (snap.ci_conclusion !== candidate.ci_conclusion) return false;
-  return true;
+    // Authority is bound to the immutable landing evidence snapshot captured at PASS.
+    const snap = landingSnapshotFromVerification(v);
+    if (!snap) return false;
+    if (snap.commit_sha !== candidate.commit_sha) return false;
+    if (snap.branch !== candidate.branch) return false;
+    if (Number(snap.pr_number) !== Number(candidate.pr_number)) return false;
+    if (snap.ci_status !== candidate.ci_status) return false;
+    if (snap.ci_conclusion !== candidate.ci_conclusion) return false;
+    return true;
+  });
 }

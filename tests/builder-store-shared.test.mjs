@@ -588,4 +588,54 @@ describe('PostgreSQL Builder store', () => {
       await storeB.close();
     }
   });
+
+  test('core reconstruct/getTask settle Postgres store Promises into real data', async () => {
+    await resetBuilderTables(databaseUrl);
+    const store = await openPostgresBuilderStore(databaseUrl);
+    const core = createBuilderCore({ store });
+    try {
+      const task = await core.createAndLockTask(
+        lockedIntent({ logical_work_id: 'work_core_settle' })
+      );
+      const inserted = await store.tryInsertActiveRun({
+        task_id: task.task_id,
+        provider: 'cursor',
+        owner: 'sandbox-core-settle',
+        provider_run_id: 'prov_core_settle',
+      });
+      assert.equal(inserted.inserted, true);
+      const candidate = await core.recordCandidate({
+        task_id: task.task_id,
+        factory_run_id: inserted.run.factory_run_id,
+        branch: 'cursor/pg-core-settle',
+        commit_sha: SHA,
+      });
+      assert.equal(typeof candidate.then, 'undefined');
+      assert.equal(typeof candidate.candidate_id, 'string');
+
+      const reconstructed = await core.reconstruct();
+      assert.equal(typeof reconstructed.then, 'undefined');
+      assert.ok(Array.isArray(reconstructed.nonterminal_tasks));
+      assert.equal(
+        reconstructed.nonterminal_tasks.some(
+          (t) => t && typeof t.task_id === 'string' && t.task_id === task.task_id
+        ),
+        true
+      );
+      assert.ok(Array.isArray(reconstructed.task_snapshots));
+      const snap = reconstructed.task_snapshots.find((s) => s.task_id === task.task_id);
+      assert.ok(snap);
+      assert.equal(typeof snap.then, 'undefined');
+      assert.equal(typeof snap.task_id, 'string');
+      assert.equal(typeof snap.candidate?.then, 'undefined');
+      assert.equal(snap.candidate?.candidate_id, candidate.candidate_id);
+
+      const fetched = await core.getTask(task.task_id);
+      assert.equal(typeof fetched.then, 'undefined');
+      assert.equal(typeof fetched.task_id, 'string');
+      assert.equal(fetched.task_id, task.task_id);
+    } finally {
+      await Promise.resolve(core.close());
+    }
+  });
 });

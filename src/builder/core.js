@@ -128,7 +128,10 @@ export class BuilderCore {
   }
 
   getTask(taskId) {
-    return this.store.getTask(taskId);
+    const self = this;
+    return co(function* () {
+      return yield self.store.getTask(taskId);
+    });
   }
 
   verifyLockedTask(taskId) {
@@ -162,9 +165,12 @@ export class BuilderCore {
 
   // Reject attempts to rewrite locked acceptance / hash-binding fields.
   attemptMutateLockedTask(taskId, patch) {
-    const task = this.store.getTask(taskId);
-    assertTaskMutable(task, patch);
-    return this.store.updateTask(taskId, patch);
+    const self = this;
+    return co(function* () {
+      const task = yield self.store.getTask(taskId);
+      assertTaskMutable(task, patch);
+      return yield self.store.updateTask(taskId, patch);
+    });
   }
 
   // --- Durable subordinate records (item 4) -------------------------------
@@ -707,7 +713,11 @@ export class BuilderCore {
   }
 
   getRetryPolicy(taskId) {
-    return resolveRetryPolicy(this.getTask(taskId) || {});
+    const self = this;
+    return co(function* () {
+      const task = (yield self.getTask(taskId)) || {};
+      return resolveRetryPolicy(task);
+    });
   }
 
   // Stage-1 storage for approval records bound to proposal_id + content_hash.

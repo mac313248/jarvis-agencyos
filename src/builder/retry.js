@@ -48,21 +48,17 @@ export function isRetryableFailureClass(failureClass) {
 }
 
 export function countAttempts(core, taskId) {
-  return core.store.listRunsForTask(taskId).length;
+  return co(function* () {
+    const runs = yield core.store.listRunsForTask(taskId);
+    return runs.length;
+  });
 }
 
 export function elapsedRuntimeMs(core, taskId) {
-  const runs = core.store.listRunsForTask(taskId);
-  let total = 0;
-  for (const run of runs) {
-    if (!run.started_at) continue;
-    const end = run.ended_at ? Date.parse(run.ended_at) : Date.now();
-    const start = Date.parse(run.started_at);
-    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
-      total += end - start;
-    }
-  }
-  return total;
+  return co(function* () {
+    const runs = yield core.store.listRunsForTask(taskId);
+    return elapsedRuntimeMsFromRuns(runs);
+  });
 }
 
 /**
