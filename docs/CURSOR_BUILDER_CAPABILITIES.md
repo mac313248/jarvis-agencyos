@@ -13,6 +13,7 @@ Cursor is the execution plane. Jarvis / Builder Core remains the authority plane
 | Cursor Team Kit skills | `.cursor/skills/<name>/` | Workflow library (CI, review, shipping, verify, cleanup) |
 | Superpowers skills | `.cursor/skills/<name>/` | Process library (brainstorm, plans, TDD, debugging, reviews) |
 | Multitask | `.cursor/skills/multitask/` | Cloud Agent `/multitask` — parallel Task fan-out (desktop `/multitask` is IDE-only) |
+| Parallel (parallel.ai) | `.cursor/skills/parallel-*`, `.cursor/commands/` | Web search/extract/research/enrich via pinned `parallel-cli` |
 | Team Kit subagents | `.cursor/agents/` | `ci-watcher`, `thermo-nuclear-code-quality-review` |
 | Team Kit rules | `.cursor/rules/` | `no-inline-imports`, `typescript-exhaustive-switch` (TS globs only) |
 | Jarvis authority overlay | `.cursor/rules/jarvis-authority.mdc` | Always-on; convenience workflows cannot set PASS/DONE |
@@ -39,4 +40,4 @@ This repository does not claim slash-menu visibility in an Automation UI unless 
 
 ## Environment
 
-`.cursor/environment.json` runs `npm ci && npm install -g @openai/codex` on the default Cloud image. Checkout supplies skills; `npm ci` supplies `@cursor/sdk`; the official Codex CLI install supplies the independent-review binary. No production credentials in snapshots. Secrets such as `CURSOR_API_KEY` and `CODEX_API_KEY` stay in the Cursor Cloud dashboard, never in source, logs, or environment snapshots.
+`.cursor/environment.json` runs `npm ci && npm install -g @openai/codex && pip3 install --user 'parallel-web-tools[cli]==0.9.2'` on the default Cloud image. Checkout supplies skills; `npm ci` supplies `@cursor/sdk`; the official Codex CLI install supplies the independent-review binary; pinned Parallel CLI enables `/parallel-setup` web tools. No production credentials in snapshots. Secrets such as `CURSOR_API_KEY`, `CODEX_API_KEY`, and `PARALLEL_API_KEY` stay in the Cursor Cloud dashboard, never in source, logs, or environment snapshots.

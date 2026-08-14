@@ -1,4 +1,4 @@
 {
   "name": "jarvis-agencyos",
-  "install": "npm ci && npm install -g @openai/codex"
+  "install": "npm ci && npm install -g @openai/codex && pip3 install --user 'parallel-web-tools[cli]==0.9.2'"
 }

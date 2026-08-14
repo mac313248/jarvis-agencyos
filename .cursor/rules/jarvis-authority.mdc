@@ -53,6 +53,7 @@ These Superpowers skills may guide process (brainstorm, plan, TDD, debug, review
 - `requesting-code-review`
 - `receiving-code-review`
 - `multitask` (and `dispatching-parallel-agents`)
+- Parallel web skills (`parallel-setup`, `parallel-web-search`, `parallel-web-extract`, `parallel-deep-research`, `parallel-data-enrichment`, `parallel-findall`, `parallel-monitor`)
 
 `verify-this` and `verification-before-completion` produce local evidence only. That is not Jarvis PASS/DONE.
 

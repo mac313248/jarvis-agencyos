@@ -13,6 +13,7 @@ const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const skillsRoot = join(repoRoot, '.cursor/skills');
 const agentsRoot = join(repoRoot, '.cursor/agents');
 const rulesRoot = join(repoRoot, '.cursor/rules');
+const commandsRoot = join(repoRoot, '.cursor/commands');
 const provenancePath = join(
   repoRoot,
   '.cursor/vendor/cursor-plugins/PROVENANCE.json'
@@ -56,6 +57,26 @@ const EXPECTED_SKILLS = [
   'writing-skills',
   // Repo-native Cloud Agent equivalent of desktop /multitask
   'multitask',
+  // Parallel (parallel.ai web tools)
+  'parallel-setup',
+  'parallel-web-search',
+  'parallel-web-extract',
+  'parallel-deep-research',
+  'parallel-data-enrichment',
+  'parallel-findall',
+  'parallel-monitor',
+];
+
+const EXPECTED_PARALLEL_COMMANDS = [
+  'parallel-setup.md',
+  'parallel-search.md',
+  'parallel-extract.md',
+  'parallel-research.md',
+  'parallel-enrich.md',
+  'parallel-status.md',
+  'parallel-result.md',
+  'parallel-findall.md',
+  'parallel-monitor.md',
 ];
 
 const EXPECTED_SDK_REFS = [
@@ -242,18 +263,35 @@ describe('Cursor builder capabilities', () => {
     assert.equal(pluginNames.includes('cli-for-agent'), true, 'cli-for-agent plugin must be vendored');
     assert.equal(pluginNames.includes('cursor-team-kit'), true, 'cursor-team-kit plugin must be vendored');
     assert.equal(pluginNames.includes('superpowers'), true, 'superpowers plugin must be vendored');
+    assert.equal(pluginNames.includes('parallel'), true, 'parallel plugin must be vendored');
     const cursorSdk = provenance.plugins.find((p) => p.plugin_name === 'cursor-sdk');
     assert.deepEqual(cursorSdk.imported_skills, ['cursor-sdk']);
     assert.equal(cursorSdk.imported_references.length, EXPECTED_SDK_REFS.length);
+    for (const cmd of EXPECTED_PARALLEL_COMMANDS) {
+      assert.equal(
+        existsSync(join(commandsRoot, cmd)),
+        true,
+        `missing Parallel command: ${cmd}`
+      );
+    }
+    assert.equal(
+      existsSync(join(rulesRoot, 'citation-standards.mdc')),
+      true,
+      'missing Parallel citation-standards rule'
+    );
     const env = JSON.parse(
       readFileSync(join(repoRoot, '.cursor/environment.json'), 'utf8')
     );
     assert.match(String(env.install), /\bnpm ci\b/);
     assert.match(String(env.install), /npm install -g @openai\/codex/);
+    assert.match(
+      String(env.install),
+      /parallel-web-tools\[cli\]==0\.9\.2/
+    );
     assert.equal(env.start, undefined);
     const envText = JSON.stringify(env);
     assert.equal(
-      /CURSOR_API_KEY|CODEX_API_KEY|sk-|ghp_|ghl_/i.test(envText),
+      /CURSOR_API_KEY|CODEX_API_KEY|PARALLEL_API_KEY|sk-|ghp_|ghl_/i.test(envText),
       false
     );
     const docs = readFileSync(
@@ -264,13 +302,14 @@ describe('Cursor builder capabilities', () => {
     assert.match(docs, /authority plane/);
     assert.match(docs, /npm install -g @openai\/codex/);
     assert.match(docs, /Cursor SDK guidance/);
+    assert.match(docs, /Parallel/);
   });
 
   it('F. Codex CLI readiness: command -v, --version, key presence only', () => {
     const env = JSON.parse(
       readFileSync(join(repoRoot, '.cursor/environment.json'), 'utf8')
     );
-    assert.equal(env.install, 'npm ci && npm install -g @openai/codex');
+    assert.equal(env.install, "npm ci && npm install -g @openai/codex && pip3 install --user 'parallel-web-tools[cli]==0.9.2'");
 
     const which = spawnSync('command -v codex', {
       encoding: 'utf8',
