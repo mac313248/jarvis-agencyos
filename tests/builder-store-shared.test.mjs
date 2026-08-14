@@ -209,6 +209,31 @@ describe('fail-closed shared mode', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('unattended env rejects sqlite core even without requireSharedStore', async () => {
+    const root = makeRoot();
+    const core = createBuilderCore({ dbPath: ':memory:', workerProvider: fakeProvider() });
+    const prev = process.env.JARVIS_BUILDER_UNATTENDED;
+    process.env.JARVIS_BUILDER_UNATTENDED = '1';
+    try {
+      const decision = await runJarvisTick({
+        root,
+        trigger: 'hourly',
+        core,
+        persist: false,
+        catalog: catalog(),
+        orientation: ORIENTATION,
+      });
+      assert.equal(decision.decision, TICK_DECISIONS.BLOCKED);
+      assert.equal(decision.reason, 'SHARED_STORE_REQUIRED');
+      assert.equal(decision.dispatched, false);
+    } finally {
+      if (prev === undefined) delete process.env.JARVIS_BUILDER_UNATTENDED;
+      else process.env.JARVIS_BUILDER_UNATTENDED = prev;
+      core.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('PostgreSQL Builder store', () => {

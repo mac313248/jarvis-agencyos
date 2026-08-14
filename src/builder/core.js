@@ -561,47 +561,50 @@ export class BuilderCore {
 
   // Reject cancelled/stale provider returns that try to become authoritative later.
   applyProviderResult(factoryRunId, providerResult) {
-    const run = this.store.getRun(factoryRunId);
-    if (!run) {
-      throw new BuilderCoreError(`unknown factory_run_id: ${factoryRunId}`, 'UNKNOWN_RUN');
-    }
-    if (run.status === RUN_STATUS.STALE || run.status === RUN_STATUS.CANCELLED) {
-      this.store.appendEvent({
-        task_id: run.task_id,
-        factory_run_id: factoryRunId,
-        event_type: EVENT_TYPE.STALE_RUN_REJECTED,
-        payload: {
-          rejected_factory_run_id: factoryRunId,
-          run_status: run.status,
-          provider_status: providerResult?.provider_status,
-        },
-      });
-      throw new BuilderCoreError(
-        `cancelled/stale run cannot become authoritative: ${factoryRunId}`,
-        'STALE_RUN'
+    const self = this;
+    return co(function* () {
+      const run = yield self.store.getRun(factoryRunId);
+      if (!run) {
+        throw new BuilderCoreError(`unknown factory_run_id: ${factoryRunId}`, 'UNKNOWN_RUN');
+      }
+      if (run.status === RUN_STATUS.STALE || run.status === RUN_STATUS.CANCELLED) {
+        yield self.store.appendEvent({
+          task_id: run.task_id,
+          factory_run_id: factoryRunId,
+          event_type: EVENT_TYPE.STALE_RUN_REJECTED,
+          payload: {
+            rejected_factory_run_id: factoryRunId,
+            run_status: run.status,
+            provider_status: providerResult?.provider_status,
+          },
+        });
+        throw new BuilderCoreError(
+          `cancelled/stale run cannot become authoritative: ${factoryRunId}`,
+          'STALE_RUN'
+        );
+      }
+      const current = yield self.getCurrentCodingRun();
+      if (current && current.factory_run_id !== factoryRunId) {
+        yield self.store.appendEvent({
+          task_id: run.task_id,
+          factory_run_id: factoryRunId,
+          event_type: EVENT_TYPE.STALE_RUN_REJECTED,
+          payload: {
+            rejected_factory_run_id: factoryRunId,
+            current_factory_run_id: current.factory_run_id,
+          },
+        });
+        throw new BuilderCoreError(
+          `stale run rejected: ${factoryRunId}`,
+          'STALE_RUN'
+        );
+      }
+      return yield self._applyProviderObservation(
+        run,
+        normalizeProviderResult(providerResult),
+        EVENT_TYPE.WORKER_STATUS
       );
-    }
-    const current = this.getCurrentCodingRun();
-    if (current && current.factory_run_id !== factoryRunId) {
-      this.store.appendEvent({
-        task_id: run.task_id,
-        factory_run_id: factoryRunId,
-        event_type: EVENT_TYPE.STALE_RUN_REJECTED,
-        payload: {
-          rejected_factory_run_id: factoryRunId,
-          current_factory_run_id: current.factory_run_id,
-        },
-      });
-      throw new BuilderCoreError(
-        `stale run rejected: ${factoryRunId}`,
-        'STALE_RUN'
-      );
-    }
-    return this._applyProviderObservation(
-      run,
-      normalizeProviderResult(providerResult),
-      EVENT_TYPE.WORKER_STATUS
-    );
+    });
   }
 
   _applyProviderObservation(run, providerResult, eventType) {
@@ -728,35 +731,38 @@ export class BuilderCore {
     commit_sha = null,
     status = 'APPROVED',
   }) {
-    const task = this.store.getTask(task_id);
-    if (!task) throw new TaskLockError(`unknown task_id: ${task_id}`);
-    verifyTaskHash(task);
-    if (!task.proposal_id || !task.content_hash) {
-      throw new TaskLockError('approval requires locked proposal_id + content_hash');
-    }
-    if (commit_sha) assertCommitSha(commit_sha);
-    const approval = this.store.insertApproval({
-      approval_id: newApprovalId(),
-      task_id,
-      proposal_id: task.proposal_id,
-      content_hash: task.content_hash,
-      candidate_id,
-      commit_sha,
-      approved_by,
-      status,
-    });
-    this.store.appendEvent({
-      task_id,
-      event_type: EVENT_TYPE.APPROVAL_RECORDED,
-      payload: {
-        approval_id: approval.approval_id,
-        proposal_id: approval.proposal_id,
-        content_hash: approval.content_hash,
+    const self = this;
+    return co(function* () {
+      const task = yield self.store.getTask(task_id);
+      if (!task) throw new TaskLockError(`unknown task_id: ${task_id}`);
+      verifyTaskHash(task);
+      if (!task.proposal_id || !task.content_hash) {
+        throw new TaskLockError('approval requires locked proposal_id + content_hash');
+      }
+      if (commit_sha) assertCommitSha(commit_sha);
+      const approval = yield self.store.insertApproval({
+        approval_id: newApprovalId(),
+        task_id,
+        proposal_id: task.proposal_id,
+        content_hash: task.content_hash,
         candidate_id,
         commit_sha,
-      },
+        approved_by,
+        status,
+      });
+      yield self.store.appendEvent({
+        task_id,
+        event_type: EVENT_TYPE.APPROVAL_RECORDED,
+        payload: {
+          approval_id: approval.approval_id,
+          proposal_id: approval.proposal_id,
+          content_hash: approval.content_hash,
+          candidate_id,
+          commit_sha,
+        },
+      });
+      return approval;
     });
-    return approval;
   }
 
   getAllowedToolManifest(taskId) {

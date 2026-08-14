@@ -25,6 +25,7 @@ import { settle } from './thenable.js';
 import {
   blockedStoreDecision,
   BUILDER_STORE_KIND,
+  isUnattendedBuilderMode,
 } from './store-config.js';
 import { sandboxOwnerId } from './store-open.js';
 
@@ -551,7 +552,8 @@ export async function runJarvisTick({
   assertNoBusinessCredentials(envVars);
 
   const owner = sandboxOwnerId(process.env);
-  if (requireSharedStore && core?.store?.kind !== BUILDER_STORE_KIND.POSTGRES) {
+  const sharedRequired = requireSharedStore || isUnattendedBuilderMode(process.env);
+  if (sharedRequired && core?.store?.kind !== BUILDER_STORE_KIND.POSTGRES) {
     return blockedStoreDecision('SHARED_STORE_REQUIRED');
   }
 
