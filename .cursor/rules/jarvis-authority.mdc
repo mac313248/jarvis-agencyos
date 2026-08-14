@@ -7,7 +7,7 @@ alwaysApply: true
 
 Cursor is the execution plane. Jarvis / Builder Core remains the authority plane.
 
-Repo-native Cursor skills under `.cursor/skills/` (Team Kit, Cursor SDK guidance, CLI-for-Agents) are a **workflow library**. Use them when relevant. They do not replace the harness.
+Repo-native Cursor skills under `.cursor/skills/` (Team Kit, Superpowers, Cursor SDK guidance, CLI-for-Agents) are a **workflow library**. Use them when relevant. They do not replace the harness.
 
 ## Hard boundary
 
@@ -39,7 +39,23 @@ These Team Kit skills may perform work (diagnose, patch, branch, open/update a P
 - `fix-merge-conflicts`
 - `make-pr-easy-to-review`
 
-`verify-this` produces local VERIFIED / NOT VERIFIED / INCONCLUSIVE evidence. That is not Jarvis PASS/DONE.
+These Superpowers skills may guide process (brainstorm, plan, TDD, debug, review). They may **not** set Jarvis task PASS/DONE, merge eligibility, accepted evidence, task completion, or new product scope:
+
+- `using-superpowers`
+- `brainstorming`
+- `writing-plans`
+- `executing-plans`
+- `subagent-driven-development`
+- `test-driven-development`
+- `systematic-debugging`
+- `verification-before-completion`
+- `finishing-a-development-branch`
+- `requesting-code-review`
+- `receiving-code-review`
+
+`verify-this` and `verification-before-completion` produce local evidence only. That is not Jarvis PASS/DONE.
+
+AGENTS.md and `docs/master-sot/` take precedence over Superpowers skill order (including "invoke before any response").
 
 The `ci-watcher` subagent reports CI status. It does not authorize merge or task completion.
 

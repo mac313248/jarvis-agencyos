@@ -36,9 +36,9 @@ No business-write autonomy until applicable write-path gates pass.
 
 ## Cursor builder capabilities
 
-Repo-native skills live in `.cursor/skills/` (Team Kit, Cursor SDK guidance, CLI-for-Agents). Use them when relevant.
+Repo-native skills live in `.cursor/skills/` (Team Kit, Superpowers, Cursor SDK guidance, CLI-for-Agents). Use them when relevant.
 
-- Team Kit is a **workflow library**, not authority.
+- Team Kit and Superpowers are **workflow libraries**, not authority.
 - `@cursor/sdk` (existing `CursorProvider`) is the primary programmatic Cursor integration.
 - `cli-for-agents` is CLI-design guidance. The `agent` binary is optional/not required.
 - Jarvis harness rules override convenience workflows. Workers never self-certify PASS/DONE.

@@ -7,7 +7,8 @@
   "license_files": [
     ".cursor/vendor/cursor-plugins/licenses/cursor-team-kit.LICENSE",
     ".cursor/vendor/cursor-plugins/licenses/cursor-sdk.LICENSE",
-    ".cursor/vendor/cursor-plugins/licenses/cli-for-agent.LICENSE"
+    ".cursor/vendor/cursor-plugins/licenses/cli-for-agent.LICENSE",
+    ".cursor/vendor/cursor-plugins/licenses/superpowers.LICENSE"
   ],
   "discovery_contract": {
     "skills": ".cursor/skills/<skill-name>/SKILL.md",
@@ -81,6 +82,50 @@
       "imported_subagents": [],
       "imported_rules": [],
       "omitted": []
+    },
+    {
+      "plugin_name": "superpowers",
+      "plugin_version": "6.1.1",
+      "source_repository": "https://github.com/obra/superpowers",
+      "upstream_commit_sha": "d884ae04edebef577e82ff7c4e143debd0bbec99",
+      "upstream_commit_date": "2026-07-02T21:56:55Z",
+      "source_path": "skills/",
+      "imported_skills": [
+        "brainstorming",
+        "dispatching-parallel-agents",
+        "executing-plans",
+        "finishing-a-development-branch",
+        "receiving-code-review",
+        "requesting-code-review",
+        "subagent-driven-development",
+        "systematic-debugging",
+        "test-driven-development",
+        "using-git-worktrees",
+        "using-superpowers",
+        "verification-before-completion",
+        "writing-plans",
+        "writing-skills"
+      ],
+      "imported_subagents": [],
+      "imported_rules": [],
+      "omitted": [
+        {
+          "path": "hooks/",
+          "reason": "sessionStart hooks do not run in Cloud Agents and must not inject workflow authority. Skills are the durable delivery path."
+        },
+        {
+          "path": "tests/",
+          "reason": "Upstream plugin test harness; not required for Cloud Agent skill discovery."
+        },
+        {
+          "path": "docs/",
+          "reason": "Upstream design specs; not required for skill discovery."
+        },
+        {
+          "path": "scripts/",
+          "reason": "Upstream packaging/lint scripts for the plugin repo itself."
+        }
+      ]
     }
   ],
   "local_modifications": [
@@ -95,6 +140,12 @@
       "plugin": "local",
       "change": "Added always-apply Jarvis authority overlay",
       "reason": "Team Kit shipping/CI/PR skills may help perform work but must not independently declare PASS/DONE, merge eligibility, accepted evidence, or task completion. Cursor remains the execution plane; Jarvis remains the authority plane."
+    },
+    {
+      "path": ".cursor/rules/jarvis-authority.mdc",
+      "plugin": "local",
+      "change": "Named Superpowers convenience skills as help-only (same hard boundary as Team Kit)",
+      "reason": "Superpowers process skills (TDD, debugging, plans, reviews, worktrees) may guide execution but cannot set Jarvis PASS/DONE, merge eligibility, or new product scope. AGENTS.md and locked SOT remain first."
     }
   ],
   "intentionally_not_installed": [
