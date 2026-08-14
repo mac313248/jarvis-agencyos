@@ -200,6 +200,30 @@ describe('Stage-1 WorkerProvider + CursorProvider (items 6–8)', () => {
         () => assertNoBusinessCredentials({ CURSOR_API_KEY: 'x' }),
         (err) => err.code === 'RESERVED_ENV'
       );
+      assert.throws(
+        () => assertNoBusinessCredentials({ JARVIS_BUILDER_DATABASE_URL: 'postgresql://x' }),
+        (err) => err.code === 'BUSINESS_CREDENTIAL_FORBIDDEN'
+      );
+      assert.throws(
+        () => assertNoBusinessCredentials({ DATABASE_URL: 'postgresql://x' }),
+        (err) => err.code === 'BUSINESS_CREDENTIAL_FORBIDDEN'
+      );
+      assert.throws(
+        () => assertNoBusinessCredentials({ GITHUB_TOKEN: 'ghp_x' }),
+        (err) => err.code === 'BUSINESS_CREDENTIAL_FORBIDDEN'
+      );
+      assert.throws(
+        () => assertNoBusinessCredentials({ OPENAI_API_KEY: 'sk-x' }),
+        (err) => err.code === 'BUSINESS_CREDENTIAL_FORBIDDEN'
+      );
+      assert.throws(
+        () => assertNoBusinessCredentials({ PGPASSWORD: 'x' }),
+        (err) => err.code === 'BUSINESS_CREDENTIAL_FORBIDDEN'
+      );
+      assert.throws(
+        () => assertNoBusinessCredentials({ APP_DSN: 'postgresql://user:pass@host/db' }),
+        (err) => err.code === 'BUSINESS_CREDENTIAL_FORBIDDEN'
+      );
       assert.deepEqual(assertNoBusinessCredentials({ NODE_ENV: 'test' }), {
         NODE_ENV: 'test',
       });

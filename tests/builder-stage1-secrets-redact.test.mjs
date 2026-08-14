@@ -37,6 +37,9 @@ describe('Stage-1 secret redaction', () => {
     assert.equal(isSensitiveKey('GHL_API_KEY'), true);
     assert.equal(isSensitiveKey('META_ACCESS_TOKEN'), true);
     assert.equal(isSensitiveKey('STRIPE_SECRET_KEY'), true);
+    assert.equal(isSensitiveKey('JARVIS_BUILDER_DATABASE_URL'), true);
+    assert.equal(isSensitiveKey('DATABASE_URL'), true);
+    assert.equal(isSensitiveKey('JARVIS_BUILDER_STORE'), false);
     assert.equal(isSensitiveKey('branch'), false);
 
     const obj = redactSecrets({
