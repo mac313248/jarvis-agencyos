@@ -121,11 +121,23 @@ function fakeProvider(id = 'a') {
   };
 }
 
+function childEnv(overrides = {}) {
+  const env = { ...process.env, NODE_OPTIONS: '', ...overrides };
+  // Cloud sandboxes inject the control-plane DB URL. Subprocess tests that do
+  // not pass an explicit URL must not inherit it, or they talk to the shared
+  // authority store instead of proving fail-closed / embedded isolation.
+  const urlKey = 'JARVIS_BUILDER_DATABASE_URL'; // pragma: allowlist secret
+  if (!Object.prototype.hasOwnProperty.call(overrides, urlKey)) {
+    delete env[urlKey];
+  }
+  return env;
+}
+
 function runWorker(mode, payload) {
   return new Promise((resolve, reject) => {
     const child = fork(WORKER, [mode, JSON.stringify(payload)], {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: { ...process.env, NODE_OPTIONS: '', CURSOR_CLOUD_AGENT_ID: payload.owner || '' },
+      env: childEnv({ CURSOR_CLOUD_AGENT_ID: payload.owner || '' }),
     });
     let out = '';
     let err = '';
@@ -173,12 +185,11 @@ describe('fail-closed shared mode', () => {
     const sqlitePath = join(root, '.data/builder/jarvis-tasks.sqlite');
     const result = spawnSync(process.execPath, ['scripts/jarvis-tick.mjs', '--trigger', 'hourly', '--no-dispatch'], {
       cwd: REAL_ROOT,
-      env: {
-        ...process.env,
-        JARVIS_BUILDER_STORE: 'postgres',
+      env: childEnv({
+        JARVIS_BUILDER_STORE: BUILDER_STORE_KIND.POSTGRES, // pragma: allowlist secret
         JARVIS_BUILDER_UNATTENDED: '1',
         JARVIS_BUILDER_DB: sqlitePath,
-      },
+      }),
       encoding: 'utf8',
     });
     const decision = JSON.parse(result.stdout);
@@ -256,12 +267,11 @@ describe('PostgreSQL Builder store', () => {
     );
     const result = spawnSync(process.execPath, ['scripts/jarvis-tick.mjs', '--trigger', 'hourly', '--no-dispatch'], {
       cwd: REAL_ROOT,
-      env: {
-        ...process.env,
-        JARVIS_BUILDER_STORE: 'postgres',
+      env: childEnv({
+        JARVIS_BUILDER_STORE: BUILDER_STORE_KIND.POSTGRES, // pragma: allowlist secret
         JARVIS_BUILDER_UNATTENDED: '1',
-        JARVIS_BUILDER_DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:1/postgres',
-      },
+        JARVIS_BUILDER_DATABASE_URL: 'postgresql://builder:builder@127.0.0.1:1/builder', // pragma: allowlist secret
+      }),
       encoding: 'utf8',
     });
     const decision = JSON.parse(result.stdout);
