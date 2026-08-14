@@ -413,9 +413,13 @@ export class BuilderCore {
         'INVALID_RUN_STATUS'
       );
     }
-    const claimed = typeof this.store.tryClaimPendingDispatch === 'function'
-      ? await settle(this.store.tryClaimPendingDispatch(factory_run_id))
-      : run;
+    if (typeof this.store.tryClaimPendingDispatch !== 'function') {
+      throw new BuilderCoreError(
+        'store cannot atomically claim pending dispatch',
+        'MISSING_DISPATCH_CLAIM'
+      );
+    }
+    const claimed = await settle(this.store.tryClaimPendingDispatch(factory_run_id));
     if (!claimed) {
       throw new BuilderCoreError(
         `launch already claimed for ${factory_run_id}`,
